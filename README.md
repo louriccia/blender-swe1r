@@ -1,4 +1,4 @@
-# Blender Addon for Star Wars Episode I: Racer
+# Blender Add-on for Star Wars Episode I: Racer
 This is a Blender add-on that allows for importing and exporting from Star Wars Episode I:Racer's .bin files. 
 
 ## Status

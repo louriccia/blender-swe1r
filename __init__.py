@@ -26,9 +26,8 @@ bl_info = {
 }
 
 import bpy
-import sys
-sys.path += [r"C:\Users\louri\Documents\GitHub\SWE1R-Mods\tools\blender_addon"]
-from .swe1r_import import *
+from .swe1r_import import import_model
+from .swe1r_export import export_model
 from .popup import show_custom_popup
 from .model_list import model_list
 
@@ -51,6 +50,7 @@ def update_model_dropdown(self, context):
         items_for_selected_category = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
     else:
         items_for_selected_category = [(str(i), f"{model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_type]
+        items_for_selected_category.insert(0, ('-1', 'All', 'Import all models'))
         
     print(items_for_selected_category)
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
@@ -89,7 +89,7 @@ class ImportExportExamplePanel(bpy.types.Panel):
         box.prop(context.scene, "import_folder_path", text="",   full_event=False)
         box.prop(context.scene, "import_type", text="Type")
         box.prop(context.scene, "import_model", text="Model")
-        box.operator("import.export_operator", text="Import")
+        box.operator("import.import_operator", text="Import")
 
         # Section 2: Export
         box = layout.box()
@@ -105,9 +105,9 @@ class ImportExportExamplePanel(bpy.types.Panel):
         box.operator("import.export_operator", text="Export")
 
 
-class ImportExportOperator(bpy.types.Operator):
+class ImportOperator(bpy.types.Operator):
     bl_label = "SWE1R Import/Export"
-    bl_idname = "import.export_operator"
+    bl_idname = "import.import_operator"
 
     def execute(self, context):
         folder_path = context.scene.import_folder_path
@@ -120,13 +120,31 @@ class ImportExportOperator(bpy.types.Operator):
 
         return {'FINISHED'}
 
+class ExportOperator(bpy.types.Operator):
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "import.export_operator"
+
+    def execute(self, context):
+        folder_path = context.scene.export_folder_path if context.scene.export_folder_path else context.scene.import_folder_path
+        file_path = folder_path # + 'out_modelblock.bin'
+        selected_collection = context.view_layer.active_layer_collection.collection
+        if 'ind' not in selected_collection:
+            show_custom_popup(bpy.context, "Invalid collection selected", "Please select a model collection to export")
+            return {'CANCELLED'}
+        print(file_path, selected_collection)
+        export_model(selected_collection, file_path)
+        
+        return {'FINISHED'}
+
 
 def menu_func(self, context):
-    self.layout.operator(ImportExportOperator.bl_idname)
+    self.layout.operator(ImportOperator.bl_idname)
+    self.layout.operator(ExportOperator.bl_idname)
 
 def register():
     bpy.utils.register_class(ImportExportExamplePanel)
-    bpy.utils.register_class(ImportExportOperator)
+    bpy.utils.register_class(ImportOperator)
+    bpy.utils.register_class(ExportOperator)
     bpy.types.TOPBAR_MT_file.append(menu_func)
     bpy.types.Scene.import_folder_path = bpy.props.StringProperty(subtype='DIR_PATH', description="Select the lev01 folder (or any folder containing the .bin files)")
     # Register the EnumProperty (dropdown)
@@ -151,7 +169,8 @@ def register():
 
 def unregister():
     bpy.utils.unregister_class(ImportExportExamplePanel)
-    bpy.utils.unregister_class(ImportExportOperator)
+    bpy.utils.unregister_class(ImportOperator)
+    bpy.utils.unregister_class(ExportOperator)
     bpy.types.TOPBAR_MT_file.remove(menu_func)
     del bpy.types.Scene.import_folder_path
     del bpy.types.Scene.import_type
