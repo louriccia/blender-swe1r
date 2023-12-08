@@ -362,7 +362,7 @@ def read_visual_vert_buffer(buffer, cursor, count):
         
     
 
-def make_material(mat, tex):
+def make_material(mat, tex, file_path):
     offset = str(mat['id'])
     if (mat['texture'] != 0):
         material = bpy.data.materials.get(offset)
@@ -437,7 +437,7 @@ def make_material(mat, tex):
 
         b_tex = bpy.data.images.get(image)
         if b_tex is None:
-            b_tex = make_texture(tex)
+            b_tex = make_texture(tex, file_path)
 
         image_node = material.node_tree.nodes["Image Texture"]
         image_node.image = b_tex
@@ -454,7 +454,7 @@ def make_material(mat, tex):
         
     return material
 
-def make_visuals(mesh_node, model, parent):
+def make_visuals(mesh_node, model, parent, file_path):
     start = 0
     verts = [[vert['x'], vert['y'], vert['z']] for vert in mesh_node['visuals']['vert_buffer']]
     edges = []
@@ -483,7 +483,7 @@ def make_visuals(mesh_node, model, parent):
     mat = model['mats'][mesh_node['visuals']['material']]
     tex = None if mat['texture'] == 0 else model['textures'][mat['texture']]
     mesh.materials.append(
-        make_material(mat, tex)
+        make_material(mat, tex, file_path)
     )
     
     #set vector colors / uv coords
@@ -558,14 +558,14 @@ def make_collision(mesh_node, model, parent):
     obj.id_properties_ui('lights_ambient_color').update(subtype='COLOR')
     obj.id_properties_ui('lights_color').update(subtype='COLOR')
 
-def make_mesh_group(mesh_node, model, parent):
+def make_mesh_group(mesh_node, model, parent, file_path):
     if 'collision' in mesh_node and mesh_node['collision']['vert_buffer'] != 0 and len(mesh_node['collision']['vert_buffer']) > 2:
         make_collision(mesh_node, model, parent)
         
     if 'visuals' in mesh_node and mesh_node['visuals']['index_buffer'] != 0 and mesh_node['visuals']['vert_buffer'] != 0 :
-        make_visuals(mesh_node, model, parent)
+        make_visuals(mesh_node, model, parent, file_path)
 
-def read_mesh_group(buffer, cursor, model, parent):
+def read_mesh_group(buffer, cursor, model, parent, file_path):
     mesh = {
         'id': str(cursor),
         'collision': {
@@ -584,7 +584,7 @@ def read_mesh_group(buffer, cursor, model, parent):
         }
     }
     
-    make_mesh_group(mesh, model, parent)
+    make_mesh_group(mesh, model, parent, file_path)
 
     return mesh
 
@@ -685,7 +685,7 @@ def make_node(node, model, parent):
         
     return new_empty
 
-def read_node(buffer, cursor, model, parent):
+def read_node(buffer, cursor, model, parent, file_path):
     node = {
         'id': cursor,
         'head': [
@@ -798,9 +798,9 @@ def read_node(buffer, cursor, model, parent):
             continue
 
         if mesh_group:
-            node['children'].append(read_mesh_group(buffer=buffer, cursor=child_address, model=model, parent = node_empty))
+            node['children'].append(read_mesh_group(buffer=buffer, cursor=child_address, model=model, parent = node_empty, file_path = file_path))
         else:
-            node['children'].append(read_node(buffer=buffer, cursor=child_address, model=model, parent = node_empty))
+            node['children'].append(read_node(buffer=buffer, cursor=child_address, model=model, parent = node_empty, file_path = file_path))
 
     return node
 
@@ -860,7 +860,7 @@ def read_header(buffer, model, index, collection):
 
     return cursor + 4
 
-def read_model(buffer, index):
+def read_model(buffer, index, file_path):
     print('reading model', index)
     model = {
         'mats': {},        # unique mats
@@ -884,9 +884,9 @@ def read_model(buffer, index):
     if model.get('AltN') and len(model['AltN']) and model.get('ext') != 'Podd':
         AltN = list(set(model['AltN']))
         for i in range(len(AltN)):
-            model['nodes'].append(read_node(buffer=buffer, cursor=AltN[i], model=model, parent = None))
+            model['nodes'].append(read_node(buffer=buffer, cursor=AltN[i], model=model, parent = None, file_path=file_path))
     else:
-        model['nodes'] = [read_node(buffer=buffer, cursor=cursor, model=model, parent = None)]
+        model['nodes'] = [read_node(buffer=buffer, cursor=cursor, model=model, parent = None, file_path=file_path)]
 
     return model
 
@@ -1014,8 +1014,8 @@ def draw_texture(pixels, palette, width, height, format, path, index):
 
     return new_image
 
-def make_texture(texture):
-    file_path = 'C:/Users/louri/Documents/GitHub/SWE1R-Mods/tools/in/out_textureblock.bin'
+def make_texture(texture, folder_path):
+    file_path = folder_path + 'out_textureblock.bin'
     selector = [texture['tex_index']]
 
     with open(file_path, 'rb') as file:
@@ -1032,14 +1032,14 @@ def make_texture(texture):
     return tex
 
 def import_model(file_path, selector):
-    print(file_path, selector)
-    with open(file_path, 'rb') as file:
+    with open(file_path + 'out_modelblock.bin', 'rb') as file:
         file = file.read()
         read_block_result = read_block(file, [[], []], selector)
 
     offset_buffers, model_buffers = read_block_result
 
     for i, buffer in enumerate(model_buffers):
-        model = read_model(buffer, selector[i] if len(selector) else i)
+        selection = selector[i] if len(selector) else i
+        model = read_model(buffer, selection, file_path)
 
     print(f'Successfully unpacked {len(model_buffers)} models')

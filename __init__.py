@@ -25,11 +25,21 @@ bl_info = {
     "category": "Object",
 }
 
+import os
+
+
+if "bpy" in locals(): #means Blender already started once
+    import importlib
+    importlib.reload(swe1r_import)
+    importlib.reload(swe1r_export)
+    importlib.reload(popup)
+else: #start up
+    from .swe1r_import import import_model
+    from .swe1r_export import export_model
+    from .popup import show_custom_popup
+    from .model_list import model_list
+
 import bpy
-from .swe1r_import import import_model
-from .swe1r_export import export_model
-from .popup import show_custom_popup
-from .model_list import model_list
 
 model_types = [('0', 'All', 'View all models'),
                             ('1', 'MAlt', 'High LOD pods'),
@@ -114,9 +124,12 @@ class ImportOperator(bpy.types.Operator):
         if folder_path == "":
             show_custom_popup(bpy.context, "No set import folder", "Select your folder containing the .bin files")
             return {'CANCELLED'}
-        file_path = folder_path + 'out_modelblock.bin'
-        print(file_path, [int(context.scene.import_model)])
-        import_model(file_path, [int(context.scene.import_model)])
+        
+        if not os.path.exists(folder_path  + 'out_modelblock.bin'):
+            show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
+            return {'CANCELLED'}
+
+        import_model(folder_path, [int(context.scene.import_model)])
 
         return {'FINISHED'}
 
@@ -126,13 +139,18 @@ class ExportOperator(bpy.types.Operator):
 
     def execute(self, context):
         folder_path = context.scene.export_folder_path if context.scene.export_folder_path else context.scene.import_folder_path
-        file_path = folder_path # + 'out_modelblock.bin'
         selected_collection = context.view_layer.active_layer_collection.collection
         if 'ind' not in selected_collection:
             show_custom_popup(bpy.context, "Invalid collection selected", "Please select a model collection to export")
             return {'CANCELLED'}
-        print(file_path, selected_collection)
-        export_model(selected_collection, file_path)
+        if folder_path == "":
+            show_custom_popup(bpy.context, "No set export folder", "Select your folder containing the .bin files")
+            return {'CANCELLED'}
+        if not os.path.exists(folder_path  + 'out_modelblock.bin'):
+            show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
+            return {'CANCELLED'}
+        
+        export_model(selected_collection, folder_path)
         
         return {'FINISHED'}
 

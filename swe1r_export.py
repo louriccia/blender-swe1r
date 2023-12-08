@@ -192,8 +192,6 @@ def unmake_node(obj):
             node['children'].append(unmake_node(child))
             
     return node
-    
-
 
 def unmake_image(image):
     if not image:
@@ -819,18 +817,18 @@ def write_model(model):
     model['ref_map'] = {}  # where we'll map node ids to their written locations
     model['ref_keeper'] = {}  # where we'll remember locations of node offsets to go back and update with the offset_map at the end
 
-    header_offsets = write_header({'buffer': buffer, 'cursor': cursor, 'hl': hl, 'model': model})
+    header_offsets = write_header(buffer, cursor, hl,model)
     cursor = header_offsets['HEnd']
 
     # write all nodes
     for i in range(len(model['nodes'])):
-        cursor = write_node({'buffer': buffer, 'cursor': cursor, 'hl': hl, 'node': model['nodes'][i], 'model': model, 'header_offsets': header_offsets})
+        cursor = write_node(buffer, cursor, hl, model['nodes'][i], model, header_offsets)
 
     # write all animations
     if model.get('Anim'):
         for i in range(len(model['Anim'])):
             buffer.writeUInt32BE(cursor, header_offsets['Anim'] + i * 4)
-            cursor = write_animation({'buffer': buffer, 'cursor': cursor, 'animation': model['Anim'][i], 'hl': hl, 'model': model})
+            cursor = write_animation( buffer, cursor, model['Anim'][i], hl, model)
 
     # write all outside references
     refs = [ref for ref in model['ref_keeper'] if ref != 0]
