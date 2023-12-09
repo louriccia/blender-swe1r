@@ -290,6 +290,10 @@ def write_altn(buffer, cursor, model, hl):
 
     return cursor
 
+def writeString(buffer, cursor, string):
+    return struct.pack_into('4s', buffer, cursor, string.encode('utf-8'))
+
+
 def write_header(buffer, cursor, model, hl):
     cursor += buffer.write(model['ext'], cursor)
 
@@ -866,7 +870,7 @@ def inject_model(offset_buffer, model_buffer, ind, file_path):
     model_buffers[ind] = model_buffer
     
     block = write_block(file_path, [offset_buffers, model_buffers])
-    
+    return block
     
 def unmake_model(collection):
     model = {
@@ -894,7 +898,9 @@ def unmake_model(collection):
 def export_model(col, file_path):
     model = unmake_model(col)
     offset_buffer, model_buffer = write_model(model)
-    inject_model(offset_buffer, model_buffer, col['ind'], file_path)
+    block = inject_model(offset_buffer, model_buffer, col['ind'], file_path)
+    with open(file_path + 'out_modelblock.bin', 'wb') as file:
+        file.write(block)
 
 def write_spline_point(buffer, cursor, point):
     cursor = struct.pack_into('>hhhhhhhhfff fff fff hhhh hhhh hhhh hhhh hhhh hhhh hhhh hhhh hhhh hhh', buffer, cursor,
