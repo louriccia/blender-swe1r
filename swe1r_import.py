@@ -2,7 +2,7 @@ import sys
 import os
 import bpy
 import struct
-from .popup import show_custom_popup
+
 
 # for material in bpy.data.materials:
 #     material.user_clear()
