@@ -75,10 +75,8 @@ def unmake_collision_vert_strips(mesh):
     
 def unmake_visual_vert_buffer(mesh):
     vert_buffer =  [{
-            'x': round(vert.co[0]), 
-            'y': round(vert.co[1]), 
-            'z': round(vert.co[2])
-            } for i, vert in enumerate(mesh.data.vertices)]
+            'co': [round(co) for co in vert.co], 
+            } for vert in mesh.data.vertices]
     
     color_layer = mesh.data.vertex_colors.active.data
     uv_layer = mesh.data.uv_layers.active.data
@@ -89,8 +87,7 @@ def unmake_visual_vert_buffer(mesh):
     for poly in mesh.data.polygons:
         for p in range(len(poly.vertices)):
             uv = [round(u*4096) for u in uv_layer[poly.loop_indices[p]].uv]
-            vert_buffer[poly.vertices[p]]['uv_x'] = uv[0]
-            vert_buffer[poly.vertices[p]]['uv_y'] = uv[1]
+            vert_buffer[poly.vertices[p]]['uv'] = uv
             vert_buffer[poly.vertices[p]]['v_color'] = [round(c*255) for c in color_layer[poly.loop_indices[p]].color]
             
     return vert_buffer
@@ -143,6 +140,7 @@ def unmake_material(material):
     
 def unmake_mesh_group(mesh):
     mesh_group = {
+        'id': mesh['id'],
         'collision': {
             'data': {},
             'vert_buffer': 0,
@@ -178,9 +176,10 @@ def unmake_node(obj):
     node = {
         'id': obj.name,
         'head': [obj['head0'], obj['head1'], obj['head2'], obj['head3'], 0],
-        'children': []
+        'children': [],
+        'obj': obj
     }
-    
+        
     if not obj.children:
         return node
     
@@ -245,18 +244,18 @@ def write_data(buffer, cursor, model):
 
     if model['Data']['LStr']:
         # Write size
-        cursor = buffer.writeUInt32BE(len(model['Data']['LStr']), cursor)
+        cursor = writeUInt32BE(buffer, len(model['Data']['LStr']), cursor)
 
         for lstr in model['Data']['LStr']:
             cursor += buffer.write(b'LStr', cursor)
             for value in lstr:
-                cursor = buffer.writeFloatBE(value, cursor)
+                cursor = writeFloatBE(buffer, value, cursor)
     else:
         # Write size
-        cursor = buffer.writeUInt32BE(len(model['Data']['other']), cursor)
+        cursor = writeUInt32BE(buffer, len(model['Data']['other']), cursor)
 
         for value in model['Data']['other']:
-            cursor = buffer.writeUInt32BE(value, cursor)
+            cursor = writeUInt32BE(buffer, value, cursor)
 
     return cursor
 
@@ -282,7 +281,7 @@ def write_altn(buffer, cursor, model, hl):
         outside_ref(cursor, alt_n_value, model)
         
         if model['ext'] == 'Podd':
-            buffer.writeUInt32BE(alt_n_value, cursor)
+            writeUInt32BE(buffer, alt_n_value, cursor)
             
         cursor += 4
 
@@ -299,11 +298,11 @@ def writeString(buffer,  string, cursor):
     struct.pack_into('4s', buffer, cursor, string.encode('utf-8'))
     return cursor + struct.calcsize('4s')
 
-def writeInt8BE(buffer, num, cursor):
+def writeInt8(buffer, num, cursor):
     struct.pack_into('b', buffer, cursor, num)
     return cursor + struct.calcsize('b')
 
-def writeUInt8BE(buffer, num, cursor):
+def writeUInt8(buffer, num, cursor):
     struct.pack_into('B', buffer, cursor, num)
     return cursor + struct.calcsize('B')
 
@@ -323,13 +322,19 @@ def writeUInt32BE(buffer, num, cursor):
     struct.pack_into('I', buffer, cursor, num)
     return cursor + struct.calcsize('I')
 
+def writeFloatBE(buffer, num, cursor):
+    struct.pack_into('f', buffer, cursor, num)
+    return cursor + struct.calcsize('f')
+
+
+
 def write_header(buffer, cursor,  hl, model):
     cursor = writeString(buffer,  model['ext'], cursor)
 
     for header_value in model['header']:
         outside_ref(cursor, header_value, model)
         highlight(cursor, hl)
-        cursor += 4  # buffer.writeInt32BE(header_value, cursor)
+        cursor += 4  # writeInt32BE(buffer, header_value, cursor)
 
     cursor = writeInt32BE(buffer, -1, cursor)
 
@@ -364,7 +369,7 @@ def write_mat(buffer, cursor, mat_id, hl, model):
     map_ref(cursor, mat_id, model)
     mat = model['mats'][mat_id]
 
-    cursor = buffer.writeInt32BE(mat['format'], cursor)
+    cursor = writeInt32BE(buffer, mat['format'], cursor)
 
     # Handling format-specific data
     cursor += 12
@@ -374,14 +379,14 @@ def write_mat(buffer, cursor, mat_id, hl, model):
         highlight(mat_addr + 8, hl)
 
         if model['textures'][tex_id]['write']:
-            buffer.writeUInt32BE(model['textures'][tex_id]['write'], mat_addr + 8)
+            writeUInt32BE(buffer, model['textures'][tex_id]['write'], mat_addr + 8)
         else:
-            buffer.writeUInt32BE(cursor, mat_addr + 8)
+            writeUInt32BE(buffer, cursor, mat_addr + 8)
             cursor = write_mat_texture(buffer, cursor, tex_id, hl, model)
 
     if mat['unk']:
         highlight(mat_addr + 12, hl)
-        buffer.writeUInt32BE(cursor, mat_addr + 12)
+        writeUInt32BE(buffer, cursor, mat_addr + 12)
         cursor = write_mat_unk(buffer, cursor, unk=mat['unk'])
 
     return cursor
@@ -394,82 +399,82 @@ def write_mat_texture(buffer, cursor, tex_id, hl, model):
     model['textures'][tex_id]['write'] = cursor
     map_ref(cursor, tex_id, model)
 
-    cursor = buffer.writeInt32BE(texture['unk0'], cursor)
-    cursor = buffer.writeInt16BE(texture['unk1'], cursor)
-    cursor = buffer.writeInt16BE(texture['unk2'], cursor)
-    cursor = buffer.writeInt32BE(texture['unk3'], cursor)
-    cursor = buffer.writeInt16BE(texture['format'], cursor)
-    cursor = buffer.writeInt16BE(texture['unk4'], cursor)
-    cursor = buffer.writeInt16BE(texture['width'], cursor)
-    cursor = buffer.writeInt16BE(texture['height'], cursor)
-    cursor = buffer.writeInt16BE(texture['unk5'], cursor)
-    cursor = buffer.writeInt16BE(texture['unk6'], cursor)
-    cursor = buffer.writeInt16BE(texture['unk7'], cursor)
-    cursor = buffer.writeInt16BE(texture['unk8'], cursor)
+    cursor = writeInt32BE(buffer, texture['unk0'], cursor)
+    cursor = writeInt16BE(buffer, texture['unk1'], cursor)
+    cursor = writeInt16BE(buffer, texture['unk2'], cursor)
+    cursor = writeInt32BE(buffer, texture['unk3'], cursor)
+    cursor = writeInt16BE(buffer, texture['format'], cursor)
+    cursor = writeInt16BE(buffer, texture['unk4'], cursor)
+    cursor = writeInt16BE(buffer, texture['width'], cursor)
+    cursor = writeInt16BE(buffer, texture['height'], cursor)
+    cursor = writeInt16BE(buffer, texture['unk5'], cursor)
+    cursor = writeInt16BE(buffer, texture['unk6'], cursor)
+    cursor = writeInt16BE(buffer, texture['unk7'], cursor)
+    cursor = writeInt16BE(buffer, texture['unk8'], cursor)
 
     unk_pointer = cursor
     cursor += 28
     highlight(cursor, hl)
-    cursor = buffer.writeInt16BE(texture['unk9'], cursor)
-    cursor = buffer.writeInt16BE(texture['tex_index'], cursor)
+    cursor = writeInt16BE(buffer, texture['unk9'], cursor)
+    cursor = writeInt16BE(buffer, texture['tex_index'], cursor)
     cursor += 4
 
     for unk_pointer_value in texture['unk_pointers']:
         highlight(unk_pointer, hl)
-        buffer.writeUInt32BE(cursor, unk_pointer)
-        cursor = buffer.writeInt32BE(unk_pointer_value['unk0'], cursor)
-        cursor = buffer.writeInt32BE(unk_pointer_value['unk1'], cursor)
-        cursor = buffer.writeInt32BE(unk_pointer_value['unk2'], cursor)
-        cursor = buffer.writeInt16BE(unk_pointer_value['unk3'], cursor)
-        cursor = buffer.writeInt16BE(unk_pointer_value['unk4'], cursor)
+        writeUInt32BE(buffer, cursor, unk_pointer)
+        cursor = writeInt32BE(buffer, unk_pointer_value['unk0'], cursor)
+        cursor = writeInt32BE(buffer, unk_pointer_value['unk1'], cursor)
+        cursor = writeInt32BE(buffer, unk_pointer_value['unk2'], cursor)
+        cursor = writeInt16BE(buffer, unk_pointer_value['unk3'], cursor)
+        cursor = writeInt16BE(buffer, unk_pointer_value['unk4'], cursor)
 
     return cursor
 
 def write_mat_unk(buffer, cursor, unk):
-    cursor = buffer.writeInt16BE(unk['unk0'], cursor)  # always 0
-    cursor = buffer.writeInt16BE(unk['unk1'], cursor)  # 0, 1, 8, 9
-    cursor = buffer.writeInt16BE(unk['unk2'], cursor)  # 1, 2
-    cursor = buffer.writeInt16BE(unk['unk3'], cursor)  # 287, 513, 799, 1055, 1537, 7967
-    cursor = buffer.writeInt16BE(unk['unk4'], cursor)  # 287, 799, 1055, 3329, 7939, 7940
-    cursor = buffer.writeInt16BE(unk['unk5'], cursor)  # 263, 513, 775, 1031, 1537, 1795, 1799
-    cursor = buffer.writeInt16BE(unk['unk6'], cursor)  # 1, 259, 263, 775, 1031, 1793, 1795, 1796, 1798
-    cursor = buffer.writeInt16BE(unk['unk7'], cursor)  # 31, 287, 799, 1055, 7967
-    cursor = buffer.writeInt16BE(unk['unk8'], cursor)  # 31, 799, 1055, 7936, 7940
-    cursor = buffer.writeInt16BE(unk['unk9'], cursor)  # 7, 1799
-    cursor = buffer.writeInt16BE(unk['unk10'], cursor)  # 775, 1031, 1792, 1796, 1798
-    cursor = buffer.writeInt16BE(unk['unk11'], cursor)  # always 0
-    cursor = buffer.writeInt16BE(unk['unk12'], cursor)  # -14336, 68, 3080
-    cursor = buffer.writeInt16BE(unk['unk13'], cursor)  # 0, 1, 8200, 8312
-    cursor = buffer.writeInt16BE(unk['unk14'], cursor)  # 16, 17, 770
-    cursor = buffer.writeInt16BE(unk['unk15'], cursor)  # 120, 8200, 8248, 8296, 8312, 16840, 16856, 16960, 17216, 18760, 18768, 18808, 18809, 18888, 18904, 18936, 19280, 20048
-    cursor = buffer.writeInt16BE(unk['unk16'], cursor)  # probably 0?
-    cursor = buffer.writeUInt8(unk['r'], cursor)
-    cursor = buffer.writeUInt8(unk['g'], cursor)
-    cursor = buffer.writeUInt8(unk['b'], cursor)
-    cursor = buffer.writeUInt8(unk['t'], cursor)
-    cursor = buffer.writeInt16BE(unk['unk17'], cursor)
-    cursor = buffer.writeInt16BE(unk['unk18'], cursor)
-    cursor = buffer.writeInt16BE(unk['unk19'], cursor)
-    cursor = buffer.writeInt16BE(unk['unk20'], cursor)
-    cursor = buffer.writeInt16BE(unk['unk21'], cursor)
-    cursor = buffer.writeInt16BE(unk['unk22'], cursor)
-    cursor = buffer.writeInt16BE(unk['unk23'], cursor)
+    cursor = writeInt16BE(buffer, unk['unk0'], cursor)  # always 0
+    cursor = writeInt16BE(buffer, unk['unk1'], cursor)  # 0, 1, 8, 9
+    cursor = writeInt16BE(buffer, unk['unk2'], cursor)  # 1, 2
+    cursor = writeInt16BE(buffer, unk['unk3'], cursor)  # 287, 513, 799, 1055, 1537, 7967
+    cursor = writeInt16BE(buffer, unk['unk4'], cursor)  # 287, 799, 1055, 3329, 7939, 7940
+    cursor = writeInt16BE(buffer, unk['unk5'], cursor)  # 263, 513, 775, 1031, 1537, 1795, 1799
+    cursor = writeInt16BE(buffer, unk['unk6'], cursor)  # 1, 259, 263, 775, 1031, 1793, 1795, 1796, 1798
+    cursor = writeInt16BE(buffer, unk['unk7'], cursor)  # 31, 287, 799, 1055, 7967
+    cursor = writeInt16BE(buffer, unk['unk8'], cursor)  # 31, 799, 1055, 7936, 7940
+    cursor = writeInt16BE(buffer, unk['unk9'], cursor)  # 7, 1799
+    cursor = writeInt16BE(buffer, unk['unk10'], cursor)  # 775, 1031, 1792, 1796, 1798
+    cursor = writeInt16BE(buffer, unk['unk11'], cursor)  # always 0
+    cursor = writeInt16BE(buffer, unk['unk12'], cursor)  # -14336, 68, 3080
+    cursor = writeInt16BE(buffer, unk['unk13'], cursor)  # 0, 1, 8200, 8312
+    cursor = writeInt16BE(buffer, unk['unk14'], cursor)  # 16, 17, 770
+    cursor = writeInt16BE(buffer, unk['unk15'], cursor)  # 120, 8200, 8248, 8296, 8312, 16840, 16856, 16960, 17216, 18760, 18768, 18808, 18809, 18888, 18904, 18936, 19280, 20048
+    cursor = writeInt16BE(buffer, unk['unk16'], cursor)  # probably 0?
+    cursor = writeUInt8(buffer, unk['r'], cursor)
+    cursor = writeUInt8(buffer, unk['g'], cursor)
+    cursor = writeUInt8(buffer, unk['b'], cursor)
+    cursor = writeUInt8(buffer, unk['t'], cursor)
+    cursor = writeInt16BE(buffer, unk['unk17'], cursor)
+    cursor = writeInt16BE(buffer, unk['unk18'], cursor)
+    cursor = writeInt16BE(buffer, unk['unk19'], cursor)
+    cursor = writeInt16BE(buffer, unk['unk20'], cursor)
+    cursor = writeInt16BE(buffer, unk['unk21'], cursor)
+    cursor = writeInt16BE(buffer, unk['unk22'], cursor)
+    cursor = writeInt16BE(buffer, unk['unk23'], cursor)
 
     return cursor
 
 def write_animation(buffer, cursor, animation, hl, model):
     cursor += 61 * 4
-    cursor = buffer.writeFloatBE(animation['float1'], cursor)
-    cursor = buffer.writeFloatBE(animation['float2'], cursor)
-    cursor = buffer.writeFloatBE(animation['float3'], cursor)
-    cursor = buffer.writeInt16BE(animation['flag1'], cursor)
-    cursor = buffer.writeInt16BE(animation['flag2'], cursor)
-    cursor = buffer.writeInt32BE(animation['num_keyframes'], cursor)
-    cursor = buffer.writeFloatBE(animation['float4'], cursor)
-    cursor = buffer.writeFloatBE(animation['float5'], cursor)
-    cursor = buffer.writeFloatBE(animation['float6'], cursor)
-    cursor = buffer.writeFloatBE(animation['float7'], cursor)
-    cursor = buffer.writeFloatBE(animation['float8'], cursor)
+    cursor = writeFloatBE(buffer, animation['float1'], cursor)
+    cursor = writeFloatBE(buffer, animation['float2'], cursor)
+    cursor = writeFloatBE(buffer, animation['float3'], cursor)
+    cursor = writeInt16BE(buffer, animation['flag1'], cursor)
+    cursor = writeInt16BE(buffer, animation['flag2'], cursor)
+    cursor = writeInt32BE(buffer, animation['num_keyframes'], cursor)
+    cursor = writeFloatBE(buffer, animation['float4'], cursor)
+    cursor = writeFloatBE(buffer, animation['float5'], cursor)
+    cursor = writeFloatBE(buffer, animation['float6'], cursor)
+    cursor = writeFloatBE(buffer, animation['float7'], cursor)
+    cursor = writeFloatBE(buffer, animation['float8'], cursor)
     highlight(cursor, hl)
     keyframe_times = cursor
     cursor += 4
@@ -484,33 +489,33 @@ def write_animation(buffer, cursor, animation, hl, model):
     else:
         outside_ref(cursor, animation['target'], model)
     cursor += 4
-    cursor = buffer.writeInt32BE(animation['unk32'], cursor)
+    cursor = writeInt32BE(buffer, animation['unk32'], cursor)
 
     # Write keyframe times
-    buffer.writeInt32BE(cursor, keyframe_times)
+    writeInt32BE(buffer, cursor, keyframe_times)
     for k in range(len(animation['keyframe_times'])):
-        cursor = buffer.writeFloatBE(animation['keyframe_times'][k], cursor)
+        cursor = writeFloatBE(buffer, animation['keyframe_times'][k], cursor)
 
     if flag in [2, 18]:
         # Write target list
-        buffer.writeInt32BE(cursor, anim_target)
+        writeInt32BE(buffer, cursor, anim_target)
         highlight(cursor, hl)
-        cursor = buffer.writeInt32BE(model['mats'][animation['target']]['write'], cursor)
+        cursor = writeInt32BE(buffer, model['mats'][animation['target']]['write'], cursor)
         highlight(cursor, hl)
         cursor += 4
 
     # Write keyframe poses
-    buffer.writeInt32BE(cursor, keyframe_poses)
+    writeInt32BE(buffer, cursor, keyframe_poses)
 
     for p in range(len(animation['keyframe_poses'])):
         if flag in [8, 24, 40, 56, 4152]:  # rotation (4)
             for f in range(4):
-                cursor = buffer.writeFloatBE(animation['keyframe_poses'][p][f], cursor)
+                cursor = writeFloatBE(buffer, animation['keyframe_poses'][p][f], cursor)
         elif flag in [25, 41, 57, 4153]:  # position (3)
             for f in range(3):
-                cursor = buffer.writeFloatBE(animation['keyframe_poses'][p][f], cursor)
+                cursor = writeFloatBE(buffer, animation['keyframe_poses'][p][f], cursor)
         elif flag in [27, 28]:  # uv_x/uv_y (1)
-            cursor = buffer.writeFloatBE(animation['keyframe_poses'][p], cursor)
+            cursor = writeFloatBE(buffer, animation['keyframe_poses'][p], cursor)
 
     if flag in [2, 18]:  # texture
         texturelist = cursor
@@ -520,9 +525,9 @@ def write_animation(buffer, cursor, animation, hl, model):
         for k in range(len(animation['keyframe_poses'])):
             tex_id = animation['keyframe_poses'][k]
             if model['textures'][tex_id]['write']:
-                buffer.writeUInt32BE(model['textures'][tex_id]['write'], texturelist + k * 4)
+                writeUInt32BE(buffer, model['textures'][tex_id]['write'], texturelist + k * 4)
             else:
-                buffer.writeUInt32BE(cursor, texturelist + k * 4)
+                writeUInt32BE(buffer, cursor, texturelist + k * 4)
                 cursor = write_mat_texture(buffer, cursor, tex_id, hl, model)
 
     return cursor
@@ -532,7 +537,7 @@ def write_collision_vert_strips(buffer, cursor, vert_strips):
         return cursor
 
     for v in range(len(vert_strips)):
-        cursor = buffer.writeInt32BE(vert_strips[v], cursor)
+        cursor = writeInt32BE(buffer, vert_strips[v], cursor)
 
     return cursor
 
@@ -543,7 +548,7 @@ def write_collision_vert_buffer(buffer, cursor, vert_buffer):
     for v in range(len(vert_buffer)):
         vert = vert_buffer[v]
         for i in range(len(vert)):
-            cursor = buffer.writeInt16BE(vert[i], cursor)
+            cursor = writeInt16BE(buffer, vert[i], cursor)
 
     return cursor if cursor % 4 == 0 else cursor + 2
 
@@ -551,19 +556,19 @@ def write_collision_triggers(buffer, cursor, triggers, hl, model):
     for i in range(len(triggers)):
         trigger = triggers[i]
         highlight(cursor, hl)
-        cursor = buffer.writeInt32BE(cursor + 4, cursor)
-        cursor = buffer.writeFloatBE(trigger['x'], cursor)
-        cursor = buffer.writeFloatBE(trigger['y'], cursor)
-        cursor = buffer.writeFloatBE(trigger['z'], cursor)
-        cursor = buffer.writeFloatBE(trigger['vx'], cursor)
-        cursor = buffer.writeFloatBE(trigger['vy'], cursor)
-        cursor = buffer.writeFloatBE(trigger['vz'], cursor)
-        cursor = buffer.writeFloatBE(trigger['width'], cursor)
-        cursor = buffer.writeFloatBE(trigger['height'], cursor)
+        cursor = writeInt32BE(buffer, cursor + 4, cursor)
+        cursor = writeFloatBE(buffer, trigger['x'], cursor)
+        cursor = writeFloatBE(buffer, trigger['y'], cursor)
+        cursor = writeFloatBE(buffer, trigger['z'], cursor)
+        cursor = writeFloatBE(buffer, trigger['vx'], cursor)
+        cursor = writeFloatBE(buffer, trigger['vy'], cursor)
+        cursor = writeFloatBE(buffer, trigger['vz'], cursor)
+        cursor = writeFloatBE(buffer, trigger['width'], cursor)
+        cursor = writeFloatBE(buffer, trigger['height'], cursor)
         outside_ref(cursor, trigger['target'], model)
         highlight(cursor, hl)
         cursor += 4
-        cursor = buffer.writeInt16BE(trigger['flag'], cursor)
+        cursor = writeInt16BE(buffer, trigger['flag'], cursor)
         cursor += 2
 
     highlight(cursor, hl)  # end with blank pointer to mark the end of the linked list
@@ -571,32 +576,32 @@ def write_collision_triggers(buffer, cursor, triggers, hl, model):
     return cursor
 
 def write_collision_data(buffer, cursor, data, hl, model):
-    cursor = buffer.writeInt16BE(data['unk'], cursor)
-    cursor = buffer.writeUInt8(data['fog']['flag'], cursor)
-    cursor = buffer.writeUInt8(data['fog']['r'], cursor)
-    cursor = buffer.writeUInt8(data['fog']['g'], cursor)
-    cursor = buffer.writeUInt8(data['fog']['b'], cursor)
-    cursor = buffer.writeInt16BE(data['fog']['start'], cursor)
-    cursor = buffer.writeInt16BE(data['fog']['end'], cursor)
-    cursor = buffer.writeInt16BE(data['lights']['flag'], cursor)
-    cursor = buffer.writeUInt8(data['lights']['ambient_r'], cursor)
-    cursor = buffer.writeUInt8(data['lights']['ambient_g'], cursor)
-    cursor = buffer.writeUInt8(data['lights']['ambient_b'], cursor)
-    cursor = buffer.writeUInt8(data['lights']['r'], cursor)
-    cursor = buffer.writeUInt8(data['lights']['g'], cursor)
-    cursor = buffer.writeUInt8(data['lights']['b'], cursor)
-    cursor = buffer.writeUInt8(data['lights']['unk1'], cursor)
-    cursor = buffer.writeUInt8(data['lights']['unk2'], cursor)
-    cursor = buffer.writeFloatBE(data['lights']['x'], cursor)
-    cursor = buffer.writeFloatBE(data['lights']['y'], cursor)
-    cursor = buffer.writeFloatBE(data['lights']['z'], cursor)
-    cursor = buffer.writeFloatBE(data['lights']['unk3'], cursor)
-    cursor = buffer.writeFloatBE(data['lights']['unk4'], cursor)
-    cursor = buffer.writeFloatBE(data['lights']['unk5'], cursor)
-    cursor = buffer.writeInt32BE(data['flags'], cursor)
-    cursor = buffer.writeInt32BE(data['unk2'], cursor)
-    cursor = buffer.writeUInt32BE(data['unload'], cursor)
-    cursor = buffer.writeUInt32BE(data['load'], cursor)
+    cursor = writeInt16BE(buffer, data['unk'], cursor)
+    cursor = writeUInt8(buffer, data['fog']['flag'], cursor)
+    cursor = writeUInt8(buffer, data['fog']['r'], cursor)
+    cursor = writeUInt8(buffer, data['fog']['g'], cursor)
+    cursor = writeUInt8(buffer, data['fog']['b'], cursor)
+    cursor = writeInt16BE(buffer, data['fog']['start'], cursor)
+    cursor = writeInt16BE(buffer, data['fog']['end'], cursor)
+    cursor = writeInt16BE(buffer, data['lights']['flag'], cursor)
+    cursor = writeUInt8(buffer, data['lights']['ambient_r'], cursor)
+    cursor = writeUInt8(buffer, data['lights']['ambient_g'], cursor)
+    cursor = writeUInt8(buffer, data['lights']['ambient_b'], cursor)
+    cursor = writeUInt8(buffer, data['lights']['r'], cursor)
+    cursor = writeUInt8(buffer, data['lights']['g'], cursor)
+    cursor = writeUInt8(buffer, data['lights']['b'], cursor)
+    cursor = writeUInt8(buffer, data['lights']['unk1'], cursor)
+    cursor = writeUInt8(buffer, data['lights']['unk2'], cursor)
+    cursor = writeFloatBE(buffer, data['lights']['x'], cursor)
+    cursor = writeFloatBE(buffer, data['lights']['y'], cursor)
+    cursor = writeFloatBE(buffer, data['lights']['z'], cursor)
+    cursor = writeFloatBE(buffer, data['lights']['unk3'], cursor)
+    cursor = writeFloatBE(buffer, data['lights']['unk4'], cursor)
+    cursor = writeFloatBE(buffer, data['lights']['unk5'], cursor)
+    cursor = writeInt32BE(buffer, data['flags'], cursor)
+    cursor = writeInt32BE(buffer, data['unk2'], cursor)
+    cursor = writeUInt32BE(buffer, data['unload'], cursor)
+    cursor = writeUInt32BE(buffer, data['load'], cursor)
 
     cursor = write_collision_triggers(buffer=buffer, cursor=cursor, triggers=data['triggers'], hl=hl, model=model)
 
@@ -610,35 +615,35 @@ def write_visual_index_buffer(buffer, cursor, index_buffer, hl):
     for i in range(len(index_buffer)):
         index = index_buffer[i]
         type_ = index['type']
-        buffer.writeUInt8(type_, cursor + v)
+        writeUInt8(buffer, type_, cursor + v)
 
         if type_ == 1:
-            buffer.writeUInt8(index['unk1'], cursor + v + 1)
-            buffer.writeUInt8(index['unk2'], cursor + v + 2)
-            buffer.writeUInt8(index['size'], cursor + v + 3)
+            writeUInt8(buffer, index['unk1'], cursor + v + 1)
+            writeUInt8(buffer, index['unk2'], cursor + v + 2)
+            writeUInt8(buffer, index['size'], cursor + v + 3)
             highlight(cursor + v + 4, hl)
-            # buffer.writeUInt32BE(index['start'], cursor + v + 4)
+            # writeUInt32BE(buffer, index['start'], cursor + v + 4)
 
         elif type_ == 3:
-            buffer.writeUInt8(index['unk'], cursor + v + 7)
+            writeUInt8(buffer, index['unk'], cursor + v + 7)
 
         elif type_ == 5:
-            buffer.writeUInt8(index['x'], cursor + v + 1)
-            buffer.writeUInt8(index['y'], cursor + v + 2)
-            buffer.writeUInt8(index['z'], cursor + v + 3)
+            writeUInt8(buffer, index['x'], cursor + v + 1)
+            writeUInt8(buffer, index['y'], cursor + v + 2)
+            writeUInt8(buffer, index['z'], cursor + v + 3)
 
         elif type_ == 6:
-            buffer.writeUInt8(index['x1'], cursor + v + 1)
-            buffer.writeUInt8(index['y1'], cursor + v + 2)
-            buffer.writeUInt8(index['z1'], cursor + v + 3)
-            buffer.writeUInt8(index['x2'], cursor + v + 5)
-            buffer.writeUInt8(index['y2'], cursor + v + 6)
-            buffer.writeUInt8(index['z2'], cursor + v + 7)
+            writeUInt8(buffer, index['x1'], cursor + v + 1)
+            writeUInt8(buffer, index['y1'], cursor + v + 2)
+            writeUInt8(buffer, index['z1'], cursor + v + 3)
+            writeUInt8(buffer, index['x2'], cursor + v + 5)
+            writeUInt8(buffer, index['y2'], cursor + v + 6)
+            writeUInt8(buffer, index['z2'], cursor + v + 7)
 
         v += 8
 
     cursor += v
-    cursor = buffer.writeUInt8(223, cursor)
+    cursor = writeUInt8(buffer, 223, cursor)
     cursor += 7
     return cursor
 
@@ -648,81 +653,118 @@ def write_visual_vert_buffer(buffer, cursor, vert_buffer, index_buffer, index_bu
     # Write buffer
     for i in range(len(vert_buffer)):
         x, y, z = vert_buffer[i]['x'], vert_buffer[i]['y'], vert_buffer[i]['z']
-        cursor = buffer.writeInt16BE(x, cursor)
-        cursor = buffer.writeInt16BE(y, cursor)
-        cursor = buffer.writeInt16BE(z, cursor)
+        cursor = writeInt16BE(buffer, x, cursor)
+        cursor = writeInt16BE(buffer, y, cursor)
+        cursor = writeInt16BE(buffer, z, cursor)
         cursor += 2
 
-        cursor = buffer.writeInt16BE(vert_buffer[i]['uv_x'], cursor)
-        cursor = buffer.writeInt16BE(vert_buffer[i]['uv_y'], cursor)
+        cursor = writeInt16BE(buffer, vert_buffer[i]['uv_x'], cursor)
+        cursor = writeInt16BE(buffer, vert_buffer[i]['uv_y'], cursor)
 
-        cursor = buffer.writeUInt8(vert_buffer[i]['v_color'][0], cursor)
-        cursor = buffer.writeUInt8(vert_buffer[i]['v_color'][1], cursor)
-        cursor = buffer.writeUInt8(vert_buffer[i]['v_color'][2], cursor)
-        cursor = buffer.writeUInt8(vert_buffer[i]['v_color'][3], cursor)
+        cursor = writeUInt8(buffer, vert_buffer[i]['v_color'][0], cursor)
+        cursor = writeUInt8(buffer, vert_buffer[i]['v_color'][1], cursor)
+        cursor = writeUInt8(buffer, vert_buffer[i]['v_color'][2], cursor)
+        cursor = writeUInt8(buffer, vert_buffer[i]['v_color'][3], cursor)
 
     # Write references in index_buffer to this section
     total = 0
     for i, index in enumerate(index_buffer):
         if index['type'] == 1:
-            buffer.writeUInt32BE(vert_buffer_addr + index['start'] * 16, index_buffer_addr + i * 8 + 4)
+            writeUInt32BE(buffer, vert_buffer_addr + index['start'] * 16, index_buffer_addr + i * 8 + 4)
 
     return cursor
 
 def write_mesh_group(buffer, cursor, mesh, hl, model):
     headstart = cursor
-    buffer.writeFloatBE(mesh['min_x'], cursor + 8)
-    buffer.writeFloatBE(mesh['min_y'], cursor + 12)
-    buffer.writeFloatBE(mesh['min_z'], cursor + 16)
-    buffer.writeFloatBE(mesh['max_x'], cursor + 20)
-    buffer.writeFloatBE(mesh['max_y'], cursor + 24)
-    buffer.writeFloatBE(mesh['max_z'], cursor + 28)
-    buffer.writeInt16BE(mesh['vert_strip_count'], cursor + 32)
-    buffer.writeInt16BE(mesh['vert_strip_default'], cursor + 34)
+    bb = mesh_bounding_box(mesh)
+    writeFloatBE(buffer, bb['min'][0], cursor + 8)
+    writeFloatBE(buffer, bb['min'][1], cursor + 12)
+    writeFloatBE(buffer, bb['min'][2], cursor + 16)
+    writeFloatBE(buffer, bb['max'][0], cursor + 20)
+    writeFloatBE(buffer, bb['max'][1], cursor + 24)
+    writeFloatBE(buffer, bb['max'][2], cursor + 28)
+    writeInt16BE(buffer, mesh['vert_strip_count'], cursor + 32)
+    writeInt16BE(buffer, mesh['vert_strip_default'], cursor + 34)
     highlight(cursor + 40,  hl)
     outside_ref( cursor + 40, mesh['visuals']['group_parent'],model)
-    buffer.writeInt16BE(len(mesh['collision']['vert_buffer']), cursor + 56)
-    buffer.writeInt16BE(len(mesh['visuals']['vert_buffer']), cursor + 58)
-    buffer.writeInt16BE(mesh['visuals']['group_count'], cursor + 62)
+    writeInt16BE(buffer, len(mesh['collision']['vert_buffer']), cursor + 56)
+    writeInt16BE(buffer, len(mesh['visuals']['vert_buffer']), cursor + 58)
+    writeInt16BE(buffer, mesh['visuals']['group_count'], cursor + 62)
     cursor += 64
 
     if mesh['collision']['vert_strips']:
         highlight(headstart + 36,  hl)
-        buffer.writeUInt32BE(cursor, headstart + 36)
+        writeUInt32BE(buffer, cursor, headstart + 36)
         cursor = write_collision_vert_strips( buffer, cursor,  mesh['collision']['vert_strips'])
 
     if mesh['collision']['vert_buffer']:
         highlight(headstart + 44,  hl)
-        buffer.writeUInt32BE(cursor, headstart + 44)
+        writeUInt32BE(buffer, cursor, headstart + 44)
         cursor = write_collision_vert_buffer( buffer,  cursor, mesh['collision']['vert_buffer'])
 
     if mesh['visuals']['material']:
         highlight(headstart, hl)
         mat_id = mesh['visuals']['material']
         if model['mats'][mat_id]['write']:
-            buffer.writeUInt32BE(model['mats'][mat_id]['write'], headstart)
+            writeUInt32BE(buffer, model['mats'][mat_id]['write'], headstart)
         else:
-            buffer.writeUInt32BE(cursor, headstart)
+            writeUInt32BE(buffer, cursor, headstart)
             cursor = write_mat(buffer,  cursor, mat_id,  hl, model)
 
     index_buffer_addr = None
     if mesh['visuals']['index_buffer']:
         highlight(headstart + 48,  hl)
         index_buffer_addr = cursor if cursor % 8 == 0 else cursor + 4
-        buffer.writeInt32BE(index_buffer_addr, headstart + 48)
+        writeInt32BE(buffer, index_buffer_addr, headstart + 48)
         cursor = write_visual_index_buffer(buffer,  index_buffer_addr, mesh['visuals']['index_buffer'], hl)
 
     if mesh['visuals']['vert_buffer'] and len(mesh['visuals']['vert_buffer']):
         highlight(headstart + 52,  hl)
-        buffer.writeUInt32BE(cursor, headstart + 52)
+        writeUInt32BE(buffer, cursor, headstart + 52)
         cursor = write_visual_vert_buffer( buffer, cursor,  mesh['visuals']['vert_buffer'], mesh['visuals']['index_buffer'],  index_buffer_addr)
 
     if mesh['collision']['data']:
         highlight(headstart + 4, hl)
-        buffer.writeUInt32BE(cursor, headstart + 4)
+        writeUInt32BE(buffer, cursor, headstart + 4)
         cursor = write_collision_data(buffer,  cursor, mesh['collision']['data'], hl,  model)
 
     return cursor
+
+def node_bounding_box(node):
+    bbs = [mesh_bounding_box(child) for child in node['children']]
+    bb = {
+        'min': [
+            float(min([b['min'][0] for b in bbs])),
+            float(min([b['min'][1] for b in bbs])),
+            float(min([b['min'][2] for b in bbs]))
+        ],
+        'max': [
+            float(max([b['min'][0] for b in bbs])),
+            float(max([b['min'][1] for b in bbs])),
+            float(max([b['min'][2] for b in bbs]))
+        ]
+    }
+    return bb
+    
+def mesh_bounding_box(mesh):
+    verts = []
+    if 'vert_buffer' in mesh['visuals']:
+        verts.extend(vert['co'] for vert in mesh['visuals']['vert_buffer'])
+    if 'vert_buffer' in mesh['collision'] and mesh['collision']['vert_buffer'] != 0:
+        verts.extend(mesh['collision']['vert_buffer'])
+    bb = {
+        'min': [
+            min([vert[0] for vert in verts]), 
+            min([vert[1] for vert in verts]), 
+            min([vert[2] for vert in verts])],
+        'max': [
+            max([vert[0] for vert in verts]), 
+            max([vert[1] for vert in verts]), 
+            max([vert[2] for vert in verts])
+            ]
+    }
+    return bb
+            
 
 def write_node(buffer, cursor, node, hl, model, header_offsets):
     if 'header' in node:
@@ -742,15 +784,25 @@ def write_node(buffer, cursor, node, hl, model, header_offsets):
     cursor += 4
 
     mesh_group = False
-    switch_val = node['head'][0]
+    switch_val = int(node['head'][0])
     if switch_val == 12388:
+        print('found a mesh_group at', cursor)
         mesh_group = True
-        cursor = writeBulk(buffer, cursor, '6f', [node['min_x'], node['min_y'], node['min_z'], node['max_x'], node['max_y'], node['max_z']])
+        bb = node_bounding_box(node)
+        cursor = writeBulk(buffer, cursor, '6f', [
+            bb['min'][0], 
+            bb['min'][1], 
+            bb['min'][2], 
+            bb['max'][0], 
+            bb['max'][1], 
+            bb['max'][2], 
+        ])
         cursor += 8
     elif switch_val == 20581:
         if 'children' in node and len(node['children']):
             cursor += 4
     elif switch_val == 20582:
+        
         cursor = writeBulk(buffer, cursor, '11f', [
         node['xyz']['f1'], 
         node['xyz']['f2'], 
@@ -782,35 +834,36 @@ def write_node(buffer, cursor, node, hl, model, header_offsets):
         ])
         
     elif switch_val == 53349:
+        matrix = node['obj'].matrix_world
         cursor = writeBulk(buffer, cursor, '15f', [
-        node['xyz']['ax'], 
-        node['xyz']['ay'], 
-        node['xyz']['az'], 
-        node['xyz']['bx'], 
-        node['xyz']['by'], 
-        node['xyz']['bz'], 
-        node['xyz']['cx'], 
-        node['xyz']['cy'], 
-        node['xyz']['cz'], 
-        node['xyz']['x'], 
-        node['xyz']['y'], 
-        node['xyz']['z'], 
-        node['xyz']['x1'], 
-        node['xyz']['y1'], 
-        node['xyz']['z1']
+        matrix[0][0], 
+        matrix[0][1], 
+        matrix[0][2], 
+        matrix[1][0], 
+        matrix[1][1], 
+        matrix[1][2], 
+        matrix[2][0], 
+        matrix[2][1], 
+        matrix[2][2], 
+        matrix[3][0], 
+        matrix[3][1], 
+        matrix[3][2], 
+        0,
+        0,
+        0
         ])
         
     elif switch_val == 53350:
         cursor = writeBulk(buffer, cursor, '3if', [
-            node['53350']['unk1'],
-            node['53350']['unk2'], 
-            node['53350']['unk3'], 
-            node['53350']['unk4'],
+            node['obj']['53350_unk1'],
+            node['obj']['53350_unk2'], 
+            node['obj']['53350_unk3'], 
+            node['obj']['53350_unk4'],
         ])
         
     if not len(node['children']):
         return cursor
-
+    print(mesh_group, len(node['children']))
     # write offset to this child list
     writeInt32BE(buffer, cursor, child_list_addr_addr)
 
@@ -825,21 +878,26 @@ def write_node(buffer, cursor, node, hl, model, header_offsets):
         child = node['children'][c]
 
         if 'AltN' in child:
+            print('altn child')
             map_ref(child_list_addr + c * 4, child['id'],  model)
             continue
 
         if not 'id' in child:
+            print('id child')
             writeUInt32BE(buffer, 0, child_list_addr + c * 4)
             continue
 
         if child['id'] in model['ref_map']:
+            print('already written child')
             writeUInt32BE(buffer, model['ref_map'][child['id']], child_list_addr + c * 4)
             continue
 
         writeUInt32BE(buffer, cursor, child_list_addr + c * 4)
         if mesh_group:
+            print('making a mesh_group child at', cursor)
             cursor = write_mesh_group( buffer,  cursor,  child, hl,  model)
         else:
+            print('making a child at ', cursor)
             cursor = write_node( buffer,  cursor, child, hl,  model,  header_offsets)
 
     return cursor
@@ -891,7 +949,6 @@ def write_block(arr):
     return b''.join(block)
 
 def inject_model(offset_buffer, model_buffer, ind, file_path):
-    print(ind, file_path)
     with open(file_path + '/out_modelblock.bin', 'rb') as file:
         file = file.read()
         read_block_result = read_block(file, [[], []], [])
@@ -933,7 +990,6 @@ def export_model(col, file_path):
     with open(file_path + str(col['ind'])+'.bin', 'wb') as file:
         file.write(model_buffer)
     block = inject_model(offset_buffer, model_buffer, col['ind'], file_path)
-    print(len(block), file_path + 'out_modelblock2.bin')
     with open(file_path + 'out_modelblock.bin', 'wb') as file:
         file.write(block)
     show_custom_popup(bpy.context, "Exported!", f"Model {col['ind']} was successfully exported")

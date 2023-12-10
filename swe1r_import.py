@@ -474,6 +474,7 @@ def make_visuals(mesh_node, model, parent, file_path):
     obj = bpy.data.objects.new(mesh_name, mesh)
     
     obj['type'] = 'VIS'    
+    obj['id'] = mesh_node['id']
     obj.scale = [scale, scale, scale]
 
     model['collection'].objects.link(obj)
@@ -541,7 +542,8 @@ def make_collision(mesh_node, model, parent):
     mesh = bpy.data.meshes.new(mesh_name)
     obj = bpy.data.objects.new(mesh_name, mesh)
     
-    obj['type'] = 'COL'    
+    obj['type'] = 'COL'   
+    obj['id'] = mesh_node['id'] 
     obj.scale = [scale, scale, scale]
 
     model['collection'].objects.link(obj)
@@ -641,6 +643,11 @@ def make_node(node, model, parent):
                 [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
                 [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale, 1],
                 ]
+        elif node['head'][0] == 53350:
+            new_empty['53350_unk1'] = node['53350']['unk1']
+            new_empty['53350_unk2'] = node['53350']['unk2']
+            new_empty['53350_unk3'] = node['53350']['unk3']
+            new_empty['53350_unk4'] = node['53350']['unk4']
             
     else:
         new_empty = bpy.data.objects.new(node_name, None)
