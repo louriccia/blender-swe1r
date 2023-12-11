@@ -291,6 +291,7 @@ def write_altn(buffer, cursor, model, hl):
     return cursor
 
 def writeBulk(buffer, cursor, format_string, arr):
+    print(arr)
     struct.pack_into(format_string, buffer, cursor, *arr)
     return cursor + struct.calcsize(format_string)
 
@@ -576,34 +577,27 @@ def write_collision_triggers(buffer, cursor, triggers, hl, model):
     return cursor
 
 def write_collision_data(buffer, cursor, data, hl, model):
-    cursor = writeInt16BE(buffer, data['unk'], cursor)
-    cursor = writeUInt8(buffer, data['fog']['flag'], cursor)
-    cursor = writeUInt8(buffer, data['fog']['r'], cursor)
-    cursor = writeUInt8(buffer, data['fog']['g'], cursor)
-    cursor = writeUInt8(buffer, data['fog']['b'], cursor)
-    cursor = writeInt16BE(buffer, data['fog']['start'], cursor)
-    cursor = writeInt16BE(buffer, data['fog']['end'], cursor)
-    cursor = writeInt16BE(buffer, data['lights']['flag'], cursor)
-    cursor = writeUInt8(buffer, data['lights']['ambient_r'], cursor)
-    cursor = writeUInt8(buffer, data['lights']['ambient_g'], cursor)
-    cursor = writeUInt8(buffer, data['lights']['ambient_b'], cursor)
-    cursor = writeUInt8(buffer, data['lights']['r'], cursor)
-    cursor = writeUInt8(buffer, data['lights']['g'], cursor)
-    cursor = writeUInt8(buffer, data['lights']['b'], cursor)
-    cursor = writeUInt8(buffer, data['lights']['unk1'], cursor)
-    cursor = writeUInt8(buffer, data['lights']['unk2'], cursor)
-    cursor = writeFloatBE(buffer, data['lights']['x'], cursor)
-    cursor = writeFloatBE(buffer, data['lights']['y'], cursor)
-    cursor = writeFloatBE(buffer, data['lights']['z'], cursor)
-    cursor = writeFloatBE(buffer, data['lights']['unk3'], cursor)
-    cursor = writeFloatBE(buffer, data['lights']['unk4'], cursor)
-    cursor = writeFloatBE(buffer, data['lights']['unk5'], cursor)
-    cursor = writeInt32BE(buffer, data['flags'], cursor)
-    cursor = writeInt32BE(buffer, data['unk2'], cursor)
-    cursor = writeUInt32BE(buffer, data['unload'], cursor)
-    cursor = writeUInt32BE(buffer, data['load'], cursor)
-
-    cursor = write_collision_triggers(buffer=buffer, cursor=cursor, triggers=data['triggers'], hl=hl, model=model)
+    print(data)
+    cursor = writeBulk(buffer, cursor, 'H4B3H8B6f2I2i', [
+        data['unk'],
+        data['fog']['flag'],
+        *data['fog']['color'][:3],
+        data['fog']['start'],
+        data['fog']['end'],
+        data['lights']['flag'],
+        *data['lights']['ambient_color'][:3],
+        *data['lights']['color'][:3],
+        data['lights']['unk1'],
+        data['lights']['unk2'],
+        *data['lights']['pos'],
+        *data['lights']['rot'],
+        data['flags'],
+        data['unk2'],
+        int(data['unload'], 2),
+        int(data['load'], 2)
+    ])
+    
+    cursor = write_collision_triggers(buffer, cursor, data.get('triggers', []), hl, model)
 
     return cursor
 
@@ -683,13 +677,13 @@ def write_mesh_group(buffer, cursor, mesh, hl, model):
     writeFloatBE(buffer, bb['max'][0], cursor + 20)
     writeFloatBE(buffer, bb['max'][1], cursor + 24)
     writeFloatBE(buffer, bb['max'][2], cursor + 28)
-    writeInt16BE(buffer, mesh['vert_strip_count'], cursor + 32)
-    writeInt16BE(buffer, mesh['vert_strip_default'], cursor + 34)
+    writeInt16BE(buffer, mesh.get('vert_strip_count', 0), cursor + 32)
+    writeInt16BE(buffer, mesh.get('vert_strip_default', 0), cursor + 34)
     highlight(cursor + 40,  hl)
-    outside_ref( cursor + 40, mesh['visuals']['group_parent'],model)
-    writeInt16BE(buffer, len(mesh['collision']['vert_buffer']), cursor + 56)
-    writeInt16BE(buffer, len(mesh['visuals']['vert_buffer']), cursor + 58)
-    writeInt16BE(buffer, mesh['visuals']['group_count'], cursor + 62)
+    outside_ref( cursor + 40, mesh['visuals'].get('group_parent', 0),model)
+    writeInt16BE(buffer, len(mesh['collision'].get('vert_buffer', [])), cursor + 56)
+    writeInt16BE(buffer, len(mesh['visuals'].get('vert_buffer', [])), cursor + 58)
+    writeInt16BE(buffer, mesh['visuals'].get('group_count', 0), cursor + 62)
     cursor += 64
 
     if mesh['collision']['vert_strips']:
