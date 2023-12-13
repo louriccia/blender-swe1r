@@ -1,6 +1,8 @@
 import struct
 import bpy
+import math
 from .readwrite import *
+
 
 class Data:
     def get(self):
@@ -394,6 +396,30 @@ class Collision(DataStruct):
             cursor = write_collision_data(buffer,  cursor, mesh['collision']['data'], hl,  model)
 
         return cursor
+    
+class MeshGroup():
+    def __init__(self, model):
+        return
+    def read(self):
+        return
+    def make(self):
+        return
+    def unmake(self):
+        return
+    def write(self):
+        return
+    
+class Node():
+    def __init__(self, model):
+        return
+    def read(self):
+        return
+    def make(self):
+        return
+    def unmake(self):
+        return
+    def write(self):
+        return
 
 class ModelHeader():
     def __init__(self, model):
@@ -410,7 +436,7 @@ class ModelHeader():
             cursor += 4
             header = readInt32BE(buffer, cursor)
 
-        collection['header'] = model['header']
+        
         cursor += 4
         header_string = struct.unpack_from("4s", buffer, cursor)
 
@@ -426,15 +452,67 @@ class ModelHeader():
                 header_string = readString(buffer, cursor)
 
         return cursor + 4
+    
+    def make(self):
+        self.model.collection['header'] = self.offsets
+        self.model.collection['ind'] = self.model.index
+        self.model.collection['ext'] = self.model.ext
+        
+        lightstreaks_col = bpy.data.collections.new(f"{index}_lightstreaks")
+        lightstreaks_col['type'] = 'LSTR'
+        self.model.collection.children.link(lightstreaks_col)
+        return
+    
+    def unmake(self, collection):
+        return
+    
+    def write(self, buffer, cursor):
+        cursor = writeString(buffer,  model['ext'], cursor)
+
+        for header_value in model['header']:
+            outside_ref(cursor, header_value, model)
+            highlight(cursor, hl)
+            cursor += 4  # writeInt32BE(buffer, header_value, cursor)
+
+        cursor = writeInt32BE(buffer, -1, cursor)
+
+        header_offsets = {
+            'Anim': None,
+            'AltN': None,
+            'HEnd': None
+        }
+
+        if self.model.Data:
+            cursor = write_data(buffer, cursor, model, hl)
+
+        if self.model.Anim:
+            self.ref_map['Anim'] = cursor + 4
+            cursor = write_anim(buffer, cursor, model, hl)
+
+        if self.model.AltN:
+            self.ref_map['AltN'] = cursor + 4
+            cursor = write_altn(buffer, cursor, model, hl)
+
+        cursor = writeString(buffer, 'HEnd', cursor)
+        self.ref_map['HEnd'] = cursor
+
+        return header_offsets
 
 class Model():
     def __init__(self, id):
         self.collection = None
         self.ext = None
         self.id = id
+        
+        self.ref_map = {} # where we'll map node ids to their written locations
+        self.ref_keeper = {} # where we'll remember locations of node offsets to go back and update with the offset_map at the end
+        self.hl = None
+        
         self.header = ModelHeader()
         self.Data = []
         self.AltN = []
+        self.Anim = []
+        
         self.mats = []
         self.textures = []
         self.nodes = []
@@ -452,18 +530,50 @@ class Model():
 
     def make(self):
         collection = bpy.data.collections.new(f"model_{self.index}_{self.ext}")
-        collection['ind'] = self.index
-        collection['ext'] = self.ext
+        
         collection['type'] = 'MODEL'
-        bpy.context.scene.collection.children.link(main_collection)
-        model['collection'] = main_collection
-        lightstreaks_col = bpy.data.collections.new(f"{index}_lightstreaks")
-        lightstreaks_col['type'] = 'LSTR'
-        main_collection.children.link(lightstreaks_col)
+        bpy.context.scene.collection.children.link(collection)
         self.collection = collection
 
         return model
 
-    def unmake(self):
+    def unmake(self, collection):
+        self.ext = collection['ext']
+        self.id = collection['ind']
+        self.header = ModelHeader().unmake(collection)
+        self.nodes = []
+        if 'parent' in collection: return
+        
+        top_nodes = [] 
+        for obj in collection.objects:
+            if obj.type != 'MESH': continue
+            top = find_topmost_parent(obj)
+            if top not in top_nodes: top_nodes.append(top)
+        
+        for node in top_nodes:
+            model['nodes'].append(Node().unmake(node))
+            
+        return model
 
     def write(self, buffer, cursor):
+        buffer = bytearray(8000000)
+        self.hl = bytearray(1000000)
+        cursor = 0
+
+        cursor = self.header.write(buffer, cursor)
+
+        # write all nodes
+        for node in self.nodes:
+            cursor = node.write(buffer, cursor, self)
+
+        # write all animations
+        for anim in self.Anim:
+            cursor = anim.write(buffer, cursor, self)
+
+        # write all outside references
+        refs = [ref for ref in self.ref_keeper if ref != '0']
+        for ref in self.ref_keeper:
+            for offset in self.ref_keeper[ref]:
+                writeUInt32BE(buffer, self.ref_map[str(ref)], offset)
+
+        return [self.hl[:math.ceil(cursor / (32 * 4)) * 4], buffer[:cursor]]
