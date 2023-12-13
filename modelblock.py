@@ -1,5 +1,6 @@
 import struct
 import bpy
+from .readwrite import *
 
 class Data:
     def get(self):
@@ -394,18 +395,74 @@ class Collision(DataStruct):
 
         return cursor
 
+class ModelHeader():
+    def __init__(self, model):
+        self.offsets = []
+        self.model = model
+
+    def read(self, buffer, cursor):
+        self.model.ext = struct.unpack_from("4s", buffer, 0)
+        cursor = 4
+        header = readInt32BE(buffer, cursor)
+
+        while header != -1:
+            self.offsets.append(header)
+            cursor += 4
+            header = readInt32BE(buffer, cursor)
+
+        collection['header'] = model['header']
+        cursor += 4
+        header_string = struct.unpack_from("4s", buffer, cursor)
+
+        while header_string != 'HEnd':
+            if header_string == 'Data':
+                cursor = read_Data(buffer, cursor + 4, model)
+                header_string = readString(buffer, cursor)
+            elif header_string == 'Anim':
+                cursor = read_Anim(buffer, cursor + 4, model)
+                header_string = readString(buffer, cursor)
+            elif header_string == 'AltN':
+                cursor = read_AltN(buffer, cursor + 4, model)
+                header_string = readString(buffer, cursor)
+
+        return cursor + 4
+
 class Model():
     def __init__(self, id):
         self.collection = None
         self.ext = None
-        self.id = None
-        self.header = None
+        self.id = id
+        self.header = ModelHeader()
+        self.Data = []
+        self.AltN = []
+        self.mats = []
+        self.textures = []
         self.nodes = []
 
     def read(self, buffer, cursor):
+        cursor = self.header = ModelHeader().read(buffer, cursor)
+        if self.header.AltN and self.ext != 'Podd':
+            AltN = list(set(self.header.AltN))
+            for i in range(len(AltN)):
+                model['nodes'].append(read_node(buffer=buffer, cursor=AltN[i], model=model, parent = None, file_path=file_path))
+        else:
+            model['nodes'] = [read_node(buffer=buffer, cursor=cursor, model=model, parent = None, file_path=file_path)]
+
+        return model
 
     def make(self):
-        self.collection = bpy.data.collections.new(f"{index}_{readString(buffer, 0)}")
+        collection = bpy.data.collections.new(f"model_{self.index}_{self.ext}")
+        collection['ind'] = self.index
+        collection['ext'] = self.ext
+        collection['type'] = 'MODEL'
+        bpy.context.scene.collection.children.link(main_collection)
+        model['collection'] = main_collection
+        lightstreaks_col = bpy.data.collections.new(f"{index}_lightstreaks")
+        lightstreaks_col['type'] = 'LSTR'
+        main_collection.children.link(lightstreaks_col)
+        self.collection = collection
+
+        return model
 
     def unmake(self):
 
