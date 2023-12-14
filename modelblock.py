@@ -409,11 +409,138 @@ class MeshGroup():
     def write(self):
         return
     
-class Node():
+class Node(DataStruct):
     def __init__(self, model):
-        return
-    def read(self):
-        return
+        super().__init__('7I')
+        self.id = None
+        self.head = []
+        self.children = []
+        self.AltN = []
+        self.header = []
+        self.model = model
+    def read(self, buffer, cursor):
+        self.id = cursor
+        node_type, , child_count, child_start = struct.unpack_from(self.format_string, buffer, cursor)
+        node = {
+            'head': [
+                readUInt32BE(buffer, cursor),
+                readUInt32BE(buffer, cursor + 4),
+                readUInt32BE(buffer, cursor + 8),
+                readUInt32BE(buffer, cursor + 12),
+                readUInt32BE(buffer, cursor + 16)
+            ],
+            'children': []
+        }
+
+        child_count = readInt32BE(buffer,cursor + 20)
+        child_start = readUInt32BE(buffer,cursor + 24)
+
+        for i in range(child_count):
+            child_address = readUInt32BE(buffer,child_start + i * 4)
+            if not child_address:
+                if model.get('AltN') and (child_start + i * 4) in model['AltN']:
+                    node['children'].append({'id': child_start + i * 4, 'AltN': True})
+                else:
+                    node['children'].append({'id': None})  # remove later
+                continue
+
+            if model['node_map'].get(child_address):
+                node['children'].append({'id': child_address})
+                continue
+
+            if mesh_group:
+                node['children'].append(read_mesh_group(buffer=buffer, cursor=child_address, model=model, parent = node_empty, file_path = file_path))
+            else:
+                node['children'].append(read_node(buffer=buffer, cursor=child_address, model=model, parent = node_empty, file_path = file_path))
+
+
+        if self.model.AltN and cursor in self.model.AltN:
+            node.AltN = [i for i, h in enumerate(self.model.AltN) if h == cursor]
+        
+        if cursor in self.model.header:
+            node.header = [i for i, h in enumerate(self.model.header) if h == cursor]
+
+        if not self.model.node_map.get(self.id):
+            self.model.node_map[self.id] = True
+
+        mesh_group = False
+        switch_value = readInt32BE(buffer,cursor)
+        
+        if switch_value == 12388:
+            mesh_group = True
+            node.update({
+                'min_x': readFloatBE(buffer, cursor + 28),
+                'min_y': readFloatBE(buffer, cursor + 32),
+                'min_z': readFloatBE(buffer, cursor + 36),
+                'max_x': readFloatBE(buffer, cursor + 40),
+                'max_y': readFloatBE(buffer, cursor + 44),
+                'max_z': readFloatBE(buffer, cursor + 48)
+            })
+        elif switch_value == 53349:
+            node['xyz'] = {
+                'ax': readFloatBE(buffer, cursor + 28),
+                'ay': readFloatBE(buffer, cursor + 32),
+                'az': readFloatBE(buffer, cursor + 36),
+                'bx': readFloatBE(buffer, cursor + 40),
+                'by': readFloatBE(buffer, cursor + 44),
+                'bz': readFloatBE(buffer, cursor + 48),
+                'cx': readFloatBE(buffer, cursor + 52),
+                'cy': readFloatBE(buffer, cursor + 56),
+                'cz': readFloatBE(buffer, cursor + 60),
+                'x': readFloatBE(buffer, cursor + 64),
+                'y': readFloatBE(buffer, cursor + 68),
+                'z': readFloatBE(buffer, cursor + 72),
+                'x1': readFloatBE(buffer, cursor + 76),
+                'y1': readFloatBE(buffer, cursor + 80),
+                'z1': readFloatBE(buffer, cursor + 84)
+            }
+        elif switch_value == 53348:
+            node['xyz'] = {
+                'ax': readFloatBE(buffer, cursor + 28),
+                'ay': readFloatBE(buffer, cursor + 32),
+                'az': readFloatBE(buffer, cursor + 36),
+                'bx': readFloatBE(buffer, cursor + 40),
+                'by': readFloatBE(buffer, cursor + 44),
+                'bz': readFloatBE(buffer, cursor + 48),
+                'cx': readFloatBE(buffer, cursor + 52),
+                'cy': readFloatBE(buffer, cursor + 56),
+                'cz': readFloatBE(buffer, cursor + 60),
+                'x': readFloatBE(buffer, cursor + 64),
+                'y': readFloatBE(buffer, cursor + 68),
+                'z': readFloatBE(buffer, cursor + 72),
+            }
+        elif switch_value == 53350:
+            node['53350'] = {
+                'unk1': readInt32BE(buffer,cursor + 28),
+                'unk2': readInt32BE(buffer,cursor + 32),
+                'unk3': readInt32BE(buffer,cursor + 36),
+                'unk4': readFloatBE(buffer, cursor + 40)
+            }
+        elif switch_value == 20582:
+            node['xyz'] = {
+                'f1': readFloatBE(buffer, cursor + 28),
+                'f2': readFloatBE(buffer, cursor + 32),
+                'f3': readFloatBE(buffer, cursor + 36),
+                'f4': readFloatBE(buffer, cursor + 40),
+                'f5': readFloatBE(buffer, cursor + 44),
+                'f6': readFloatBE(buffer, cursor + 48),
+                'f7': readFloatBE(buffer, cursor + 52),
+                'f8': readFloatBE(buffer, cursor + 56),
+                'f9': readFloatBE(buffer, cursor + 60),
+                'f10': readFloatBE(buffer, cursor + 64),
+                'f11': readFloatBE(buffer, cursor + 68)
+            }
+
+    
+        
+        
+        
+        node_empty = make_node(node, model, parent)
+            
+            
+        
+        
+        return node
     def make(self):
         return
     def unmake(self):
