@@ -422,6 +422,7 @@ class Node(DataStruct):
         self.id = cursor
         node_type, , child_count, child_start = struct.unpack_from(self.format_string, buffer, cursor)
         node = {
+            'id': cursor,
             'head': [
                 readUInt32BE(buffer, cursor),
                 readUInt32BE(buffer, cursor + 4),
