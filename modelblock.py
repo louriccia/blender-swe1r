@@ -397,7 +397,7 @@ class Collision(DataStruct):
 
         return cursor
     
-class MeshGroup():
+class Mesh():
     def __init__(self, model):
         return
     def read(self):
@@ -409,6 +409,8 @@ class MeshGroup():
     def write(self):
         return
     
+
+    
 class Node(DataStruct):
     def __init__(self, model):
         super().__init__('7I')
@@ -417,25 +419,16 @@ class Node(DataStruct):
         self.children = []
         self.AltN = []
         self.header = []
+        self.node_type = None
+        self.load_group1 = None
+        self.load_group2 = None
+        self.unk1 = None
+        self.unk2 = None
         self.model = model
     def read(self, buffer, cursor):
         self.id = cursor
-        node_type, , child_count, child_start = struct.unpack_from(self.format_string, buffer, cursor)
-        node = {
-            'id': cursor,
-            'head': [
-                readUInt32BE(buffer, cursor),
-                readUInt32BE(buffer, cursor + 4),
-                readUInt32BE(buffer, cursor + 8),
-                readUInt32BE(buffer, cursor + 12),
-                readUInt32BE(buffer, cursor + 16)
-            ],
-            'children': []
-        }
-
-        child_count = readInt32BE(buffer,cursor + 20)
-        child_start = readUInt32BE(buffer,cursor + 24)
-
+        self.node_type, self.load_group1, self.load_group2, self.unk1, self.unk2, child_count, child_start = struct.unpack_from(self.format_string, buffer, cursor)
+        
         for i in range(child_count):
             child_address = readUInt32BE(buffer,child_start + i * 4)
             if not child_address:
@@ -548,6 +541,10 @@ class Node(DataStruct):
         return
     def write(self):
         return
+
+class MeshGroup(Node):
+    def __init__(self, model):
+        
 
 class ModelHeader():
     def __init__(self, model):
