@@ -2,7 +2,7 @@ import sys
 import os
 import bpy
 import struct
-
+from .modelblock import Model
 
 # for material in bpy.data.materials:
 #     material.user_clear()
@@ -1047,6 +1047,6 @@ def import_model(file_path, selector):
 
     for i, buffer in enumerate(model_buffers):
         selection = selector[i] if len(selector) else i
-        model = read_model(buffer, selection, file_path)
+        model = Model(i).read(buffer, selection)
 
     print(f'Successfully unpacked {len(model_buffers)} models')

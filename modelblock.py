@@ -69,17 +69,17 @@ class FloatPosition(Data):
         return self.data
 
     
-class Matrix(Data):
+class FloatMatrix(Data):
     def __init__(self, data):
         if data is None:
-            self.data = [FloatVector(), FloatVector(), FloatVector()]
+            self.data = [FloatVector(), FloatVector(), FloatVector(), FloatPosition()]
         else:
-            self.set([FloatVector(data[:3]), FloatVector(data[3:6], FloatVector(data[6:]))])
+            self.set([FloatVector(data[:3]), FloatVector(data[3:6]), FloatVector(data[6:9]), FloatPosition(data[9:])])
 
     def set(self, data=None):
-        if(len(data) != 9):
-            raise ValueError("Matrix must have 9 values")
-        self.data = [FloatVector(data[:3]), FloatVector(data[3:6], FloatVector(data[6:]))]
+        if(len(data) != 12):
+            raise ValueError("Matrix must have 12 values")
+        self.data = [FloatVector(data[:3]), FloatVector(data[3:6]), FloatVector(data[6:]), FloatPosition(data[9:])]
 
     def get(self):
         return [vec.get() for vec in self.data]
@@ -143,7 +143,7 @@ class Fog(Data):
 
 class CollisionTags(DataStruct):
     def __init__(self, hl):
-        super().__init__('H4B3H8B6f2I2i')
+        super().__init__('>H4B3H8B6f2I2i')
         self.hl = hl
         self.unk = 0
         self.fog = Fog()
@@ -178,21 +178,21 @@ class CollisionTags(DataStruct):
         self.unk2 = mesh['unk3']
         self.unload = mesh['unload']
         self.load = mesh['load']
-        'fog': {
-            'flag': mesh['fog_flag'],
-            'color': [round(c*255) for c in mesh['fog_color']],
-            'start': mesh['fog_start'],
-            'end': mesh['fog_stop']
-        }
-        'lights': {
-            'flag': mesh['lights_flag'],
-            'ambient_color': [round(c*255) for c in mesh['lights_ambient_color']],
-            'color': [round(c*255) for c in mesh['lights_color']],
-            'unk1': mesh['unk1'],
-            'unk2': mesh['unk2'],
-            'pos': [p for p in mesh['lights_pos']],
-            'rot': [r for r in mesh['lights_rot']]
-        }
+        # 'fog': {
+        #     'flag': mesh['fog_flag'],
+        #     'color': [round(c*255) for c in mesh['fog_color']],
+        #     'start': mesh['fog_start'],
+        #     'end': mesh['fog_stop']
+        # }
+        # 'lights': {
+        #     'flag': mesh['lights_flag'],
+        #     'ambient_color': [round(c*255) for c in mesh['lights_ambient_color']],
+        #     'color': [round(c*255) for c in mesh['lights_color']],
+        #     'unk1': mesh['unk1'],
+        #     'unk2': mesh['unk2'],
+        #     'pos': [p for p in mesh['lights_pos']],
+        #     'rot': [r for r in mesh['lights_rot']]
+        # }
         return self
     
     def write(self, buffer, cursor):
@@ -202,7 +202,7 @@ class CollisionTags(DataStruct):
 
 class CollisionVertBuffer(DataStruct):
     def __init__(self, hl, length):
-        super().__init__(f'{length*3}h')
+        super().__init__(f'>{length*3}h')
         self.hl = hl
         self.data = None
 
@@ -222,7 +222,7 @@ class CollisionVertBuffer(DataStruct):
     
 class CollisionVertStrips(DataStruct):
     def __init__(self, hl, count):
-        super().__init__(f'{count}I')
+        super().__init__(f'>{count}I')
         self.hl = hl
         self.data = None
 
@@ -263,7 +263,7 @@ class CollisionVertStrips(DataStruct):
 
 class Collision(DataStruct):
     def __init__(self, model):
-        super().__init__('4_I24_HHI8_I8_H')
+        super().__init__('>4_I24_HHI8_I8_H')
         self.model = model
         self.tags = None
         self.vert_strips = None
@@ -413,7 +413,7 @@ class Mesh():
     
 class Node(DataStruct):
     def __init__(self, model):
-        super().__init__('7I')
+        super().__init__('>7I')
         self.id = None
         self.head = []
         self.children = []
@@ -524,16 +524,9 @@ class Node(DataStruct):
                 'f10': readFloatBE(buffer, cursor + 64),
                 'f11': readFloatBE(buffer, cursor + 68)
             }
-
-    
-        
-        
         
         node_empty = make_node(node, model, parent)
-            
-            
-        
-        
+ 
         return node
     def make(self):
         return
@@ -542,9 +535,177 @@ class Node(DataStruct):
     def write(self):
         return
 
-class MeshGroup(Node):
+class MeshGroup12388(Node):
     def __init__(self, model):
+        super().__init__(model)
+    def read(self, buffer, cursor):
+        super().read(buffer, cursor)
+    def make(self):
+        return
+    def unmake(self):
+        return
+    def write(self, buffer, cursor):
+        return
         
+class Group53348(Node):
+    def __init__(self, model):
+        super().__init__(model)
+        self.matrix = FloatMatrix()
+    def read(self, buffer, cursor):
+        super().read(buffer, cursor)
+        self.matrix = FloatMatrix(struct.unpack_from("12f", buffer, cursor+28))
+    def make(self):
+        return
+    def unmake(self):
+        return
+    def write(self, buffer, cursor):
+        return
+        
+class Group53349(Node):
+    def __init__(self, model):
+        super().__init__(model)
+        self.matrix = FloatMatrix()
+        self.bonus = FloatPosition()
+    def read(self, buffer, cursor):
+        super().read(buffer, cursor)
+        self.matrix = FloatMatrix(struct.unpack_from("12f", buffer, cursor+28))
+        self.bonus = FloatPosition(struct.unpack_from("3f", buffer, cursor+76))
+    def make(self):
+        return
+    def unmake(self):
+        return
+    def write(self, buffer, cursor):
+        return
+        
+class Group53350(Node):
+    def __init__(self, model):
+        super().__init__(model)
+        self.unk1 = None
+        self.unk2 = None
+        self.unk3 = None
+        self.unk4 = None
+    def read(self, buffer, cursor):
+        super().read(buffer, cursor)
+        self.unk1, self.unk2, self.unk3, self.unk4 = struct.unpack_from("3If", buffer, cursor+28)
+    def make(self):
+        return
+    def unmake(self):
+        return
+    def write(self, buffer, cursor):
+        return
+      
+class Group20581(Node):
+    def __init__(self, model):
+        super().__init__(model)
+    
+class Group20582(Node):
+    def __init__(self, model):
+        super().__init__(model)
+        self.floats = []
+    def read(self, buffer, cursor):
+        super().read(buffer, cursor)
+        self.floats = struct.unpack_from("11f", buffer, cursor+28)
+    def make(self):
+        return
+    def unmake(self):
+        return
+    def write(self, buffer, cursor):
+        return
+      
+class LStr(DataStruct):
+    def __init__(self, model):
+        super().__init__('>4_3f')
+        self.data = FloatPosition()
+        self.model = model
+    def read(self, buffer, cursor):
+        self.data = FloatPosition(struct.unpack_from(self.format_string, buffer, cursor))
+
+class ModelData():
+    def __init__(self, model):
+        self.data = []
+        self.model = model
+    def read(self, buffer, cursor):
+        size = readUInt32BE(buffer, cursor)
+        cursor += 4
+        i = 0
+        while i < size:
+            if readString(buffer, cursor) == 'LStr':
+                LStr(self.model).read(buffer, cursor)
+                cursor += 12
+                i += 4
+            else:
+                self.data.append(readUInt32BE(buffer,cursor))
+                i+=1
+                cursor += 4
+
+        return cursor
+    
+class Anim(DataStruct):
+    def __init__(self, model):
+        super().__init__('>244x3f2HI5f4I')
+        self.model = model
+        self.float1 = None
+        self.float2 = None
+        self.float3 = None
+        self.flag1 = None
+        self.flag2 = None
+        self.num_keyframes = 0
+        self.float4 = None
+        self.float5 = None
+        self.float6 = None
+        self.float7 = None
+        self.float8 = None
+        self.keyframe_times = []
+        self.keyframe_poses = []
+        self.target = None
+        self.unk32 = None
+    def read(self, buffer, cursor):
+        self.float1, self.float2, self.float3, self.flag1, self.flag2, self.num_keyframes, self.float4, self.fllat5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target, self.unk2 = struct.unpack_from(self.format_string, buffer, cursor)
+        print(self.float1, self.float2, self.float3, self.flag1, self.flag2, self.num_keyframes, self.float4, self.fllat5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target, self.unk2)
+        if self.flag2 in [2, 18]:
+            self.target = readUInt32BE(buffer, self.target)
+
+        for f in range(self.num_keyframes):
+            if keyframe_times_addr:
+                self.keyframe_times.append(readFloatBE(buffer, keyframe_times_addr + f * 4))
+
+            if keyframe_poses_addr:
+                if self.flag2 in [8, 24, 40, 56, 4152]:  # rotation (4)
+                    self.keyframe_poses.append([
+                        readFloatBE(buffer, keyframe_poses_addr + f * 16),
+                        readFloatBE(buffer, keyframe_poses_addr + f * 16 + 4),
+                        readFloatBE(buffer, keyframe_poses_addr + f * 16 + 8),
+                        readFloatBE(buffer, keyframe_poses_addr + f * 16 + 12)
+                    ])
+                elif self.flag2 in [25, 41, 57, 4153]:  # position (3)
+                    self.keyframe_poses.append([
+                        readFloatBE(buffer, keyframe_poses_addr + f * 12),
+                        readFloatBE(buffer, keyframe_poses_addr + f * 12 + 4),
+                        readFloatBE(buffer, keyframe_poses_addr + f * 12 + 8)
+                    ])
+                elif self.flag2 in [27, 28]:  # uv_x/uv_y (1)
+                    self.keyframe_poses.append([
+                        readFloatBE(buffer, keyframe_poses_addr + f * 4)
+                    ])
+                elif self.flag2 in [2, 18]:  # texture
+                    tex = readUInt32BE(buffer,keyframe_poses_addr + f * 4)
+
+                    if tex < cursor:
+                        self.keyframe_poses.append({'repeat': tex})
+                    else:
+                        self.keyframe_poses.append(read_mat_texture(buffer=buffer, cursor=tex, model=model))
+    
+class ModelAnim():
+    def __init__(self, model):
+        self.data = []
+        self.model = model
+    def read(self, buffer, cursor):
+        anim = readUInt32BE(buffer, cursor)
+        while anim:
+            self.data.append(Anim(self.model).read(buffer, anim))
+            cursor += 4
+            anim = readUInt32BE(buffer, cursor)
+        return cursor + 4
 
 class ModelHeader():
     def __init__(self, model):
@@ -552,7 +713,7 @@ class ModelHeader():
         self.model = model
 
     def read(self, buffer, cursor):
-        self.model.ext = struct.unpack_from("4s", buffer, 0)
+        self.model.ext = readString(buffer, cursor)
         cursor = 4
         header = readInt32BE(buffer, cursor)
 
@@ -563,14 +724,19 @@ class ModelHeader():
 
         
         cursor += 4
-        header_string = struct.unpack_from("4s", buffer, cursor)
+        header_string = readString(buffer, cursor)
+        
+        print(header_string)
+        
 
         while header_string != 'HEnd':
             if header_string == 'Data':
-                cursor = read_Data(buffer, cursor + 4, model)
+                self.model.Data = ModelData(self.model)
+                cursor = self.model.Data.read(buffer, cursor + 4)
                 header_string = readString(buffer, cursor)
             elif header_string == 'Anim':
-                cursor = read_Anim(buffer, cursor + 4, model)
+                self.model.Anim = ModelAnim(self.model)
+                cursor = self.model.Anim.read(buffer, cursor + 4)
                 header_string = readString(buffer, cursor)
             elif header_string == 'AltN':
                 cursor = read_AltN(buffer, cursor + 4, model)
@@ -633,7 +799,7 @@ class Model():
         self.ref_keeper = {} # where we'll remember locations of node offsets to go back and update with the offset_map at the end
         self.hl = None
         
-        self.header = ModelHeader()
+        self.header = ModelHeader(self)
         self.Data = []
         self.AltN = []
         self.Anim = []
@@ -643,15 +809,15 @@ class Model():
         self.nodes = []
 
     def read(self, buffer, cursor):
-        cursor = self.header = ModelHeader().read(buffer, cursor)
-        if self.header.AltN and self.ext != 'Podd':
+        self.header = ModelHeader(self)
+        cursor = self.header.read(buffer, cursor)
+        
+        if self.AltN and self.ext != 'Podd':
             AltN = list(set(self.header.AltN))
             for i in range(len(AltN)):
-                model['nodes'].append(read_node(buffer=buffer, cursor=AltN[i], model=model, parent = None, file_path=file_path))
+                self.nodes.append(Node(self).read(buffer, AltN[i]))
         else:
-            model['nodes'] = [read_node(buffer=buffer, cursor=cursor, model=model, parent = None, file_path=file_path)]
-
-        return model
+            self.nodes = [Node(self).read(buffer, cursor)]
 
     def make(self):
         collection = bpy.data.collections.new(f"model_{self.index}_{self.ext}")
@@ -660,7 +826,7 @@ class Model():
         bpy.context.scene.collection.children.link(collection)
         self.collection = collection
 
-        return model
+        return collection
 
     def unmake(self, collection):
         self.ext = collection['ext']
@@ -676,9 +842,7 @@ class Model():
             if top not in top_nodes: top_nodes.append(top)
         
         for node in top_nodes:
-            model['nodes'].append(Node().unmake(node))
-            
-        return model
+            self.nodes.append(Node().unmake(node))
 
     def write(self, buffer, cursor):
         buffer = bytearray(8000000)

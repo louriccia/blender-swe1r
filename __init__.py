@@ -29,15 +29,19 @@ import os
 
 
 if "bpy" in locals(): #means Blender already started once
+    print('already loaded in blender')
     import importlib
     importlib.reload(swe1r_import)
     importlib.reload(swe1r_export)
+    importlib.reload(modelblock)
     importlib.reload(popup)
 else: #start up
-    from .swe1r_import import import_model
-    from .swe1r_export import export_model
-    from .popup import show_custom_popup
-    from .model_list import model_list
+    print('starting up for the first time')
+    from .swe1r_import import *
+    from .swe1r_export import *
+    from .popup import *
+    from .model_list import *
+    from .modelblock import *
 
 import bpy
 
