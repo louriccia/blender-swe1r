@@ -409,7 +409,21 @@ class Mesh():
     def write(self):
         return
     
+def create_node(node_type, model):
+    NODE_MAPPING = {
+        12388: MeshGroup12388,
+        20581: Group20581,
+        20582: Group20582,
+        53348: Group53348,
+        53349: Group53349,
+        53350: Group53350
+    }
 
+    node_class = NODE_MAPPING.get(node_type)
+    if node_class:
+        return node_class(model)
+    else:
+        raise ValueError("Invalid node type")
     
 class Node(DataStruct):
     def __init__(self, model):
@@ -440,17 +454,6 @@ class Node(DataStruct):
         if not self.model.node_map.get(self.id):
             self.model.node_map[self.id] = True
         
-        if self.node_type == 12388:
-            self = MeshGroup12388(self.model).read(buffer, cursor)
-        elif self.node_type == 53349:
-            self = Group53349(self.model).read(buffer, cursor)
-        elif self.node_type == 53348:
-            self = Group53348(self.model).read(buffer, cursor)
-        elif self.node_type == 53350:
-            self = Group53350(self.model).read(buffer, cursor)
-        elif self.node_type == 20582:
-            self = Group20582(self.model).read(buffer, cursor)
-        
         for i in range(self.child_count):
             child_address = readUInt32BE(buffer, self.child_start + i * 4)
             if not child_address:
@@ -467,7 +470,8 @@ class Node(DataStruct):
             if isinstance(self, MeshGroup12388):
                 self.children.append(Mesh(self.model).read(buffer, child_address))
             else:
-                self.children.append(Node(self.model).read(buffer, child_address))
+                node = create_node(self.node_type, self.model)
+                self.children.append(node.read(buffer, child_address))
  
         return self
     def make(self):
@@ -497,7 +501,7 @@ class Group53348(Node):
         self.matrix = FloatMatrix()
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
-        self.matrix = FloatMatrix(struct.unpack_from("12f", buffer, cursor+28))
+        self.matrix = FloatMatrix(struct.unpack_from(">12f", buffer, cursor+28))
         return self
     def make(self):
         return
@@ -513,8 +517,8 @@ class Group53349(Node):
         self.bonus = FloatPosition()
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
-        self.matrix = FloatMatrix(struct.unpack_from("12f", buffer, cursor+28))
-        self.bonus = FloatPosition(struct.unpack_from("3f", buffer, cursor+76))
+        self.matrix = FloatMatrix(struct.unpack_from(">12f", buffer, cursor+28))
+        self.bonus = FloatPosition(struct.unpack_from(">3f", buffer, cursor+76))
         return self
     def make(self):
         return
@@ -532,7 +536,7 @@ class Group53350(Node):
         self.unk4 = None
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
-        self.unk1, self.unk2, self.unk3, self.unk4 = struct.unpack_from("3If", buffer, cursor+28)
+        self.unk1, self.unk2, self.unk3, self.unk4 = struct.unpack_from(">3If", buffer, cursor+28)
         return self
     def make(self):
         return
@@ -554,7 +558,7 @@ class Group20582(Node):
         self.floats = []
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
-        self.floats = struct.unpack_from("11f", buffer, cursor+28)
+        self.floats = struct.unpack_from(">11f", buffer, cursor+28)
         return self
     def make(self):
         return
@@ -673,12 +677,10 @@ class ModelHeader():
             cursor += 4
             header = readInt32BE(buffer, cursor)
 
-        
         cursor += 4
         header_string = readString(buffer, cursor)
         
         print(header_string)
-        
 
         while header_string != 'HEnd':
             if header_string == 'Data':
@@ -740,6 +742,11 @@ class ModelHeader():
 
         return header_offsets
 
+def find_topmost_parent(obj):
+    while obj.parent is not None:
+        obj = obj.parent
+    return obj
+
 class Model():
     def __init__(self, id):
         self.collection = None
@@ -747,7 +754,7 @@ class Model():
         self.id = id
         
         self.ref_map = {} # where we'll map node ids to their written locations
-        self.ref_keeper = {} # where we'll remember locations of node offsets to go back and update with the offset_map at the end
+        self.ref_keeper = {} # where we'll remember locations of node refs to go back and update with the ref_map at the end
         self.hl = None
         
         self.header = ModelHeader(self)
@@ -766,9 +773,13 @@ class Model():
         if self.AltN and self.ext != 'Podd':
             AltN = list(set(self.header.AltN))
             for i in range(len(AltN)):
-                self.nodes.append(Node(self).read(buffer, AltN[i]))
+                node_type = readUInt32BE(buffer, cursor)
+                node = create_node(node_type, self)
+                self.nodes.append(node.read(buffer, AltN[i]))
         else:
-            self.nodes = [Node(self).read(buffer, cursor)]
+            node_type = readUInt32BE(buffer, cursor)
+            node = create_node(node_type, self)
+            self.nodes = [node.read(buffer, cursor)]
 
     def make(self):
         collection = bpy.data.collections.new(f"model_{self.index}_{self.ext}")
