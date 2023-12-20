@@ -1,4 +1,4 @@
-# Copyright (C) 2021-2023
+# Copyright (C) 2021-2024
 # lightningpirate@gmail.com.com
 
 # Created by LightningPirate

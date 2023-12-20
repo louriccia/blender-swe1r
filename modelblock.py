@@ -1,3 +1,24 @@
+# Copyright (C) 2021-2024
+# lightningpirate@gmail.com.com
+
+# Created by LightningPirate
+
+# This file is part of SWE1R Import/Export.
+
+#     SWE1R Import/Export is free software; you can redistribute it and/or
+#     modify it under the terms of the GNU General Public License
+#     as published by the Free Software Foundation; either version 3
+#     of the License, or (at your option) any later version.
+
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#     GNU General Public License for more details.
+
+#     You should have received a copy of the GNU General Public License
+#     along with this program; if not, see <https://www.gnu.org
+# /licenses>.
+
 import struct
 import bpy
 import math
@@ -25,7 +46,7 @@ class DataStruct:
     
     
 class FloatVector(Data):
-    def __init__(self, data):
+    def __init__(self, data = None):
         if data is not None:
             self.set([0,0,0])
         else:
@@ -39,7 +60,7 @@ class FloatVector(Data):
             raise ValueError("Vec3 must contain only 3 values")
         for d in data:
             if d > 1.0 or d < -1.0:
-                raise ValueError("Vec3 is not normalized")
+                raise ValueError(f"Vec3 {d} in {data} is not normalized")
         self.data = data
         return self
     
@@ -47,7 +68,7 @@ class FloatVector(Data):
         return self.data
     
 class FloatPosition(Data):
-    def __init__(self, data):
+    def __init__(self, data = None):
         if data is not None:
             self.set([0,0,0])
         else:
@@ -59,9 +80,7 @@ class FloatPosition(Data):
     def set(self, data=None):
         if(len(data) != 3):
             raise ValueError("Vec3 must contain only 3 values")
-        for d in data:
-            if d > 1.0 or d < -1.0:
-                raise ValueError("Vec3 is not normalized")
+                
         self.data = data
         return self
     
@@ -70,7 +89,7 @@ class FloatPosition(Data):
 
     
 class FloatMatrix(Data):
-    def __init__(self, data):
+    def __init__(self, data = None):
         if data is None:
             self.data = [FloatVector(), FloatVector(), FloatVector(), FloatPosition()]
         else:
@@ -85,7 +104,7 @@ class FloatMatrix(Data):
         return [vec.get() for vec in self.data]
 
 class Color(Data):
-    def __init__(self, data):
+    def __init__(self, data = None):
         if data is None:
             self.data = [0, 0, 0]
         else:
@@ -142,9 +161,9 @@ class Fog(Data):
         self.end = end
 
 class CollisionTags(DataStruct):
-    def __init__(self, hl):
+    def __init__(self, model):
         super().__init__('>H4B3H8B6f2I2i')
-        self.hl = hl
+        self.model = model
         self.unk = 0
         self.fog = Fog()
         self.lights = Lights()
@@ -157,18 +176,19 @@ class CollisionTags(DataStruct):
         # Unpack binary data into object attributes
         data = struct.unpack_from(self.format_string, buffer, cursor)
         self.unk = data[0]
-        self.fog = Fog().set(data[1:7])
-        self.lights = Lights().set(data[7:22])
+        self.fog = Fog().set(*data[1:7])
+        self.lights = Lights().set(*data[7:22])
         self.flags, self.unk2, self.unload, self.load = data[22:]
         return self
         
     def make(self, obj):
-        for key in mesh_node['collision']['data']:
-            obj[key] = mesh_node['collision']['data'][key]
+        # for key in mesh_node['collision']['data']:
+        #     obj[key] = mesh_node['collision']['data'][key]
         
-        obj.id_properties_ui('fog_color').update(subtype='COLOR')
-        obj.id_properties_ui('lights_ambient_color').update(subtype='COLOR')
-        obj.id_properties_ui('lights_color').update(subtype='COLOR')
+        # obj.id_properties_ui('fog_color').update(subtype='COLOR')
+        # obj.id_properties_ui('lights_ambient_color').update(subtype='COLOR')
+        # obj.id_properties_ui('lights_color').update(subtype='COLOR')
+        pass
     
     def unmake(self, mesh):
         if not 'unk' in mesh:
@@ -201,17 +221,24 @@ class CollisionTags(DataStruct):
     
 
 class CollisionVertBuffer(DataStruct):
-    def __init__(self, hl, length):
+    def __init__(self, model, length):
         super().__init__(f'>{length*3}h')
-        self.hl = hl
+        self.model = model
         self.data = None
+
+    def __str__(self):
+        return str(self.data)
 
     def read(self, buffer, cursor):
         self.data = struct.unpack_from(self.format_string, buffer, cursor)
+        
         return self
 
     def make(self):
-        return self.data
+        vert_buffer = []
+        for i in range(len(self.data)//3):
+            vert_buffer.append(self.data[i*3:(i+1)*3])
+        return vert_buffer
     
     def unmake(self, mesh):
         self.data = [round(co) for vert in mesh.data.vertices for co in vert.co]
@@ -221,9 +248,9 @@ class CollisionVertBuffer(DataStruct):
         return struct.pack_into(self.format_string, buffer, cursor, *self.data)
     
 class CollisionVertStrips(DataStruct):
-    def __init__(self, hl, count):
+    def __init__(self, model, count):
         super().__init__(f'>{count}I')
-        self.hl = hl
+        self.model = model
         self.data = None
 
     def read(self, buffer, cursor):
@@ -263,7 +290,7 @@ class CollisionVertStrips(DataStruct):
 
 class Collision(DataStruct):
     def __init__(self, model):
-        super().__init__('>4_I24_HHI8_I8_H')
+        super().__init__('>4xI24xHHI4xI8xH')
         self.model = model
         self.tags = None
         self.vert_strips = None
@@ -276,19 +303,18 @@ class Collision(DataStruct):
         self.id = cursor
         tags_addr, strip_count, strip_size, vert_strips_addr, vert_buffer_addr, vert_count = struct.unpack_from(self.format_string, buffer, cursor)
         if tags_addr:
-            self.tags = CollisionTags(self.hl).read(buffer, tags_addr)
+            self.tags = CollisionTags(self.model).read(buffer, tags_addr)
         if vert_strips_addr:
-            self.vert_strips = CollisionVertStrips(self.hl, strip_count).read(buffer, vert_strips_addr)
+            self.vert_strips = CollisionVertStrips(self.model, strip_count).read(buffer, vert_strips_addr)
         if vert_buffer_addr:
-            self.vert_buffer = CollisionVertBuffer(self.hl, vert_count).read(buffer, vert_buffer_addr)
+            self.vert_buffer = CollisionVertBuffer(self.model, vert_count).read(buffer, vert_buffer_addr)
         self.strip_size = strip_size
         self.strip_count = strip_count
 
     def make(self, parent):
-        
-        if (self.vert_buffer is None or len(mesh_node['collision']['vert_buffer']) < 3):
+        if (self.vert_buffer is None or len(self.vert_buffer.data) < 3):
             return
-                
+        
         verts = self.vert_buffer.make()
         edges = []
         faces = []
@@ -296,7 +322,7 @@ class Collision(DataStruct):
         vert_strips = [self.strip_size for s in range(self.strip_count)]
         
         if(self.vert_strips is not None): 
-            vert_strips = self.vert_strips
+            vert_strips = self.vert_strips.make()
             for strip in vert_strips:
                 for s in range(strip -2):
                     if (s % 2) == 0:
@@ -316,7 +342,7 @@ class Collision(DataStruct):
                             faces.append( [start+s, start+s+1, start+s+2])
                 start += strip
                 
-        mesh_name = self.id + "_" + "collision"
+        mesh_name = str(self.id) + "_" + "collision"
         mesh = bpy.data.meshes.new(mesh_name)
         obj = bpy.data.objects.new(mesh_name, mesh)
         
@@ -397,12 +423,33 @@ class Collision(DataStruct):
 
         return cursor
     
+class Visuals(DataStruct):
+    def __init__(self, model):
+        super().__init__('>I36xI4xII2xHI')
+        self.model = model
+        self.material = None
+        self.vert_buffer = None
+        self.index_buffer = None
+        self.id = None
+    
+    def read(self, buffer, cursor):
+        self.id = cursor
+        mat_addr, group_parent, index_buffer_addr, vert_buffer_addr, vert_count, group_count = struct.unpack_from(self.format_string, buffer, cursor)
+    
+    def make(self, parent):
+        pass
+    
 class Mesh():
     def __init__(self, model):
-        return
-    def read(self):
-        return
-    def make(self):
+        self.model = model
+        self.collision = Collision(self.model)
+        self.visuals = Visuals(self.model)
+    def read(self, buffer, cursor):
+        self.collision.read(buffer, cursor)
+        self.visuals.read(buffer, cursor)
+        return self
+    def make(self, parent):
+        self.collision.make(parent)
         return
     def unmake(self):
         return
@@ -412,6 +459,7 @@ class Mesh():
 def create_node(node_type, model):
     NODE_MAPPING = {
         12388: MeshGroup12388,
+        20580: Group20580,
         20581: Group20581,
         20582: Group20582,
         53348: Group53348,
@@ -421,13 +469,14 @@ def create_node(node_type, model):
 
     node_class = NODE_MAPPING.get(node_type)
     if node_class:
-        return node_class(model)
+        return node_class(model, node_type)
     else:
-        raise ValueError("Invalid node type")
+        raise ValueError(f"Invalid node type {node_type}")
     
 class Node(DataStruct):
-    def __init__(self, model):
+    def __init__(self, model, type):
         super().__init__('>7I')
+        self.type = type
         self.id = None
         self.head = []
         self.children = []
@@ -448,11 +497,11 @@ class Node(DataStruct):
         if self.model.AltN and cursor in self.model.AltN:
             self.AltN = [i for i, h in enumerate(self.model.AltN) if h == cursor]
         
-        if cursor in self.model.header:
-            self.header = [i for i, h in enumerate(self.model.header) if h == cursor]
+        if cursor in self.model.header.offsets:
+            self.header = [i for i, h in enumerate(self.model.header.offsets) if h == cursor]
 
-        if not self.model.node_map.get(self.id):
-            self.model.node_map[self.id] = True
+        if not self.model.ref_map.get(self.id):
+            self.model.ref_map[self.id] = True
         
         for i in range(self.child_count):
             child_address = readUInt32BE(buffer, self.child_start + i * 4)
@@ -463,73 +512,169 @@ class Node(DataStruct):
                     self.children.append({'id': None})  # remove later
                 continue
 
-            if self.model.node_map.get(child_address):
+            if self.model.ref_map.get(child_address):
                 self.children.append({'id': child_address})
                 continue
 
             if isinstance(self, MeshGroup12388):
                 self.children.append(Mesh(self.model).read(buffer, child_address))
             else:
-                node = create_node(self.node_type, self.model)
+                node = create_node(readUInt32BE(buffer, child_address), self.model)
                 self.children.append(node.read(buffer, child_address))
  
         return self
-    def make(self):
-        node_empty = make_node(node, model, parent)
-        return
+    def make(self, parent=None):
+        name = str(self.id)
+        if (self.type in [53349, 53350]):
+            new_empty = bpy.data.objects.new(name, None)
+            self.model.collection.objects.link(new_empty)
+            
+            #new_empty.empty_display_size = 2
+            if self.unk1 &  1048576 != 0:
+                new_empty.empty_display_type = 'ARROWS'
+                new_empty.empty_display_size = 0.5
+                
+            elif self.unk1 & 524288 != 0:
+                new_empty.empty_display_type = 'CIRCLE'
+                new_empty.empty_display_size = 0.5
+            else:
+                new_empty.empty_display_type = 'PLAIN_AXES'
+            if self.type ==53349:
+                #new_empty.location = [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale]
+                if self.unk1 &  1048576 != 0 and False:
+                    
+                    global offsetx
+                    global offsety
+                    global offsetz
+                    offsetx = node['xyz']['x1']
+                    offsety = node['xyz']['y1']
+                    offsetz = node['xyz']['z1']
+                    imparent = None
+                    if parent != None and False:
+                        imparent = parent
+                        while imparent != None:
+                            #print(imparent, imparent['grouptag0'], imparent['grouptag3'])
+                            if int(imparent['grouptag0']) == 53349 and int(imparent['grouptag3']) & 1048576 != 0:
+                                #print('found one')
+                                offsetx += imparent['x']
+                                offsety += imparent['y']
+                                offsetz += imparent['z']
+                            imparent = imparent.parent
+                    #print(offsetx, offsety, offsetz)
+                    new_empty.matrix_world = [
+                    [node['xyz']['ax'], node['xyz']['ay'], node['xyz']['az'], 0],
+                    [node['xyz']['bx'], node['xyz']['by'], node['xyz']['bz'], 0],
+                    [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
+                    [node['xyz']['x']*scale + offsetx*scale,  node['xyz']['y']*scale + offsety*scale, node['xyz']['z']*scale + offsetz*scale, 1],
+                    ]
+                elif False:
+                    new_empty.matrix_world = [
+                    [node['xyz']['ax'], node['xyz']['ay'], node['xyz']['az'], 0],
+                    [node['xyz']['bx'], node['xyz']['by'], node['xyz']['bz'], 0],
+                    [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
+                    [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale, 1],
+                    ]
+            
+                
+        else:
+            new_empty = bpy.data.objects.new(name, None)
+            #new_empty.empty_display_type = 'PLAIN_AXES'
+            new_empty.empty_display_size = 0
+            self.model.collection.objects.link(new_empty)
+            
+        #set group tags
+        new_empty['node_type'] = self.node_type
+        new_empty['load_group1'] = str(self.load_group1)
+        new_empty['load_group2'] = str(self.load_group2)
+        new_empty['unk1'] = self.unk1
+        new_empty['unk2'] = self.unk2
+        
+        if False and (self.type in [53349, 53350]):
+            new_empty['grouptag3'] = bin(int(node['head'][3]))
+            if 'xyz' in node:
+                new_empty['x'] = node['xyz']['x']
+                new_empty['y'] = node['xyz']['y']
+                new_empty['z'] = node['xyz']['z']
+                if 'x1' in node['xyz']:
+                    new_empty['x1'] = node['xyz']['x1']
+                    new_empty['y1'] = node['xyz']['y1']
+                    new_empty['z1'] = node['xyz']['z1']
+            
+        #assign parent
+        if parent is not None:
+            #savedState = new_empty.matrix_world
+            if self.type not in [53349, 53350] or self.unk1 & 1048576 == 0 and False:
+                new_empty.parent = parent
+                #if(node['head'][3] & 1048576) == 0:
+                #loc = new_empty.constraints.new(type='COPY_LOCATION')
+                #loc.target = parent
+                #elif(node['head'][3] & 524288) == 0:
+                    #rot = new_empty.constraints.new(type='COPY_ROTATION')
+                    #rot.target = parent
+                #else:
+                    #new_empty.parent = parent
+                    
+            else:
+                new_empty.parent = parent
+            #new_empty.matrix_world = savedState
+        for node in self.children:
+            if not isinstance(node, dict):
+                node.make(new_empty)
+            
+        return new_empty
     def unmake(self):
         return
     def write(self):
         return
 
 class MeshGroup12388(Node):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, type):
+        super().__init__(model, type)
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
         return self
-    def make(self):
-        return
+    def make(self, parent = None):
+        return super().make(parent)
     def unmake(self):
         return
     def write(self, buffer, cursor):
         return
         
 class Group53348(Node):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, type):
+        super().__init__(model, type)
         self.matrix = FloatMatrix()
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
         self.matrix = FloatMatrix(struct.unpack_from(">12f", buffer, cursor+28))
         return self
-    def make(self):
-        return
+    def make(self, parent = None):
+        return super().make(parent)
     def unmake(self):
         return
     def write(self, buffer, cursor):
         return
         
 class Group53349(Node):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, type):
+        super().__init__(model, type)
         self.matrix = FloatMatrix()
         self.bonus = FloatPosition()
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
-        self.matrix = FloatMatrix(struct.unpack_from(">12f", buffer, cursor+28))
-        self.bonus = FloatPosition(struct.unpack_from(">3f", buffer, cursor+76))
+        self.matrix.set(struct.unpack_from(">12f", buffer, cursor+28))
+        self.bonus.set(struct.unpack_from(">3f", buffer, cursor+76))
         return self
-    def make(self):
-        return
+    def make(self, parent = None):
+        return super().make(parent)
     def unmake(self):
         return
     def write(self, buffer, cursor):
         return
         
 class Group53350(Node):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, type):
+        super().__init__(model, type)
         self.unk1 = None
         self.unk2 = None
         self.unk3 = None
@@ -538,30 +683,46 @@ class Group53350(Node):
         super().read(buffer, cursor)
         self.unk1, self.unk2, self.unk3, self.unk4 = struct.unpack_from(">3If", buffer, cursor+28)
         return self
-    def make(self):
-        return
+    def make(self, parent = None):
+        new_empty = super().make(parent)
+        new_empty['53350_unk1'] = self.unk1
+        new_empty['53350_unk2'] = self.unk2
+        new_empty['53350_unk3'] = self.unk3
+        new_empty['53350_unk4'] = self.unk4
+        return new_empty
     def unmake(self):
         return
     def write(self, buffer, cursor):
         return
-      
-class Group20581(Node):
-    def __init__(self, model):
-        super().__init__(model)
+  
+class Group20580(Node):
+    def __init__(self, model, type):
+        super().__init__(model, type)
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
         return self
+    def make(self, parent = None):
+        return super().make(parent)
+      
+class Group20581(Node):
+    def __init__(self, model, type):
+        super().__init__(model, type)
+    def read(self, buffer, cursor):
+        super().read(buffer, cursor)
+        return self
+    def make(self, parent = None):
+        return super().make(parent)
     
 class Group20582(Node):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, type):
+        super().__init__(model, type)
         self.floats = []
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
         self.floats = struct.unpack_from(">11f", buffer, cursor+28)
         return self
-    def make(self):
-        return
+    def make(self, parent = None):
+        return super().make(parent)
     def unmake(self):
         return
     def write(self, buffer, cursor):
@@ -616,7 +777,6 @@ class Anim(DataStruct):
         self.unk32 = None
     def read(self, buffer, cursor):
         self.float1, self.float2, self.float3, self.flag1, self.flag2, self.num_keyframes, self.float4, self.fllat5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target, self.unk2 = struct.unpack_from(self.format_string, buffer, cursor)
-        print(self.float1, self.float2, self.float3, self.flag1, self.flag2, self.num_keyframes, self.float4, self.fllat5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target, self.unk2)
         if self.flag2 in [2, 18]:
             self.target = readUInt32BE(buffer, self.target)
 
@@ -680,8 +840,6 @@ class ModelHeader():
         cursor += 4
         header_string = readString(buffer, cursor)
         
-        print(header_string)
-
         while header_string != 'HEnd':
             if header_string == 'Data':
                 self.model.Data = ModelData(self.model)
@@ -699,10 +857,10 @@ class ModelHeader():
     
     def make(self):
         self.model.collection['header'] = self.offsets
-        self.model.collection['ind'] = self.model.index
+        self.model.collection['ind'] = self.model.id
         self.model.collection['ext'] = self.model.ext
         
-        lightstreaks_col = bpy.data.collections.new(f"{index}_lightstreaks")
+        lightstreaks_col = bpy.data.collections.new("lightstreaks")
         lightstreaks_col['type'] = 'LSTR'
         self.model.collection.children.link(lightstreaks_col)
         return
@@ -752,6 +910,7 @@ class Model():
         self.collection = None
         self.ext = None
         self.id = id
+        self.scale = 0.01
         
         self.ref_map = {} # where we'll map node ids to their written locations
         self.ref_keeper = {} # where we'll remember locations of node refs to go back and update with the ref_map at the end
@@ -767,7 +926,6 @@ class Model():
         self.nodes = []
 
     def read(self, buffer, cursor):
-        self.header = ModelHeader(self)
         cursor = self.header.read(buffer, cursor)
         
         if self.AltN and self.ext != 'Podd':
@@ -780,13 +938,19 @@ class Model():
             node_type = readUInt32BE(buffer, cursor)
             node = create_node(node_type, self)
             self.nodes = [node.read(buffer, cursor)]
+            
+        return self
 
     def make(self):
-        collection = bpy.data.collections.new(f"model_{self.index}_{self.ext}")
+        collection = bpy.data.collections.new(f"model_{self.id}_{self.ext}")
         
         collection['type'] = 'MODEL'
         bpy.context.scene.collection.children.link(collection)
         self.collection = collection
+        
+        self.header.make()
+        for node in self.nodes:
+            node.make()
 
         return collection
 

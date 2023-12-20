@@ -1,4 +1,4 @@
-# Copyright (C) 2021-2023
+# Copyright (C) 2021-2024
 # lightningpirate@gmail.com.com
 
 # Created by LightningPirate
@@ -66,7 +66,6 @@ def update_model_dropdown(self, context):
         items_for_selected_category = [(str(i), f"{model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_type]
         items_for_selected_category.insert(0, ('-1', 'All', 'Import all models'))
         
-    print(items_for_selected_category)
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
         items=items_for_selected_category,
         name="Model Selection",

@@ -1,3 +1,24 @@
+# Copyright (C) 2021-2024
+# lightningpirate@gmail.com.com
+
+# Created by LightningPirate
+
+# This file is part of SWE1R Import/Export.
+
+#     SWE1R Import/Export is free software; you can redistribute it and/or
+#     modify it under the terms of the GNU General Public License
+#     as published by the Free Software Foundation; either version 3
+#     of the License, or (at your option) any later version.
+
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#     GNU General Public License for more details.
+
+#     You should have received a copy of the GNU General Public License
+#     along with this program; if not, see <https://www.gnu.org
+# /licenses>.
+
 import sys
 import os
 import bpy
@@ -1038,15 +1059,18 @@ def make_texture(texture, folder_path):
         
     return tex
 
-def import_model(file_path, selector):
+def import_model(file_path, selector=None):
     with open(file_path + 'out_modelblock.bin', 'rb') as file:
         file = file.read()
         read_block_result = read_block(file, [[], []], selector)
 
     offset_buffers, model_buffers = read_block_result
-
-    for i, buffer in enumerate(model_buffers):
-        selection = selector[i] if len(selector) else i
-        model = Model(i).read(buffer, selection)
+    if selector is None:
+        selector = range(324)
+        
+    for i, id in enumerate(selector):
+        model = Model(id).read(model_buffers[i], 0)
+        model.make()
+        print("here's the model", model)
 
     print(f'Successfully unpacked {len(model_buffers)} models')
