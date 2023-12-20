@@ -79,7 +79,7 @@ class FloatPosition(Data):
     
     def set(self, data=None):
         if(len(data) != 3):
-            raise ValueError("Vec3 must contain only 3 values")
+            raise ValueError(f"Vec3 must contain only 3 values, received {len(data)}")
                 
         self.data = data
         return self
@@ -87,6 +87,25 @@ class FloatPosition(Data):
     def get(self):
         return self.data
 
+class IntPosition(Data):
+    def __init__(self, data = None):
+        if data is not None:
+            self.set([0,0,0])
+        else:
+            self.data = [0,0,0]
+
+    def __str__(self):
+        return f"({self.data[0]}, {self.data[1]}, {self.data[2]})"
+    
+    def set(self, data=None):
+        if(len(data) != 3):
+            raise ValueError("Vec3 must contain only 3 values")
+                
+        self.data = [round(d) for d in data]
+        return self
+    
+    def get(self):
+        return self.data
     
 class FloatMatrix(Data):
     def __init__(self, data = None):
@@ -423,6 +442,134 @@ class Collision(DataStruct):
 
         return cursor
     
+class VisualsVertChunk(DataStruct):
+    def __init__(self, model):
+        self.model = model
+        super().__init__('>hhh2xhhBBBB')
+        self.pos = []
+        self.uv = []
+        self.v_color = []
+    def read(self, buffer, cursor):
+        x, y, z, uv_x, uv_y, r, g, b, a = struct.unpack_from(self.format_string, buffer, cursor)
+        self.pos = [x, y, z]
+        self.uv = [uv_x, uv_y]
+        self.v_color = [r, g, b, a]
+        return cursor + self.size
+    
+    
+class VisualsVertBuffer():
+    def __init__(self, model, length):
+        self.model = model
+        self.data = []
+        self.length = length
+        
+    def read(self, buffer, cursor):
+        for i in range(self.length):
+            vert = VisualsVertChunk(self.model)
+            cursor = vert.read(buffer, cursor)
+            self.data.append(vert)
+    
+class VisualsIndexChunk1(DataStruct):
+    def __init__(self, model, type):
+        self.model = model
+        self.type = type
+        super().__init__('BBBBI')
+        self.unk1 = None
+        self.unk2 = None
+        self.size = None
+        self.start = None
+        
+    def read(self, buffer, cursor, vert_buffer_addr):
+        self.type, self.unk1, self.unk2, self.size, start = struct.unpack_from(self.format_string, buffer, cursor)
+        self.start = round((start - vert_buffer_addr)/16)
+        return cursor + self.size
+        
+class VisualsIndexChunk3(DataStruct):
+    def __init__(self, model, type):
+        self.model = model
+        self.type = type
+        super().__init__('B6xB')
+        self.unk = None
+        
+    def read(self, buffer, cursor, vert_buffer_addr):
+        self.type, self.unk = struct.unpack_from(self.format_string, buffer, cursor)
+        
+        return cursor + self.size
+        
+class VisualsIndexChunk5(DataStruct):
+    def __init__(self, model, type):
+        self.model = model
+        self.type = type
+        super().__init__('BBBB4x')
+        self.x = None
+        self.y = None
+        self.z = None
+        
+    def read(self, buffer, cursor, vert_buffer_addr):
+        self.type, x, y, z = struct.unpack_from(self.format_string, buffer, cursor)
+        self.x = round(x/2)
+        self.y = round(y/2)
+        self.z = round(z/2)
+        return cursor + self.size
+        
+class VisualsIndexChunk6(DataStruct):
+    def __init__(self, model, type):
+        self.model = model
+        self.type = type
+        super().__init__('BBBBxBBB')
+        self.x = None
+        self.y = None
+        self.z = None
+        self.x1 = None
+        self.y1 = None
+        self.z1 = None
+        
+    def read(self, buffer, cursor, vert_buffer_addr):
+        self.type, x, y, z, x1, y1, z1 = struct.unpack_from(self.format_string, buffer, cursor)
+        self.x = round(x/2)
+        self.y = round(y/2)
+        self.z = round(z/2)
+        self.x1 = round(x1/2)
+        self.y1 = round(y1/2)
+        self.z1 = round(z1/2)
+        return cursor + self.size
+            
+class VisualsIndexBuffer():
+    def __init__(self, model):
+        self.model = model
+        self.data = []
+        
+    def read(self, buffer, cursor, vert_buffer_addr):
+        chunk_type = readUInt8(buffer, cursor)
+        CHUNK_MAPPING = {
+            1: VisualsIndexChunk1,
+            3: VisualsIndexChunk3,
+            5: VisualsIndexChunk5,
+            6: VisualsIndexChunk6,
+        }
+        while(chunk_type != 223):
+            chunk_class = CHUNK_MAPPING.get(chunk_type)
+            if chunk_class is None:
+                raise ValueError(f"Invalid index chunk type {chunk_type}")
+            chunk = chunk_class(self.model, chunk_class)
+            chunk.read(buffer, cursor, vert_buffer_addr)
+            self.data.append(chunk)
+            cursor += 8
+            chunk_type = readUInt8(buffer, cursor)
+            
+    def make(self):
+        faces = []
+        start = 0
+        for chunk in self.data:
+            if chunk.type == 1:
+                start = chunk.start
+            elif chunk.type == 5:
+                faces.append([start + chunk.x, start + chunk.y, start + chunk.z])
+            elif chunk.type == 6:
+                faces.append([start + chunk.x, start + chunk.y, start + chunk.z])
+                faces.append([start + chunk.x1, start + chunk.y1, start + chunk.z1])
+        return faces
+    
 class Visuals(DataStruct):
     def __init__(self, model):
         super().__init__('>I36xI4xII2xHI')
@@ -435,9 +582,57 @@ class Visuals(DataStruct):
     def read(self, buffer, cursor):
         self.id = cursor
         mat_addr, group_parent, index_buffer_addr, vert_buffer_addr, vert_count, group_count = struct.unpack_from(self.format_string, buffer, cursor)
+        
+        if vert_buffer_addr:
+            self.vert_buffer = VisualsVertBuffer(self.model, vert_count)
+            self.vert_buffer.read(buffer, vert_buffer_addr)
+            
+        if index_buffer_addr:
+            self.index_buffer = VisualsIndexBuffer(self.model)
+            self.index_buffer.read(buffer, index_buffer_addr, vert_buffer_addr)
     
     def make(self, parent):
-        pass
+        print('making visual')
+        if self.vert_buffer is None or self.index_buffer is None:
+            print('no data')
+            return
+        
+        
+        verts = [vert.pos for vert in self.vert_buffer.data]
+        edges = []
+        faces = self.index_buffer.make()
+        print(self.id, verts, faces)
+        return
+        mesh_name = str(self.id) + "_" + "visuals"
+        mesh = bpy.data.meshes.new(mesh_name)
+        obj = bpy.data.objects.new(mesh_name, mesh)
+        
+        obj['type'] = 'VIS'    
+        obj['id'] = self.id
+        obj.scale = [self.model.scale, self.model.scale, self.model.scale]
+
+        self.model.collection.objects.link(obj)
+        mesh.from_pydata(verts, edges, faces)
+        obj.parent = parent
+        
+        #mat = model['mats'][mesh_node['visuals']['material']]
+        #tex = None if mat['texture'] == 0 else model['textures'][mat['texture']]
+        #mesh.materials.append(
+        #    make_material(mat, tex, file_path)
+        #)
+        
+        #set vector colors / uv coords
+        # uv_layer = mesh.uv_layers.new(name = 'uv')
+        # color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
+        # for poly in mesh.polygons:
+        #     for p in range(len(poly.vertices)):
+        #         v = mesh_node['visuals']['vert_buffer'][poly.vertices[p]]
+        #         c = v['v_color']
+        #         color = [c[0]/255, c[1]/255, c[2]/255, c[3]/255]
+        #         uv_layer.data[poly.loop_indices[p]].uv = [v['uv_x']/4096, v['uv_y']/4096]
+        #         color_layer.data[poly.loop_indices[p]].color = color
+        #         if(mesh_name == '1044_visuals'):
+        #             print(p, poly.vertices[p], poly.loop_indices[p], c, [v['uv_x'], v['uv_y']])
     
 class Mesh():
     def __init__(self, model):
@@ -450,6 +645,7 @@ class Mesh():
         return self
     def make(self, parent):
         self.collision.make(parent)
+        self.visuals.make(parent)
         return
     def unmake(self):
         return
