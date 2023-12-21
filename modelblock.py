@@ -125,7 +125,7 @@ class FloatMatrix(Data):
 class Color(Data):
     def __init__(self, data = None):
         if data is None:
-            self.data = [0, 0, 0]
+            self.data = [0, 0, 0, 255]
         else:
             self.set(data)
         
@@ -133,10 +133,21 @@ class Color(Data):
         return f"r: {self.data[0]} g: {self.data[1]} b: {self.data[2]}"
     
     def set(self, data=None):
-        if(len(data) != 3):
-            raise ValueError("Color must have 3 values")
+        if(len(data) > 4 or len(data) < 3):
+            raise ValueError("Color must have 3 or 4 values")
+        for c in self.data:
+            if c > 255:
+                raise ValueError(f"Color values must be < 255, received {c}")
+        if len(data) == 3:
+            data.append(255)
         self.data = data
         return self
+    
+    def make(self):
+        return [d/255 for d in self.data]
+    
+    def unmake(self, data):
+        self.set([round(d * 255) for d in data])
     
     def get(self):
         return self.data
@@ -448,12 +459,12 @@ class VisualsVertChunk(DataStruct):
         super().__init__('>hhh2xhhBBBB')
         self.pos = []
         self.uv = []
-        self.v_color = []
+        self.color = []
     def read(self, buffer, cursor):
         x, y, z, uv_x, uv_y, r, g, b, a = struct.unpack_from(self.format_string, buffer, cursor)
         self.pos = [x, y, z]
         self.uv = [uv_x, uv_y]
-        self.v_color = [r, g, b, a]
+        self.color = [r, g, b, a]
         return cursor + self.size
     
     
@@ -473,7 +484,7 @@ class VisualsIndexChunk1(DataStruct):
     def __init__(self, model, type):
         self.model = model
         self.type = type
-        super().__init__('BBBBI')
+        super().__init__('>BBBBI')
         self.unk1 = None
         self.unk2 = None
         self.size = None
@@ -488,7 +499,7 @@ class VisualsIndexChunk3(DataStruct):
     def __init__(self, model, type):
         self.model = model
         self.type = type
-        super().__init__('B6xB')
+        super().__init__('>B6xB')
         self.unk = None
         
     def read(self, buffer, cursor, vert_buffer_addr):
@@ -500,38 +511,38 @@ class VisualsIndexChunk5(DataStruct):
     def __init__(self, model, type):
         self.model = model
         self.type = type
-        super().__init__('BBBB4x')
-        self.x = None
-        self.y = None
-        self.z = None
+        super().__init__('>BBBB4x')
+        self.f1 = None
+        self.f2 = None
+        self.f3 = None
         
     def read(self, buffer, cursor, vert_buffer_addr):
-        self.type, x, y, z = struct.unpack_from(self.format_string, buffer, cursor)
-        self.x = round(x/2)
-        self.y = round(y/2)
-        self.z = round(z/2)
+        self.type, f1, f2, f3 = struct.unpack_from(self.format_string, buffer, cursor)
+        self.f1 = round(f1/2)
+        self.f2 = round(f2/2)
+        self.f3 = round(f3/2)
         return cursor + self.size
         
 class VisualsIndexChunk6(DataStruct):
     def __init__(self, model, type):
         self.model = model
         self.type = type
-        super().__init__('BBBBxBBB')
-        self.x = None
-        self.y = None
-        self.z = None
-        self.x1 = None
-        self.y1 = None
-        self.z1 = None
+        super().__init__('>BBBBxBBB')
+        self.f1 = None
+        self.f2 = None
+        self.f3 = None
+        self.f4 = None
+        self.f5 = None
+        self.f6 = None
         
     def read(self, buffer, cursor, vert_buffer_addr):
-        self.type, x, y, z, x1, y1, z1 = struct.unpack_from(self.format_string, buffer, cursor)
-        self.x = round(x/2)
-        self.y = round(y/2)
-        self.z = round(z/2)
-        self.x1 = round(x1/2)
-        self.y1 = round(y1/2)
-        self.z1 = round(z1/2)
+        self.type, f1, f2, f3, f4, f5, f6 = struct.unpack_from(self.format_string, buffer, cursor)
+        self.f1 = round(f1/2)
+        self.f2 = round(f2/2)
+        self.f3 = round(f3/2)
+        self.f4 = round(f4/2)
+        self.f5 = round(f5/2)
+        self.f6 = round(f6/2)
         return cursor + self.size
             
 class VisualsIndexBuffer():
@@ -564,11 +575,180 @@ class VisualsIndexBuffer():
             if chunk.type == 1:
                 start = chunk.start
             elif chunk.type == 5:
-                faces.append([start + chunk.x, start + chunk.y, start + chunk.z])
+                faces.append([start + chunk.f1, start + chunk.f2, start + chunk.f3])
             elif chunk.type == 6:
-                faces.append([start + chunk.x, start + chunk.y, start + chunk.z])
-                faces.append([start + chunk.x1, start + chunk.y1, start + chunk.z1])
+                faces.append([start + chunk.f1, start + chunk.f2, start + chunk.f3])
+                faces.append([start + chunk.f4, start + chunk.f5, start + chunk.f6])
         return faces
+    
+class MaterialTextureChunk(DataStruct):
+    def __init__(self, model):
+        super().__init__('>3IHH')
+        self.data = []
+        self.model = model
+    def read(self, buffer, cursor):
+        self.data = struct.unpack_from(self.format_string, buffer, cursor)
+    
+class MaterialTexture(DataStruct):
+    def __init__(self, model):
+        super().__init__('>Ihh4x8H6I4xHH')
+        self.model = model
+        self.id = None
+        self.unk0 = None
+        self.unk1 = None
+        self.unk2 = None
+        self.unk3 = None
+        self.format = None
+        self.unk4 = None
+        self.width = None
+        self.height = None
+        self.unk5 = None
+        self.unk6 = None
+        self.unk7 = None
+        self.unk8 = None
+        self.chunks = []
+        self.unk9 = None
+        self.tex_index = None
+        
+    def read(self, buffer, cursor):
+        unk_pointers = []
+        self.id = cursor
+        self.unk0, self.unk1, self.unk3, self.format, self.unk4, self.width, self.height, self.unk5, self.unk6, self.unk7, self.unk8, *unk_pointers, self.unk9, self.tex_index, struct.unpack_from(self.format_string, buffer, cursor)
+        for pointer in unk_pointers:
+            chunk = MaterialTextureChunk(self.model)
+            chunk.read(buffer, pointer)
+            self.chunks.append(chunk)
+        
+    def make(self):
+        pass
+        
+class MaterialUnk(DataStruct):
+    def __init__(self, model):
+        super().__init__('>17H4B7H')
+        self.model = model
+        self.data = None
+        self.color = []
+    def read(self, buffer, cursor):
+        data = []
+        *data, r, g, b, a, unk17, unk18, unk19, unk20, unk21, unk22, unk23 = struct.unpack_from(self.format_string, buffer, cursor)
+        self.color = [r, g, b, a]
+        self.data = data.extend([unk17, unk18, unk19, unk20, unk21, unk22, unk23])
+    
+    def make(self):
+        pass
+    
+class Material(DataStruct):
+    def __init__(self, model):
+        super().__init__('>I4xII')
+        self.id = None
+        self.model = model
+        self.format = 0
+        self.texture = None
+        self.unk = None
+        
+    def read(self, buffer, cursor):
+        self.id = cursor
+        self.format, texture_addr, unk_addr = struct.unpack_from(self.format_string, buffer, cursor)
+        if texture_addr:
+            self.texture = MaterialTexture(self.model)
+            self.texture.read(buffer, texture_addr)
+            
+        if unk_addr:
+            self.unk = MaterialUnk(self.model)
+            self.unk.read(buffer, unk_addr)
+        
+    def make(self):
+        mat_name = str(self.id)
+        if (self.texture is not None):
+            material = bpy.data.materials.get(mat_name)
+            if material is not None:
+                return material
+            
+            material = bpy.data.materials.new(mat_name)
+            material.use_nodes = True
+            #material.blend_method = 'BLEND' #use for transparency
+            material.blend_method = 'CLIP'
+            if self.texture.format == 3:
+                material.blend_method = 'BLEND'
+            if self.texture.format != 6:
+                material.use_backface_culling = True
+            if self.unk.data[1] == 8:
+                material.show_transparent_back = False
+            else:
+                material.show_transparent_back = True
+            
+            node_1 = material.node_tree.nodes.new("ShaderNodeTexImage")
+            node_2 = material.node_tree.nodes.new("ShaderNodeVertexColor")
+            node_3 = material.node_tree.nodes.new("ShaderNodeMixRGB")
+            node_3.blend_type = 'MULTIPLY'
+            node_3.inputs[0].default_value = 1
+            material.node_tree.links.new(node_1.outputs["Color"], node_3.inputs["Color1"])
+            material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color2"])
+            material.node_tree.links.new(node_3.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
+            material.node_tree.links.new(node_1.outputs["Alpha"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
+            material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
+            material.node_tree.nodes["Principled BSDF"].inputs[7].default_value = 0 #turn off specular
+            
+            image = str(self.texture.tex_index)
+            if image in ["1167", "1077", "1461", "1596"]: #probably shouldn't do it this way; TODO find specific tag
+                material.blend_method = 'BLEND'
+                material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
+            
+            if self.format in [31, 15, 7]:
+                material.node_tree.links.new(node_2.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Normal"])
+                material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
+            
+            chunk_tag = self.texture.chunks[0].data[0]
+            if(self.texture.chunks and chunk_tag & 0x11 != 0):
+                node_4 = material.node_tree.nodes.new("ShaderNodeUVMap")
+                node_5 = material.node_tree.nodes.new("ShaderNodeSeparateXYZ")
+                node_6 = material.node_tree.nodes.new("ShaderNodeCombineXYZ")
+                material.node_tree.links.new(node_4.outputs["UV"], node_5.inputs["Vector"])
+                material.node_tree.links.new(node_6.outputs["Vector"], node_1.inputs["Vector"])
+                if(chunk_tag & 0x11 == 0x11):
+                    node_7 = material.node_tree.nodes.new("ShaderNodeMath")
+                    node_7.operation = 'PINGPONG'
+                    node_7.inputs[1].default_value = 1
+                    material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
+                    material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
+                    node_8 = material.node_tree.nodes.new("ShaderNodeMath")
+                    node_8.operation = 'PINGPONG'
+                    node_8.inputs[1].default_value = 1
+                    material.node_tree.links.new(node_5.outputs["Y"], node_8.inputs["Value"])
+                    material.node_tree.links.new(node_8.outputs["Value"], node_6.inputs["Y"])
+                elif(chunk_tag & 0x11 == 0x01):
+                    material.node_tree.links.new(node_5.outputs["X"], node_6.inputs["X"])
+                    node_7 = material.node_tree.nodes.new("ShaderNodeMath")
+                    node_7.operation = 'PINGPONG'
+                    node_7.inputs[1].default_value = 1
+                    material.node_tree.links.new(node_5.outputs["Y"], node_7.inputs["Value"])
+                    material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["Y"])
+                elif(chunk_tag & 0x11 == 0x10):
+                    node_7 = material.node_tree.nodes.new("ShaderNodeMath")
+                    node_7.operation = 'PINGPONG'
+                    node_7.inputs[1].default_value = 1
+                    material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
+                    material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
+                    material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
+
+            b_tex = bpy.data.images.get(image)
+            if b_tex is None:
+                b_tex = make_texture(tex, file_path)
+
+            image_node = material.node_tree.nodes["Image Texture"]
+            image_node.image = b_tex
+
+        else:
+            material = bpy.data.materials.new(mat_name)
+            material.use_nodes = True
+            material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
+            colors = self.unk.color
+            #print(colors)
+            material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
+            node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
+            material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
+            
+        return material
     
 class Visuals(DataStruct):
     def __init__(self, model):
@@ -577,11 +757,13 @@ class Visuals(DataStruct):
         self.material = None
         self.vert_buffer = None
         self.index_buffer = None
+        self.group_parent = None
+        self.group_count = None
         self.id = None
     
     def read(self, buffer, cursor):
         self.id = cursor
-        mat_addr, group_parent, index_buffer_addr, vert_buffer_addr, vert_count, group_count = struct.unpack_from(self.format_string, buffer, cursor)
+        mat_addr, self.group_parent, index_buffer_addr, vert_buffer_addr, vert_count, self.group_count = struct.unpack_from(self.format_string, buffer, cursor)
         
         if vert_buffer_addr:
             self.vert_buffer = VisualsVertBuffer(self.model, vert_count)
@@ -590,19 +772,18 @@ class Visuals(DataStruct):
         if index_buffer_addr:
             self.index_buffer = VisualsIndexBuffer(self.model)
             self.index_buffer.read(buffer, index_buffer_addr, vert_buffer_addr)
+            
+        if mat_addr:
+            self.material = Material(self.model)
+            self.material.read(buffer, mat_addr)
     
     def make(self, parent):
-        print('making visual')
         if self.vert_buffer is None or self.index_buffer is None:
-            print('no data')
             return
-        
         
         verts = [vert.pos for vert in self.vert_buffer.data]
         edges = []
         faces = self.index_buffer.make()
-        print(self.id, verts, faces)
-        return
         mesh_name = str(self.id) + "_" + "visuals"
         mesh = bpy.data.meshes.new(mesh_name)
         obj = bpy.data.objects.new(mesh_name, mesh)
@@ -622,17 +803,13 @@ class Visuals(DataStruct):
         #)
         
         #set vector colors / uv coords
-        # uv_layer = mesh.uv_layers.new(name = 'uv')
-        # color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
-        # for poly in mesh.polygons:
-        #     for p in range(len(poly.vertices)):
-        #         v = mesh_node['visuals']['vert_buffer'][poly.vertices[p]]
-        #         c = v['v_color']
-        #         color = [c[0]/255, c[1]/255, c[2]/255, c[3]/255]
-        #         uv_layer.data[poly.loop_indices[p]].uv = [v['uv_x']/4096, v['uv_y']/4096]
-        #         color_layer.data[poly.loop_indices[p]].color = color
-        #         if(mesh_name == '1044_visuals'):
-        #             print(p, poly.vertices[p], poly.loop_indices[p], c, [v['uv_x'], v['uv_y']])
+        uv_layer = mesh.uv_layers.new(name = 'uv')
+        color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
+        for poly in mesh.polygons:
+            for p in range(len(poly.vertices)):
+                v = self.vert_buffer.data[poly.vertices[p]]
+                uv_layer.data[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
+                color_layer.data[poly.loop_indices[p]].color = [a/255 for a in v.color]
     
 class Mesh():
     def __init__(self, model):

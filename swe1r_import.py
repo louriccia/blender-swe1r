@@ -24,6 +24,7 @@ import os
 import bpy
 import struct
 from .modelblock import Model
+from .block import Block
 
 # for material in bpy.data.materials:
 #     material.user_clear()
@@ -1060,11 +1061,14 @@ def make_texture(texture, folder_path):
     return tex
 
 def import_model(file_path, selector=None):
-    with open(file_path + 'out_modelblock.bin', 'rb') as file:
-        file = file.read()
-        read_block_result = read_block(file, [[], []], selector)
+    modelblock = Block(file_path + 'out_modelblock.bin', [[], []])
+    textureblock = Block(file_path + 'out_textureblock.bin', [[], []])
+    splineblock = Block(file_path + 'out_splineblock.bin', [[]])
 
-    offset_buffers, model_buffers = read_block_result
+    modelblock.textureblock = textureblock
+    modelblock.splineblock = splineblock
+
+    offset_buffers, model_buffers = modelblock.read()
     if selector is None:
         selector = range(324)
         

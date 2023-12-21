@@ -127,7 +127,8 @@ class ImportOperator(bpy.types.Operator):
         if folder_path == "":
             show_custom_popup(bpy.context, "No set import folder", "Select your folder containing the .bin files")
             return {'CANCELLED'}
-        
+        if folder_path[:2] == '//':
+            folder_path = os.path.join(os.path.dirname(bpy.data.filepath), folder_path[2:])
         if not os.path.exists(folder_path  + 'out_modelblock.bin'):
             show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
             return {'CANCELLED'}
