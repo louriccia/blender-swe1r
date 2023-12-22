@@ -23,6 +23,7 @@ import struct
 import bpy
 import math
 from .readwrite import *
+from .textureblock import Texture
 
 
 class Data:
@@ -613,14 +614,17 @@ class MaterialTexture(DataStruct):
     def read(self, buffer, cursor):
         unk_pointers = []
         self.id = cursor
-        self.unk0, self.unk1, self.unk3, self.format, self.unk4, self.width, self.height, self.unk5, self.unk6, self.unk7, self.unk8, *unk_pointers, self.unk9, self.tex_index, struct.unpack_from(self.format_string, buffer, cursor)
+        self.unk0, self.unk1, self.unk3, self.format, self.unk4, self.width, self.height, self.unk5, self.unk6, self.unk7, self.unk8, *unk_pointers, self.unk9, self.tex_index = struct.unpack_from(self.format_string, buffer, cursor)
         for pointer in unk_pointers:
             chunk = MaterialTextureChunk(self.model)
             chunk.read(buffer, pointer)
             self.chunks.append(chunk)
         
     def make(self):
-        pass
+        textureblock = self.model.modelblock.textureblock
+        self.texture = Texture(self.tex_index, self.format, self.width, self.height)
+        self.texture.read(textureblock)
+        return self.texture.make()
         
 class MaterialUnk(DataStruct):
     def __init__(self, model):
@@ -650,8 +654,12 @@ class Material(DataStruct):
         self.id = cursor
         self.format, texture_addr, unk_addr = struct.unpack_from(self.format_string, buffer, cursor)
         if texture_addr:
-            self.texture = MaterialTexture(self.model)
-            self.texture.read(buffer, texture_addr)
+            if texture_addr in self.model.textures:
+                return self.model.textures[texture_addr]
+            else:
+                self.model.textures[texture_addr] = MaterialTexture(self.model)
+                self.model.textures[texture_addr].read(buffer, texture_addr)
+                self.texture = self.model.textures[texture_addr]
             
         if unk_addr:
             self.unk = MaterialUnk(self.model)
@@ -668,11 +676,12 @@ class Material(DataStruct):
             material.use_nodes = True
             #material.blend_method = 'BLEND' #use for transparency
             material.blend_method = 'CLIP'
+            
             if self.texture.format == 3:
                 material.blend_method = 'BLEND'
             if self.texture.format != 6:
                 material.use_backface_culling = True
-            if self.unk.data[1] == 8:
+            if self.unk.data is not None and self.unk.data[1] == 8:
                 material.show_transparent_back = False
             else:
                 material.show_transparent_back = True
@@ -698,7 +707,7 @@ class Material(DataStruct):
                 material.node_tree.links.new(node_2.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Normal"])
                 material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             
-            chunk_tag = self.texture.chunks[0].data[0]
+            chunk_tag = self.texture.chunks[0].data[0] if len(self.texture.chunks) else 0
             if(self.texture.chunks and chunk_tag & 0x11 != 0):
                 node_4 = material.node_tree.nodes.new("ShaderNodeUVMap")
                 node_5 = material.node_tree.nodes.new("ShaderNodeSeparateXYZ")
@@ -733,7 +742,7 @@ class Material(DataStruct):
 
             b_tex = bpy.data.images.get(image)
             if b_tex is None:
-                b_tex = make_texture(tex, file_path)
+                b_tex = self.texture.make()
 
             image_node = material.node_tree.nodes["Image Texture"]
             image_node.image = b_tex
@@ -742,7 +751,7 @@ class Material(DataStruct):
             material = bpy.data.materials.new(mat_name)
             material.use_nodes = True
             material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
-            colors = self.unk.color
+            colors = [0, 0, 0, 0] if self.unk is None else self.unk.color
             #print(colors)
             material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
@@ -774,8 +783,12 @@ class Visuals(DataStruct):
             self.index_buffer.read(buffer, index_buffer_addr, vert_buffer_addr)
             
         if mat_addr:
-            self.material = Material(self.model)
-            self.material.read(buffer, mat_addr)
+            if mat_addr in self.model.materials: #we've already read this material
+                self.material = self.model.materials[mat_addr]
+            else:
+                self.model.materials[mat_addr] = Material(self.model)
+                self.model.materials[mat_addr].read(buffer, mat_addr)
+                self.material = self.model.materials[mat_addr]
     
     def make(self, parent):
         if self.vert_buffer is None or self.index_buffer is None:
@@ -796,11 +809,9 @@ class Visuals(DataStruct):
         mesh.from_pydata(verts, edges, faces)
         obj.parent = parent
         
-        #mat = model['mats'][mesh_node['visuals']['material']]
-        #tex = None if mat['texture'] == 0 else model['textures'][mat['texture']]
-        #mesh.materials.append(
-        #    make_material(mat, tex, file_path)
-        #)
+        mesh.materials.append(
+           self.material.make()
+        )
         
         #set vector colors / uv coords
         uv_layer = mesh.uv_layers.new(name = 'uv')
@@ -1103,7 +1114,7 @@ class Group20582(Node):
       
 class LStr(DataStruct):
     def __init__(self, model):
-        super().__init__('>4_3f')
+        super().__init__('>4x3f')
         self.data = FloatPosition()
         self.model = model
     def read(self, buffer, cursor):
@@ -1280,6 +1291,7 @@ def find_topmost_parent(obj):
 
 class Model():
     def __init__(self, id):
+        self.modelblock = None
         self.collection = None
         self.ext = None
         self.id = id
@@ -1294,11 +1306,17 @@ class Model():
         self.AltN = []
         self.Anim = []
         
-        self.mats = []
-        self.textures = []
+        self.materials = {}
+        self.textures = {}
         self.nodes = []
 
-    def read(self, buffer, cursor):
+    def read(self, modelblock):
+        self.modelblock = modelblock
+        if self.id is None:
+            return
+        offset_buffers, model_buffers = modelblock.read([self.id])
+        buffer = model_buffers[0]
+        cursor = 0
         cursor = self.header.read(buffer, cursor)
         
         if self.AltN and self.ext != 'Podd':

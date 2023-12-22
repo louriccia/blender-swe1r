@@ -1061,6 +1061,12 @@ def make_texture(texture, folder_path):
     return tex
 
 def import_model(file_path, selector=None):
+    for image in bpy.data.images:
+        bpy.data.images.remove(image)
+        
+    for mat in bpy.data.materials:
+        bpy.data.materials.remove(mat)
+    
     modelblock = Block(file_path + 'out_modelblock.bin', [[], []])
     textureblock = Block(file_path + 'out_textureblock.bin', [[], []])
     splineblock = Block(file_path + 'out_splineblock.bin', [[]])
@@ -1068,13 +1074,10 @@ def import_model(file_path, selector=None):
     modelblock.textureblock = textureblock
     modelblock.splineblock = splineblock
 
-    offset_buffers, model_buffers = modelblock.read()
     if selector is None:
         selector = range(324)
         
     for i, id in enumerate(selector):
-        model = Model(id).read(model_buffers[i], 0)
+        model = Model(id).read(modelblock)
         model.make()
-        print("here's the model", model)
-
-    print(f'Successfully unpacked {len(model_buffers)} models')
+    print(f'Successfully unpacked {len(selector)} models')

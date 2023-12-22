@@ -33,7 +33,10 @@ if "bpy" in locals(): #means Blender already started once
     import importlib
     importlib.reload(swe1r_import)
     importlib.reload(swe1r_export)
+    importlib.reload(block)
     importlib.reload(modelblock)
+    importlib.reload(textureblock)
+    importlib.reload(splineblock)
     importlib.reload(popup)
 else: #start up
     print('starting up for the first time')
@@ -42,6 +45,9 @@ else: #start up
     from .popup import *
     from .model_list import *
     from .modelblock import *
+    from .block import *
+    from .textureblock import *
+    from .splineblock import *
 
 import bpy
 

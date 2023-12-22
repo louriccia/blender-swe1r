@@ -20,7 +20,6 @@
 # /licenses>.
 
 import struct
-import math
 import os
 from .readwrite import *
 
@@ -29,14 +28,16 @@ class Block():
         self.asset_count = 0
         self.buffers = []
         self.data = arr
-        self.sub_chunks = len(self.data)
+        self.sub_chunks = len(arr)
         self.path = path
         self.dir = os.path.dirname(self.path)
-    def read(self, file, selector):
+    def read(self, selector):
         with open(self.path, 'rb') as file:
             file = file.read()
         asset_count = readUInt32BE(file, 0)
-        cursor = 4        
+        cursor = 4
+        result = [[] for f in range(self.sub_chunks)]
+        print(result, self.sub_chunks, self.data)
         for i in (selector if len(selector) else range(asset_count)):
             for j in range(self.sub_chunks):
                 asset_start = readUInt32BE(file, 4 + i*4*self.sub_chunks + j * 4)
@@ -45,12 +46,10 @@ class Block():
                 asset_end = readUInt32BE(file, 4 + i*4*self.sub_chunks + j * 4 + 4)
                 if not asset_end:
                     asset_end = readUInt32BE(file, 4 + i*4*self.sub_chunks + j * 4 + 8)
-
                 asset = file[asset_start:asset_end] if asset_start else None
 
-                self.data[j].append(asset)
-
-        return self.data
+                result[j].append(asset)
+        return result
     
     def write(self, path = None):
         if path is None:
