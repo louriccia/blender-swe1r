@@ -592,7 +592,7 @@ class MaterialTextureChunk(DataStruct):
     
 class MaterialTexture(DataStruct):
     def __init__(self, model):
-        super().__init__('>Ihh4x8H6I4xHH')
+        super().__init__('>Ihh4x8H6I4xhh')
         self.model = model
         self.id = None
         self.unk0 = None
@@ -621,6 +621,8 @@ class MaterialTexture(DataStruct):
             self.chunks.append(chunk)
         
     def make(self):
+        if self.tex_index < 0:
+            return
         textureblock = self.model.modelblock.textureblock
         self.texture = Texture(self.tex_index, self.format, self.width, self.height)
         self.texture.read(textureblock)
@@ -752,7 +754,6 @@ class Material(DataStruct):
             material.use_nodes = True
             material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
             colors = [0, 0, 0, 0] if self.unk is None else self.unk.color
-            #print(colors)
             material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
@@ -1118,8 +1119,17 @@ class LStr(DataStruct):
         self.data = FloatPosition()
         self.model = model
     def read(self, buffer, cursor):
-        self.data = FloatPosition(struct.unpack_from(self.format_string, buffer, cursor))
-
+        x, y, z = struct.unpack_from(self.format_string, buffer, cursor)
+        self.data.set([x, y , z])
+        return self
+    def make(self):
+        lightstreak_col = self.model.lightstreaks
+        light = bpy.data.lights.new(name = "lightstreak", type = 'POINT')
+        light_object = bpy.data.objects.new(name = "lightstreak", object_data = light)
+        lightstreak_col.objects.link(light_object)
+        print(self.data.data)
+        light_object.location = (self.data.data[0]*self.model.scale, self.data.data[1]*self.model.scale, self.data.data[2]*self.model.scale)
+        
 class ModelData():
     def __init__(self, model):
         self.data = []
@@ -1130,15 +1140,17 @@ class ModelData():
         i = 0
         while i < size:
             if readString(buffer, cursor) == 'LStr':
-                LStr(self.model).read(buffer, cursor)
-                cursor += 12
+                self.data.append(LStr(self.model).read(buffer, cursor))
+                cursor += 16
                 i += 4
             else:
                 self.data.append(readUInt32BE(buffer,cursor))
                 i+=1
                 cursor += 4
-
         return cursor
+    def make(self):
+        for d in self.data:
+            d.make()
     
 class Anim(DataStruct):
     def __init__(self, model):
@@ -1236,7 +1248,8 @@ class ModelHeader():
             elif header_string == 'AltN':
                 cursor = read_AltN(buffer, cursor + 4, model)
                 header_string = readString(buffer, cursor)
-
+            elif header_string != 'HEnd':
+                raise ValueError('unexpected header string', header_string)
         return cursor + 4
     
     def make(self):
@@ -1244,9 +1257,14 @@ class ModelHeader():
         self.model.collection['ind'] = self.model.id
         self.model.collection['ext'] = self.model.ext
         
+       
+        
         lightstreaks_col = bpy.data.collections.new("lightstreaks")
         lightstreaks_col['type'] = 'LSTR'
+        self.model.lightstreaks = lightstreaks_col
         self.model.collection.children.link(lightstreaks_col)
+        if self.model.Data:
+            self.model.Data.make()
         return
     
     def unmake(self, collection):

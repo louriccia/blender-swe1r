@@ -25,6 +25,8 @@ from .readwrite import *
 
 class Texture():
     def __init__(self, id, format, width, height):
+        if(int(id) > 1647):
+            raise ValueError(f"Unexpected texture index {id}")
         self.id = id
         self.format = format
         self.width = width
@@ -32,7 +34,7 @@ class Texture():
         self.palette = None
         self.pixels = None
     def read(self, textureblock):
-        if self.id is None:
+        if self.id is None or self.id < 0:
             return
         pixel_buffers, palette_buffers = textureblock.read([self.id])
         if self.format in [512, 513]:
@@ -42,7 +44,9 @@ class Texture():
         self.pixels = Pixels(self)
         self.pixels.read(pixel_buffers[0])
     def make(self):
-        if self.pixels is None:
+        if int(self.id) < 0:
+            return
+        if self.pixels is None or not self.pixels:
             print(f"Texture {self.id} does not have any pixels")
             return
 
@@ -53,7 +57,7 @@ class Texture():
         new_image = bpy.data.images.new(str(self.id), self.width, self.height)
         image_pixels = []    
         pixels = self.pixels.data
-        palette = None if self.palette.data is None else self.palette.data
+        palette = None if self.palette is None or self.palette.data is None else self.palette.data
         for i in range(self.height):
             for j in range(self.width):
                 ind = i * self.width + j
@@ -128,6 +132,8 @@ class Pixels():
         self.texture = texture
         self.data = []
     def read(self, buffer):
+        if buffer is None:
+            return self.data
         cursor = 0
         pixel_count = self.texture.width * self.texture.height
         if self.texture.format == 3:

@@ -37,7 +37,6 @@ class Block():
         asset_count = readUInt32BE(file, 0)
         cursor = 4
         result = [[] for f in range(self.sub_chunks)]
-        print(result, self.sub_chunks, self.data)
         for i in (selector if len(selector) else range(asset_count)):
             for j in range(self.sub_chunks):
                 asset_start = readUInt32BE(file, 4 + i*4*self.sub_chunks + j * 4)

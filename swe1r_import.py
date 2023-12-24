@@ -890,7 +890,6 @@ def read_header(buffer, model, index, collection):
     return cursor + 4
 
 def read_model(buffer, index, file_path):
-    print('reading model', index)
     model = {
         'mats': {},        # unique mats
         'textures': {},    # unique textures
