@@ -100,7 +100,7 @@ class IntPosition(Data):
     
     def set(self, data=None):
         if(len(data) != 3):
-            raise ValueError("Vec3 must contain only 3 values")
+            raise ValueError(f"Vec3 must contain only 3 values, received {len(data)}")
                 
         self.data = [round(d) for d in data]
         return self
@@ -1007,10 +1007,10 @@ class Node(DataStruct):
                 node.make(new_empty)
             
         return new_empty
-    def unmake(self):
-        return
-    def write(self):
-        return
+    def unmake(self, node):
+        return self
+    def write(self, buffer, cursor):
+        return cursor
 
 class MeshGroup12388(Node):
     def __init__(self, model, type):
@@ -1020,8 +1020,8 @@ class MeshGroup12388(Node):
         return self
     def make(self, parent = None):
         return super().make(parent)
-    def unmake(self):
-        return
+    def unmake(self, node):
+        return super().unmake(node)
     def write(self, buffer, cursor):
         return
         
@@ -1035,8 +1035,8 @@ class Group53348(Node):
         return self
     def make(self, parent = None):
         return super().make(parent)
-    def unmake(self):
-        return
+    def unmake(self, node):
+        return super().unmake(node)
     def write(self, buffer, cursor):
         return
         
@@ -1052,8 +1052,8 @@ class Group53349(Node):
         return self
     def make(self, parent = None):
         return super().make(parent)
-    def unmake(self):
-        return
+    def unmake(self, node):
+        return super().unmake(node)
     def write(self, buffer, cursor):
         return
         
@@ -1075,8 +1075,8 @@ class Group53350(Node):
         new_empty['53350_unk3'] = self.unk3
         new_empty['53350_unk4'] = self.unk4
         return new_empty
-    def unmake(self):
-        return
+    def unmake(self, node):
+        return super().unmake(node)
     def write(self, buffer, cursor):
         return
   
@@ -1088,6 +1088,8 @@ class Group20580(Node):
         return self
     def make(self, parent = None):
         return super().make(parent)
+    def unmake(self, node):
+        return super().unmake(node)
       
 class Group20581(Node):
     def __init__(self, model, type):
@@ -1097,6 +1099,8 @@ class Group20581(Node):
         return self
     def make(self, parent = None):
         return super().make(parent)
+    def unmake(self, node):
+        return super().unmake(node)
     
 class Group20582(Node):
     def __init__(self, model, type):
@@ -1108,8 +1112,8 @@ class Group20582(Node):
         return self
     def make(self, parent = None):
         return super().make(parent)
-    def unmake(self):
-        return
+    def unmake(self, node):
+        return super().unmake(node)
     def write(self, buffer, cursor):
         return
       
@@ -1129,6 +1133,11 @@ class LStr(DataStruct):
         lightstreak_col.objects.link(light_object)
         print(self.data.data)
         light_object.location = (self.data.data[0]*self.model.scale, self.data.data[1]*self.model.scale, self.data.data[2]*self.model.scale)
+        
+    def unmake(self):
+        return self
+    def write(self, buffer, cursor):
+        return cursor
         
 class ModelData():
     def __init__(self, model):
@@ -1151,6 +1160,11 @@ class ModelData():
     def make(self):
         for d in self.data:
             d.make()
+    def unmake(self):
+        pass
+    def write(self, buffer, cursor):
+        
+        return cursor
     
 class Anim(DataStruct):
     def __init__(self, model):
@@ -1217,6 +1231,12 @@ class ModelAnim():
             cursor += 4
             anim = readUInt32BE(buffer, cursor)
         return cursor + 4
+    def make(self):
+        pass
+    def unmake(self):
+        pass
+    def write(self, buffer, cursor):
+        return cursor
 
 class ModelHeader():
     def __init__(self, model):
@@ -1271,36 +1291,31 @@ class ModelHeader():
         return
     
     def write(self, buffer, cursor):
-        cursor = writeString(buffer,  model['ext'], cursor)
+        cursor = writeString(buffer,  self.model.ext, cursor)
 
-        for header_value in model['header']:
-            outside_ref(cursor, header_value, model)
-            highlight(cursor, hl)
+        for header_value in self.offsets:
+            self.model.outside_ref(cursor, header_value)
+            self.model.highlight(cursor)
             cursor += 4  # writeInt32BE(buffer, header_value, cursor)
 
         cursor = writeInt32BE(buffer, -1, cursor)
 
-        header_offsets = {
-            'Anim': None,
-            'AltN': None,
-            'HEnd': None
-        }
-
         if self.model.Data:
-            cursor = write_data(buffer, cursor, model, hl)
+            pass
+            #cursor = write_data(buffer, cursor, model, hl)
 
         if self.model.Anim:
-            self.ref_map['Anim'] = cursor + 4
-            cursor = write_anim(buffer, cursor, model, hl)
+            self.model.ref_map['Anim'] = cursor + 4
+            #cursor = write_anim(buffer, cursor, model, hl)
 
         if self.model.AltN:
-            self.ref_map['AltN'] = cursor + 4
-            cursor = write_altn(buffer, cursor, model, hl)
+            self.model.ref_map['AltN'] = cursor + 4
+            #cursor = write_altn(buffer, cursor, model, hl)
 
         cursor = writeString(buffer, 'HEnd', cursor)
-        self.ref_map['HEnd'] = cursor
+        self.model.ref_map['HEnd'] = cursor
 
-        return header_offsets
+        return cursor
 
 def find_topmost_parent(obj):
     while obj.parent is not None:
@@ -1366,7 +1381,7 @@ class Model():
     def unmake(self, collection):
         self.ext = collection['ext']
         self.id = collection['ind']
-        self.header = ModelHeader().unmake(collection)
+        self.header.unmake(collection)
         self.nodes = []
         if 'parent' in collection: return
         
@@ -1377,9 +1392,12 @@ class Model():
             if top not in top_nodes: top_nodes.append(top)
         
         for node in top_nodes:
-            self.nodes.append(Node().unmake(node))
+            n = create_node(node['node_type'], self)
+            self.nodes.append(n.unmake(node))
+            
+        return self
 
-    def write(self, buffer, cursor):
+    def write(self):
         buffer = bytearray(8000000)
         self.hl = bytearray(1000000)
         cursor = 0
@@ -1388,16 +1406,39 @@ class Model():
 
         # write all nodes
         for node in self.nodes:
-            cursor = node.write(buffer, cursor, self)
+            cursor = node.write(buffer, cursor)
 
         # write all animations
         for anim in self.Anim:
-            cursor = anim.write(buffer, cursor, self)
+            cursor = anim.write(buffer, cursor)
 
         # write all outside references
         refs = [ref for ref in self.ref_keeper if ref != '0']
         for ref in self.ref_keeper:
             for offset in self.ref_keeper[ref]:
                 writeUInt32BE(buffer, self.ref_map[str(ref)], offset)
+        crop = math.ceil(cursor / (32 * 4)) * 4
+        return [self.hl[:crop], buffer[:cursor]]
+    
+    def outside_ref(self, cursor, ref):
+        # Used when writing modelblock to keep track of references to offsets outside of the given section
+        ref = str(ref)
+        if ref not in self.ref_keeper:
+            self.ref_keeper[ref] = []
+        self.ref_keeper[ref].append(cursor)
+        
+    def map_ref(self, cursor, id):
+        # Used when writing modelblock to map original ids of nodes to their new ids
+        id = str(id)
+        if id not in self.ref_map:
+            self.ref_map[id] = cursor
+            
+    def highlight(self, cursor):
+        # This function is called whenever an address needs to be 'highlighted' because it is a pointer
+        # Every model begins with a pointer map where each bit represents 4 bytes in the following model
+        # If the bit is 1, that corresponding DWORD is to be read as a pointer
 
-        return [self.hl[:math.ceil(cursor / (32 * 4)) * 4], buffer[:cursor]]
+        highlight_offset = cursor // 32
+        bit = 2 ** (7 - (cursor % 32) // 4)
+        highlight = self.hl[highlight_offset]
+        self.hl[highlight_offset] = highlight | bit

@@ -6,6 +6,7 @@ import json
 import math
 from .swe1r_import import read_block
 from .popup import show_custom_popup
+from .modelblock import Model
     
 scale = 100
     
@@ -979,13 +980,15 @@ def unmake_model(collection):
     return model
 
 def export_model(col, file_path):
-    model = unmake_model(col)
-    offset_buffer, model_buffer = write_model(model)
+    model = Model(col['ind']).unmake(col)
+    offset_buffer, model_buffer = model.write()
+    
     with open(file_path + str(col['ind'])+'.bin', 'wb') as file:
         file.write(model_buffer)
     block = inject_model(offset_buffer, model_buffer, col['ind'], file_path)
     with open(file_path + 'out_modelblock.bin', 'wb') as file:
         file.write(block)
+        
     show_custom_popup(bpy.context, "Exported!", f"Model {col['ind']} was successfully exported")
     
 
