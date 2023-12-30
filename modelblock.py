@@ -122,6 +122,19 @@ class FloatMatrix(Data):
 
     def get(self):
         return [vec.get() for vec in self.data]
+    
+    def make(self):
+        matrix = []
+        for i in range(3):
+            matrix.append(tuple([*self.data[i].get(), 0.0]))
+        matrix.append(tuple([*self.data[3].get(), 1.0]))
+        return matrix
+    
+    def unmake(self, matrix):
+        mat = []
+        for m in matrix:
+            mat.extend(m[:3])
+        self.set(mat)    
 
 class Color(Data):
     def __init__(self, data = None):
@@ -1008,8 +1021,30 @@ class Node(DataStruct):
             
         return new_empty
     def unmake(self, node):
+        self.id = node.name
+        self.node_type = node['node_type']
+        self.load_group1 = int(node['load_group1'])
+        self.load_group2 = int(node['load_group2'])
+        self.unk1 =  node['unk1']
+        self.unk2 = node['unk2']
+        if self.node_type == 12388:
+            return self 
+        else:
+            for child in node.children:
+                n = create_node(child['node_type'], self.model)
+                self.children.append(n.unmake(child))
+        print(self.id, self.node_type, self.load_group1, self.load_group2, self.unk1, self.unk2)
         return self
     def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.load_group1, self.load_group2, self.unk1, self.unk2, len(self.children), 0)
+        cursor += self.size
+        return cursor
+    
+    def write_children(self, buffer, cursor):
+        if not len(self.children):
+            return cursor
+        for child in self.children:
+            cursor = child.write(buffer, cursor)
         return cursor
 
 class MeshGroup12388(Node):
@@ -1023,7 +1058,7 @@ class MeshGroup12388(Node):
     def unmake(self, node):
         return super().unmake(node)
     def write(self, buffer, cursor):
-        return
+        return cursor
         
 class Group53348(Node):
     def __init__(self, model, type):
@@ -1034,11 +1069,13 @@ class Group53348(Node):
         self.matrix = FloatMatrix(struct.unpack_from(">12f", buffer, cursor+28))
         return self
     def make(self, parent = None):
-        return super().make(parent)
+        empty = super().make(parent)
+        empty.matrix_world = self.matrix.get()
+        return empty
     def unmake(self, node):
         return super().unmake(node)
     def write(self, buffer, cursor):
-        return
+        return cursor
         
 class Group53349(Node):
     def __init__(self, model, type):
@@ -1051,11 +1088,17 @@ class Group53349(Node):
         self.bonus.set(struct.unpack_from(">3f", buffer, cursor+76))
         return self
     def make(self, parent = None):
-        return super().make(parent)
+        empty = super().make(parent)
+        empty.matrix_world = self.matrix.make()
+        empty['bonus'] = self.bonus.get()
+        return empty
     def unmake(self, node):
-        return super().unmake(node)
+        super().unmake(node)
+        self.matrix.unmake(node.matrix_world)
+        self.bonus.set(node['bonus'])
+        return self
     def write(self, buffer, cursor):
-        return
+        return cursor
         
 class Group53350(Node):
     def __init__(self, model, type):
@@ -1076,9 +1119,13 @@ class Group53350(Node):
         new_empty['53350_unk4'] = self.unk4
         return new_empty
     def unmake(self, node):
-        return super().unmake(node)
+        super().unmake(node)
+        self.unk1 = node['53350_unk1']
+        self.unk2 = node['53350_unk2']
+        self.unk3 = node['53350_unk3']
+        self.unk4 = node['53350_unk4']
     def write(self, buffer, cursor):
-        return
+        return cursor
   
 class Group20580(Node):
     def __init__(self, model, type):
@@ -1090,6 +1137,13 @@ class Group20580(Node):
         return super().make(parent)
     def unmake(self, node):
         return super().unmake(node)
+    def write(self, buffer, cursor):
+        cursor = super().write(buffer, cursor)
+        child_addr_start = cursor - 4
+        writeInt32BE(buffer, cursor, child_addr_start)
+        self.model.highlight(child_addr_start)
+        cursor = super().write_children(buffer, cursor)
+        return cursor
       
 class Group20581(Node):
     def __init__(self, model, type):
@@ -1101,6 +1155,15 @@ class Group20581(Node):
         return super().make(parent)
     def unmake(self, node):
         return super().unmake(node)
+    def write(self, buffer, cursor):
+        cursor = super().write(buffer, cursor)
+        child_addr_start = cursor - 4
+        if len(self.children):
+            cursor += 4
+        writeInt32BE(buffer, cursor, child_addr_start)
+        self.model.highlight(child_addr_start)
+        cursor = super().write_children(buffer, cursor)
+        return cursor
     
 class Group20582(Node):
     def __init__(self, model, type):
@@ -1111,11 +1174,22 @@ class Group20582(Node):
         self.floats = struct.unpack_from(">11f", buffer, cursor+28)
         return self
     def make(self, parent = None):
-        return super().make(parent)
+        empty = super().make(parent)
+        empty['floats'] = self.floats
+        return self
     def unmake(self, node):
-        return super().unmake(node)
+        super().unmake(node)
+        self.floats = node['floats']
+        return self
     def write(self, buffer, cursor):
-        return
+        cursor = super().write(buffer, cursor)
+        child_addr_start = cursor - 4
+        struct.pack_into(">11f", buffer, cursor, *self.floats)
+        cursor += self.size
+        writeInt32BE(buffer, cursor, child_addr_start)
+        self.model.highlight(child_addr_start)
+        cursor = super().write_children(buffer, cursor)
+        return cursor
       
 class LStr(DataStruct):
     def __init__(self, model):
@@ -1288,13 +1362,15 @@ class ModelHeader():
         return
     
     def unmake(self, collection):
-        return
+        self.offsets = collection['header']
+        self.model.id = collection['ind']
+        self.model.ext = collection['ext']
     
     def write(self, buffer, cursor):
         cursor = writeString(buffer,  self.model.ext, cursor)
 
         for header_value in self.offsets:
-            self.model.outside_ref(cursor, header_value)
+            #self.model.outside_ref(cursor, header_value)
             self.model.highlight(cursor)
             cursor += 4  # writeInt32BE(buffer, header_value, cursor)
 

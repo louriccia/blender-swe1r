@@ -33,35 +33,35 @@ def writeBulk(buffer, cursor, format_string, arr):
     return cursor + struct.calcsize(format_string)
 
 def writeString(buffer,  string, cursor):
-    struct.pack_into('4s', buffer, cursor, string.encode('utf-8'))
+    struct.pack_into('>4s', buffer, cursor, string.encode('utf-8'))
     return cursor + struct.calcsize('4s')
 
 def writeInt8(buffer, num, cursor):
-    struct.pack_into('b', buffer, cursor, num)
+    struct.pack_into('>b', buffer, cursor, num)
     return cursor + struct.calcsize('b')
 
 def writeUInt8(buffer, num, cursor):
-    struct.pack_into('B', buffer, cursor, num)
+    struct.pack_into('>B', buffer, cursor, num)
     return cursor + struct.calcsize('B')
 
 def writeInt16BE(buffer, num, cursor):
-    struct.pack_into('h', buffer, cursor, num)
+    struct.pack_into('>h', buffer, cursor, num)
     return cursor + struct.calcsize('h')
 
 def writeUInt16BE(buffer, num, cursor):
-    struct.pack_into('H', buffer, cursor, num)
+    struct.pack_into('>H', buffer, cursor, num)
     return cursor + struct.calcsize('H')
 
 def writeInt32BE(buffer, num, cursor):
-    struct.pack_into('i', buffer, cursor, num)
+    struct.pack_into('>i', buffer, cursor, num)
     return cursor + struct.calcsize('i')
 
 def writeUInt32BE(buffer, num, cursor):
-    struct.pack_into('I', buffer, cursor, num)
+    struct.pack_into('>I', buffer, cursor, num)
     return cursor + struct.calcsize('I')
 
 def writeFloatBE(buffer, num, cursor):
-    struct.pack_into('f', buffer, cursor, num)
+    struct.pack_into('>f', buffer, cursor, num)
     return cursor + struct.calcsize('f')
 
 
