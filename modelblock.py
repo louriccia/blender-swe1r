@@ -422,7 +422,7 @@ class Collision(DataStruct):
         writeFloatBE(buffer, bb['max'][2], cursor + 28)
         writeInt16BE(buffer, mesh.get('vert_strip_count', 0), cursor + 32)
         writeInt16BE(buffer, mesh.get('vert_strip_default', 0), cursor + 34)
-        highlight(cursor + 40,  hl)
+        self.model.highlight(hl)
         outside_ref( cursor + 40, mesh['visuals'].get('group_parent', 0),model)
         writeInt16BE(buffer, len(mesh['collision'].get('vert_buffer', [])), cursor + 56)
         writeInt16BE(buffer, len(mesh['visuals'].get('vert_buffer', [])), cursor + 58)
@@ -480,6 +480,12 @@ class VisualsVertChunk(DataStruct):
         self.uv = [uv_x, uv_y]
         self.color = [r, g, b, a]
         return cursor + self.size
+    def make(self):
+        pass
+    def unmake(self, vert):
+        self.pos = vert.pos
+        self.uv = vert.uv
+        self.color = vert.color
     
     
 class VisualsVertBuffer():
@@ -493,6 +499,15 @@ class VisualsVertBuffer():
             vert = VisualsVertChunk(self.model)
             cursor = vert.read(buffer, cursor)
             self.data.append(vert)
+    def make(self):
+        pass
+    def unmake(self, mesh):
+        self.data = [VisualsVertChunk(self.model).unmake(vert) for vert in mesh.data.vertices]
+        self.length = len(self.data)
+    def write(self, buffer, cursor):
+        for vert in self.data:
+            cursor = vert.write(buffer, cursor)
+        return cursor
     
 class VisualsIndexChunk1(DataStruct):
     def __init__(self, model, type):
@@ -814,7 +829,7 @@ class Visuals(DataStruct):
         mesh_name = str(self.id) + "_" + "visuals"
         mesh = bpy.data.meshes.new(mesh_name)
         obj = bpy.data.objects.new(mesh_name, mesh)
-        
+        print(verts, faces)
         obj['type'] = 'VIS'    
         obj['id'] = self.id
         obj.scale = [self.model.scale, self.model.scale, self.model.scale]
@@ -835,6 +850,10 @@ class Visuals(DataStruct):
                 v = self.vert_buffer.data[poly.vertices[p]]
                 uv_layer.data[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
                 color_layer.data[poly.loop_indices[p]].color = [a/255 for a in v.color]
+    def unmake(self, node):
+        pass
+    def write(self, buffer, cursor):
+        pass
     
 class Mesh():
     def __init__(self, model):
@@ -849,10 +868,14 @@ class Mesh():
         self.collision.make(parent)
         self.visuals.make(parent)
         return
-    def unmake(self):
-        return
-    def write(self):
-        return
+    def unmake(self, node):
+        if node['type'] == 'VIS':
+            self.visuals.unmake(node)
+        elif node['type'] == 'COL':
+            self.collision.unmake(node)
+    def write(self, buffer, cursor):
+        self.collision.write(buffer, cursor)
+        self.visuals.write(buffer, cursor)
     
 def create_node(node_type, model):
     NODE_MAPPING = {
@@ -937,41 +960,41 @@ class Node(DataStruct):
                 new_empty.empty_display_size = 0.5
             else:
                 new_empty.empty_display_type = 'PLAIN_AXES'
-            if self.type ==53349:
-                #new_empty.location = [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale]
-                if self.unk1 &  1048576 != 0 and False:
+            # if self.type ==53349:
+            #     #new_empty.location = [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale]
+            #     if self.unk1 &  1048576 != 0 and False:
                     
-                    global offsetx
-                    global offsety
-                    global offsetz
-                    offsetx = node['xyz']['x1']
-                    offsety = node['xyz']['y1']
-                    offsetz = node['xyz']['z1']
-                    imparent = None
-                    if parent != None and False:
-                        imparent = parent
-                        while imparent != None:
-                            #print(imparent, imparent['grouptag0'], imparent['grouptag3'])
-                            if int(imparent['grouptag0']) == 53349 and int(imparent['grouptag3']) & 1048576 != 0:
-                                #print('found one')
-                                offsetx += imparent['x']
-                                offsety += imparent['y']
-                                offsetz += imparent['z']
-                            imparent = imparent.parent
-                    #print(offsetx, offsety, offsetz)
-                    new_empty.matrix_world = [
-                    [node['xyz']['ax'], node['xyz']['ay'], node['xyz']['az'], 0],
-                    [node['xyz']['bx'], node['xyz']['by'], node['xyz']['bz'], 0],
-                    [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
-                    [node['xyz']['x']*scale + offsetx*scale,  node['xyz']['y']*scale + offsety*scale, node['xyz']['z']*scale + offsetz*scale, 1],
-                    ]
-                elif False:
-                    new_empty.matrix_world = [
-                    [node['xyz']['ax'], node['xyz']['ay'], node['xyz']['az'], 0],
-                    [node['xyz']['bx'], node['xyz']['by'], node['xyz']['bz'], 0],
-                    [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
-                    [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale, 1],
-                    ]
+            #         global offsetx
+            #         global offsety
+            #         global offsetz
+            #         offsetx = node['xyz']['x1']
+            #         offsety = node['xyz']['y1']
+            #         offsetz = node['xyz']['z1']
+            #         imparent = None
+            #         if parent != None and False:
+            #             imparent = parent
+            #             while imparent != None:
+            #                 #print(imparent, imparent['grouptag0'], imparent['grouptag3'])
+            #                 if int(imparent['grouptag0']) == 53349 and int(imparent['grouptag3']) & 1048576 != 0:
+            #                     #print('found one')
+            #                     offsetx += imparent['x']
+            #                     offsety += imparent['y']
+            #                     offsetz += imparent['z']
+            #                 imparent = imparent.parent
+            #         #print(offsetx, offsety, offsetz)
+            #         new_empty.matrix_world = [
+            #         [node['xyz']['ax'], node['xyz']['ay'], node['xyz']['az'], 0],
+            #         [node['xyz']['bx'], node['xyz']['by'], node['xyz']['bz'], 0],
+            #         [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
+            #         [node['xyz']['x']*scale + offsetx*scale,  node['xyz']['y']*scale + offsety*scale, node['xyz']['z']*scale + offsetz*scale, 1],
+            #         ]
+            #     elif False:
+            #         new_empty.matrix_world = [
+            #         [node['xyz']['ax'], node['xyz']['ay'], node['xyz']['az'], 0],
+            #         [node['xyz']['bx'], node['xyz']['by'], node['xyz']['bz'], 0],
+            #         [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
+            #         [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale, 1],
+            #         ]
             
                 
         else:
@@ -987,33 +1010,34 @@ class Node(DataStruct):
         new_empty['unk1'] = self.unk1
         new_empty['unk2'] = self.unk2
         
-        if False and (self.type in [53349, 53350]):
-            new_empty['grouptag3'] = bin(int(node['head'][3]))
-            if 'xyz' in node:
-                new_empty['x'] = node['xyz']['x']
-                new_empty['y'] = node['xyz']['y']
-                new_empty['z'] = node['xyz']['z']
-                if 'x1' in node['xyz']:
-                    new_empty['x1'] = node['xyz']['x1']
-                    new_empty['y1'] = node['xyz']['y1']
-                    new_empty['z1'] = node['xyz']['z1']
+        # if False and (self.type in [53349, 53350]):
+        #     new_empty['grouptag3'] = bin(int(node['head'][3]))
+        #     if 'xyz' in node:
+        #         new_empty['x'] = node['xyz']['x']
+        #         new_empty['y'] = node['xyz']['y']
+        #         new_empty['z'] = node['xyz']['z']
+        #         if 'x1' in node['xyz']:
+        #             new_empty['x1'] = node['xyz']['x1']
+        #             new_empty['y1'] = node['xyz']['y1']
+        #             new_empty['z1'] = node['xyz']['z1']
             
         #assign parent
         if parent is not None:
             #savedState = new_empty.matrix_world
-            if self.type not in [53349, 53350] or self.unk1 & 1048576 == 0 and False:
-                new_empty.parent = parent
-                #if(node['head'][3] & 1048576) == 0:
-                #loc = new_empty.constraints.new(type='COPY_LOCATION')
-                #loc.target = parent
-                #elif(node['head'][3] & 524288) == 0:
-                    #rot = new_empty.constraints.new(type='COPY_ROTATION')
-                    #rot.target = parent
-                #else:
-                    #new_empty.parent = parent
+            new_empty.parent = parent
+            # if self.type not in [53349, 53350] or self.unk1 & 1048576 == 0 and False:
+            #     new_empty.parent = parent
+            #     #if(node['head'][3] & 1048576) == 0:
+            #     #loc = new_empty.constraints.new(type='COPY_LOCATION')
+            #     #loc.target = parent
+            #     #elif(node['head'][3] & 524288) == 0:
+            #         #rot = new_empty.constraints.new(type='COPY_ROTATION')
+            #         #rot.target = parent
+            #     #else:
+            #         #new_empty.parent = parent
                     
-            else:
-                new_empty.parent = parent
+            # else:
+            #     new_empty.parent = parent
             #new_empty.matrix_world = savedState
         for node in self.children:
             if not isinstance(node, dict):
@@ -1028,7 +1052,8 @@ class Node(DataStruct):
         self.unk1 =  node['unk1']
         self.unk2 = node['unk2']
         if self.node_type == 12388:
-            return self 
+            for child in node.children:
+                self.children.append(Mesh(self.model).unmake(child))
         else:
             for child in node.children:
                 n = create_node(child['node_type'], self.model)
@@ -1089,7 +1114,7 @@ class Group53349(Node):
         return self
     def make(self, parent = None):
         empty = super().make(parent)
-        empty.matrix_world = self.matrix.make()
+        #empty.matrix_world = self.matrix.make()
         empty['bonus'] = self.bonus.get()
         return empty
     def unmake(self, node):
