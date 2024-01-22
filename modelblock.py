@@ -486,7 +486,9 @@ class VisualsVertChunk(DataStruct):
         self.pos = vert.pos
         self.uv = vert.uv
         self.color = vert.color
-    
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, *self.pos, *self.uv, *self.color)
+        return cursor + self.size
     
 class VisualsVertBuffer():
     def __init__(self, model, length):
@@ -523,6 +525,7 @@ class VisualsIndexChunk1(DataStruct):
         self.type, self.unk1, self.unk2, self.size, start = struct.unpack_from(self.format_string, buffer, cursor)
         self.start = round((start - vert_buffer_addr)/16)
         return cursor + self.size
+    
         
 class VisualsIndexChunk3(DataStruct):
     def __init__(self, model, type):
@@ -609,6 +612,13 @@ class VisualsIndexBuffer():
                 faces.append([start + chunk.f1, start + chunk.f2, start + chunk.f3])
                 faces.append([start + chunk.f4, start + chunk.f5, start + chunk.f6])
         return faces
+    
+    def unmake(self, mesh):
+        face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
+        
+        
+    def write(self):
+        pass
     
 class MaterialTextureChunk(DataStruct):
     def __init__(self, model):
@@ -788,6 +798,11 @@ class Material(DataStruct):
             
         return material
     
+    def unmake(self, material):
+        pass
+    def write(self):
+        pass
+    
 class Visuals(DataStruct):
     def __init__(self, model):
         super().__init__('>I36xI4xII2xHI')
@@ -851,9 +866,42 @@ class Visuals(DataStruct):
                 uv_layer.data[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
                 color_layer.data[poly.loop_indices[p]].color = [a/255 for a in v.color]
     def unmake(self, node):
-        pass
+        self.id = node.name
+        
+        self.material = Material().unmake(node)
+        self.vert_buffer = VisualsVertBuffer().unmake(node)
+        self.index_buffer = VisualsIndexBuffer().unmake(node)
+        
+        #TODO check if node has vertex group
+        if False:
+            self.group_parent = None
+            self.group_count = None
+        
     def write(self, buffer, cursor):
-        pass
+        mat_addr = 0
+        index_buffer_addr = 0
+        vert_buffer_addr = 0
+        visuals_start = cursor
+        
+        cursor += self.size
+        
+        mat_addr = cursor
+        cursor = self.material.write(buffer, cursor)
+        
+        #group parent
+        
+        index_buffer_addr = cursor
+        cursor = self.index_buffer.write(buffer, cursor)
+        
+        vert_buffer_addr = cursor
+        cursor = self.vert_buffer.write(buffer, cursor)
+        
+        vert_count = self.vert_buffer.length
+        
+        #group count
+        
+        struct.pack_into(self.format_string, buffer, visuals_start, mat_addr, self.group_parent, index_buffer_addr, vert_buffer_addr, vert_count, self.group_count)
+        return cursor
     
 class Mesh():
     def __init__(self, model):
