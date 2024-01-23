@@ -471,27 +471,25 @@ class VisualsVertChunk(DataStruct):
     def __init__(self, model):
         self.model = model
         super().__init__('>hhh2xhhBBBB')
-        self.pos = []
+        self.co = []
         self.uv = []
         self.color = []
     def read(self, buffer, cursor):
         x, y, z, uv_x, uv_y, r, g, b, a = struct.unpack_from(self.format_string, buffer, cursor)
-        self.pos = [x, y, z]
+        self.co = [x, y, z]
         self.uv = [uv_x, uv_y]
         self.color = [r, g, b, a]
         return cursor + self.size
     def make(self):
         pass
     def unmake(self, vert):
-        self.pos = vert.pos
-        self.uv = vert.uv
-        self.color = vert.color
+        self.co = vert.co
     def write(self, buffer, cursor):
         struct.pack_into(self.format_string, buffer, cursor, *self.pos, *self.uv, *self.color)
         return cursor + self.size
     
 class VisualsVertBuffer():
-    def __init__(self, model, length):
+    def __init__(self, model, length = 0):
         self.model = model
         self.data = []
         self.length = length
@@ -504,6 +502,25 @@ class VisualsVertBuffer():
     def make(self):
         pass
     def unmake(self, mesh):
+        uv_data = None
+        color_data = None
+        if mesh.data.uv_layers.active:
+            uv_data = mesh.data.uv_layers.active.data
+        if mesh.data.vertex_colors.active:
+            color_data = mesh.data.vertex_colors.active.data
+        for poly in mesh.data.polygons:
+            for p in range(len(poly.vertices)):
+                uv = [0, 0]
+                color = [0, 0, 0]
+                
+                if uv_data:
+                    uv = uv_data[poly.loop_indices[p]].uv
+                if color_data:
+                    color = color_data[poly.loop_indices[p]].color
+                v = mesh.data.vertices[poly.vertices[p]]
+                
+                print(v.co, uv, color)
+                
         self.data = [VisualsVertChunk(self.model).unmake(vert) for vert in mesh.data.vertices]
         self.length = len(self.data)
     def write(self, buffer, cursor):
@@ -868,9 +885,9 @@ class Visuals(DataStruct):
     def unmake(self, node):
         self.id = node.name
         
-        self.material = Material().unmake(node)
-        self.vert_buffer = VisualsVertBuffer().unmake(node)
-        self.index_buffer = VisualsIndexBuffer().unmake(node)
+        self.material = Material(self.model).unmake(node)
+        self.vert_buffer = VisualsVertBuffer(self.model).unmake(node)
+        self.index_buffer = VisualsIndexBuffer(self.model).unmake(node)
         
         #TODO check if node has vertex group
         if False:
