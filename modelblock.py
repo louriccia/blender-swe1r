@@ -482,8 +482,10 @@ class VisualsVertChunk(DataStruct):
         return cursor + self.size
     def make(self):
         pass
-    def unmake(self, vert):
-        self.co = vert.co
+    def unmake(self, co, uv, color):
+        self.co = co
+        self.uv = uv
+        self.color = color
     def write(self, buffer, cursor):
         struct.pack_into(self.format_string, buffer, cursor, *self.pos, *self.uv, *self.color)
         return cursor + self.size
@@ -519,9 +521,8 @@ class VisualsVertBuffer():
                     color = color_data[poly.loop_indices[p]].color
                 v = mesh.data.vertices[poly.vertices[p]]
                 
-                print(v.co, uv, color)
+                self.data.append(VisualsVertChunk(self.model).unmake(v.co, uv, [c for c in color]))
                 
-        self.data = [VisualsVertChunk(self.model).unmake(vert) for vert in mesh.data.vertices]
         self.length = len(self.data)
     def write(self, buffer, cursor):
         for vert in self.data:
@@ -817,8 +818,8 @@ class Material(DataStruct):
     
     def unmake(self, material):
         pass
-    def write(self):
-        pass
+    def write(self, buffer, cursor):
+        return cursor
     
 class Visuals(DataStruct):
     def __init__(self, model):
@@ -899,7 +900,7 @@ class Visuals(DataStruct):
         index_buffer_addr = 0
         vert_buffer_addr = 0
         visuals_start = cursor
-        
+        print('visuals start', cursor)
         cursor += self.size
         
         mat_addr = cursor
@@ -916,15 +917,21 @@ class Visuals(DataStruct):
         vert_count = self.vert_buffer.length
         
         #group count
-        
+        print(cursor)
         struct.pack_into(self.format_string, buffer, visuals_start, mat_addr, self.group_parent, index_buffer_addr, vert_buffer_addr, vert_count, self.group_count)
         return cursor
+    
+class MeshBoundingBox():
+    #only need to calculate bounding box for export workflow
+    def __init__(self, mesh):
+        
     
 class Mesh():
     def __init__(self, model):
         self.model = model
         self.collision = Collision(self.model)
         self.visuals = Visuals(self.model)
+        self.bounding_box = 
     def read(self, buffer, cursor):
         self.collision.read(buffer, cursor)
         self.visuals.read(buffer, cursor)
@@ -938,9 +945,13 @@ class Mesh():
             self.visuals.unmake(node)
         elif node['type'] == 'COL':
             self.collision.unmake(node)
+        return self
     def write(self, buffer, cursor):
+        print('writing mesh')
         self.collision.write(buffer, cursor)
         self.visuals.write(buffer, cursor)
+    def bounding_box(self):
+        
     
 def create_node(node_type, model):
     NODE_MAPPING = {
@@ -1128,6 +1139,7 @@ class Node(DataStruct):
     def write(self, buffer, cursor):
         struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.load_group1, self.load_group2, self.unk1, self.unk2, len(self.children), 0)
         cursor += self.size
+        
         return cursor
     
     def write_children(self, buffer, cursor):
@@ -1148,9 +1160,17 @@ class MeshGroup12388(Node):
     def unmake(self, node):
         return super().unmake(node)
     def write(self, buffer, cursor):
+        print('writing 12388')
+        cursor = super().write(buffer, cursor)
+        child_addr_start = cursor - 4
+        writeInt32BE(buffer, cursor, child_addr_start)
+        self.model.highlight(child_addr_start)
+        cursor = super().write_children(buffer, cursor)
         return cursor
         
 class Group53348(Node):
+    print('writing 53348')
+    
     def __init__(self, model, type):
         super().__init__(model, type)
         self.matrix = FloatMatrix()
@@ -1165,6 +1185,12 @@ class Group53348(Node):
     def unmake(self, node):
         return super().unmake(node)
     def write(self, buffer, cursor):
+        print('writing 53348')
+        cursor = super().write(buffer, cursor)
+        child_addr_start = cursor - 4
+        writeInt32BE(buffer, cursor, child_addr_start)
+        self.model.highlight(child_addr_start)
+        cursor = super().write_children(buffer, cursor)
         return cursor
         
 class Group53349(Node):
@@ -1188,6 +1214,12 @@ class Group53349(Node):
         self.bonus.set(node['bonus'])
         return self
     def write(self, buffer, cursor):
+        print('writing 53349')
+        cursor = super().write(buffer, cursor)
+        child_addr_start = cursor - 4
+        writeInt32BE(buffer, cursor, child_addr_start)
+        self.model.highlight(child_addr_start)
+        cursor = super().write_children(buffer, cursor)
         return cursor
         
 class Group53350(Node):
@@ -1215,6 +1247,12 @@ class Group53350(Node):
         self.unk3 = node['53350_unk3']
         self.unk4 = node['53350_unk4']
     def write(self, buffer, cursor):
+        print('writing 53350')
+        cursor = super().write(buffer, cursor)
+        child_addr_start = cursor - 4
+        writeInt32BE(buffer, cursor, child_addr_start)
+        self.model.highlight(child_addr_start)
+        cursor = super().write_children(buffer, cursor)
         return cursor
   
 class Group20580(Node):
@@ -1228,6 +1266,7 @@ class Group20580(Node):
     def unmake(self, node):
         return super().unmake(node)
     def write(self, buffer, cursor):
+        print('writing 20580')
         cursor = super().write(buffer, cursor)
         child_addr_start = cursor - 4
         writeInt32BE(buffer, cursor, child_addr_start)
