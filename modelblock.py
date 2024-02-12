@@ -406,16 +406,15 @@ class VisualsVertBuffer():
         self.length = len(self.data)
         return self
     
-    def write(self, buffer, cursor):
+    def write(self, buffer, cursor, index_buffer):
+        vert_buffer_addr = cursor
         for vert in self.data:
             cursor = vert.write(buffer, cursor)
         
-        #TODO implement the following ref update for index buffer references
-        # index_buffer.forEach((index, i) => {
-        #     if (index.type == 1) {
-        #         buffer.writeUInt32BE(vert_buffer_addr + index.start * 16, index_buffer_addr + i * 8 + 4)
-        #     }
-        # })
+        #we write the references within index buffer to this vert buffer
+        for i, chunk in enumerate(index_buffer):
+            if chunk.type == 1:
+                writeUInt32BE(vert_buffer_addr + chunk.base * 16, index_buffer.offset + i * 8 + 4)
             
         return cursor
     
@@ -426,8 +425,8 @@ class VisualsIndexChunk1(DataStruct):
         super().__init__('>BBBBI')
         self.unk1 = 0
         self.unk2 = 0
-        self.start = 0
-        self.max = 0
+        self.start = 0 #we'll write this value in VisualsVertexBuffer.write()
+        self.max = 0 #we'll set this in VisualsIndexBuffer.unmake()
         
     def read(self, buffer, cursor, vert_buffer_addr):
         self.type, self.unk1, self.unk2, self.max, start = struct.unpack_from(self.format_string, buffer, cursor)
@@ -535,6 +534,7 @@ class VisualsIndexChunk6(DataStruct):
 class VisualsIndexBuffer():
     def __init__(self, model):
         self.model = model
+        self.offset = 0
         self.data = []
         self.map = {
             1: VisualsIndexChunk1,
@@ -571,7 +571,8 @@ class VisualsIndexBuffer():
         return faces
     
     def unmake(self, mesh):
-        #grab the index buffer from mesh.data.polygons
+        
+        #grab the base index buffer data from mesh.data.polygons and construct initial chunk list
         face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
         index_buffer = []
         while len(face_buffer) > 1:
@@ -598,7 +599,7 @@ class VisualsIndexBuffer():
         #TODO test the following 
 
         offset = 0
-        #go through our index buffer and figure out where the 1chunks should go
+        #go through our index buffer and copy to data while figuring out where the 1chunks should go
         self.data = [VisualsIndexChunk1(self.model, 1)]
         
         for i, chunk in enumerate(index_buffer):
@@ -627,7 +628,7 @@ class VisualsIndexBuffer():
         return self
 
     def write(self, buffer, cursor):
-
+        self.offset = cursor
         for chunk in self.data:
             cursor = chunk.write(buffer, cursor)
             
@@ -1047,7 +1048,7 @@ class Mesh(DataStruct):
             
         if self.visuals_vert_buffer:
             visuals_vert_buffer_addr = cursor
-            cursor = self.visuals_vert_buffer.write(buffer, cursor)
+            cursor = self.visuals_vert_buffer.write(buffer, cursor, self.visuals_index_buffer)
             
         if self.collision_tags:
             collision_tags_addr = cursor
