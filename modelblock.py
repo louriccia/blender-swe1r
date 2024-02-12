@@ -471,6 +471,9 @@ class VisualsIndexChunk5(DataStruct):
     def min_index(self):
         return min(self.to_array())
     
+    def max_index(self):
+        return max(self.to_array())
+    
     def adjust_indices(self, offset):
         self.f1 = self.f1 - offset
         self.f2 = self.f2 - offset
@@ -510,6 +513,9 @@ class VisualsIndexChunk6(DataStruct):
     
     def min_index(self):
         return min(self.to_array())
+    
+    def max_index(self):
+        return max(self.to_array())
         
     def read(self, buffer, cursor, vert_buffer_addr):
         self.type, f1, f2, f3, f4, f5, f6 = struct.unpack_from(self.format_string, buffer, cursor)
@@ -565,13 +571,15 @@ class VisualsIndexBuffer():
         return faces
     
     def unmake(self, mesh):
+        #grab the index buffer from mesh.data.polygons
         face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
+        index_buffer = []
         while len(face_buffer) > 1:
             chunk_type = 5
             face = face_buffer[0]
             next_face = face_buffer[1]
             
-            
+            #detect 6chunk
             if face[2] == next_face[2] and face[0] == next_face[0] - 1 and face[1] == next_face[1] - 2:
                 chunk_type = 6
                 face_buffer = face_buffer[2:]
@@ -581,29 +589,40 @@ class VisualsIndexBuffer():
                 
             chunk_class = self.map.get(chunk_type)
             chunk = chunk_class(self.model, chunk_type)
-            self.data.append(chunk.from_array(face))
+            index_buffer.append(chunk.from_array(face))
         
         #push the last chunk if there is one
         if len(face_buffer):
-            chunk_class = self.map.get(5)
-            chunk = chunk_class(self.model, chunk_type)
-            self.data.append(chunk.from_array(face_buffer[0]))    
+            index_buffer.append(VisualsIndexChunk5(self.model, 5).from_array(face_buffer[0]))    
             
         #TODO test the following 
 
         offset = 0
-        #insert initial chunk
-        self.data.insert(0, VisualsIndexChunk1(self.model, 1))
+        #go through our index buffer and figure out where the 1chunks should go
+        self.data = [VisualsIndexChunk1(self.model, 1)]
         
-        for i, chunk in enumerate(self.data):
-            
+        for i, chunk in enumerate(index_buffer):
             min_index = chunk.min_index()
             
             if min_index - offset > 32:
                 offset = min_index
-                self.data.insert(i, VisualsIndexChunk1(self.model, 1))
+                self.data.append(i, VisualsIndexChunk1(self.model, 1))
             
             chunk.base = offset
+            self.data.append(chunk)
+        
+        #finally, reverse crawl through the list and find max indeces for the 1chunks
+        mi = 0
+        for i in range(len(self.data), 0, -1):
+            chunk = self.data[i]
+            if chunk.type == 1:
+                chunk.max = mi
+                mi = 0
+                continue
+            cmi = chunk.max_index()
+            if cmi > mi:
+                mi = cmi
+                
         
         return self
 
@@ -612,7 +631,7 @@ class VisualsIndexBuffer():
         for chunk in self.data:
             cursor = chunk.write(buffer, cursor)
             
-        #write final chunk
+        #write end chunk
         writeUInt8(buffer, 223, cursor)
         return cursor + 8
     
