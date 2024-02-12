@@ -25,7 +25,6 @@ import math
 from .readwrite import *
 from .textureblock import Texture
 
-
 class Data:
     def get(self):
         pass
@@ -33,108 +32,99 @@ class Data:
         pass
 
 class DataStruct:
+    
     def __init__(self, format_string):
         self.format_string = format_string
         self.size = struct.calcsize(self.format_string)
+        
     def read(self, buffer, cursor):
-        pass
+        self.data = struct.unpack_from(self.format_string, buffer, cursor)
+        return self
+    
     def make(self):
-        pass
+        return self.to_array()
+    
     def unmake(self):
-        pass
-    def write(self, buffer, cursor, hl, model):
-        pass
+        raise NotImplementedError("Subclasses must implement this method")
     
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, *self.to_array())
+        return cursor + self.size
     
-class FloatVector(Data):
+    def from_array(self, data):
+        self.data = data
+        return self
+    
+    def to_array(self):
+        return self.data
+    
+class FloatPosition(DataStruct):
     def __init__(self, data = None):
+        super().__init__('>3f')
+        self.data = [0,0,0]
         if data is not None:
-            self.set([0,0,0])
-        else:
-            self.data = [0,0,0]
+            self.from_array(data)
 
     def __str__(self):
         return f"({self.data[0]}, {self.data[1]}, {self.data[2]})"
     
-    def set(self, data=None):
+    def from_array(self, data=None):
         if(len(data) != 3):
-            raise ValueError("Vec3 must contain only 3 values")
+            raise ValueError(f"Vec3 must contain 3 values, received {len(data)}")
+        super().from_array(data)
+        return self
+    
+class FloatVector(FloatPosition):
+    def from_array(self, data = None):
         for d in data:
             if d > 1.0 or d < -1.0:
                 raise ValueError(f"Vec3 {d} in {data} is not normalized")
-        self.data = data
+        super().from_array(data)
         return self
-    
-    def get(self):
-        return self.data
-    
-class FloatPosition(Data):
+
+class ShortPosition(DataStruct):
     def __init__(self, data = None):
+        super().__init__('>3h')
+        self.data = [0,0,0]
         if data is not None:
-            self.set([0,0,0])
-        else:
-            self.data = [0,0,0]
-
-    def __str__(self):
-        return f"({self.data[0]}, {self.data[1]}, {self.data[2]})"
+            self.from_array(data)  
     
-    def set(self, data=None):
-        if(len(data) != 3):
-            raise ValueError(f"Vec3 must contain only 3 values, received {len(data)}")
-                
-        self.data = data
+    def from_array(self, data=None):
+        super().from_array(data)  
+        self.data = [round(d) for d in self.data]
         return self
     
-    def get(self):
-        return self.data
-
-class IntPosition(Data):
+class FloatMatrix(DataStruct):
     def __init__(self, data = None):
-        if data is not None:
-            self.set([0,0,0])
-        else:
-            self.data = [0,0,0]
-
-    def __str__(self):
-        return f"({self.data[0]}, {self.data[1]}, {self.data[2]})"
-    
-    def set(self, data=None):
-        if(len(data) != 3):
-            raise ValueError(f"Vec3 must contain only 3 values, received {len(data)}")
-                
-        self.data = [round(d) for d in data]
-        return self
-    
-    def get(self):
-        return self.data
-    
-class FloatMatrix(Data):
-    def __init__(self, data = None):
+        super().__init__('>12f')
         if data is None:
             self.data = [FloatVector(), FloatVector(), FloatVector(), FloatPosition()]
         else:
-            self.set([FloatVector(data[:3]), FloatVector(data[3:6]), FloatVector(data[6:9]), FloatPosition(data[9:])])
+            self.from_array([FloatVector(data[:3]), FloatVector(data[3:6]), FloatVector(data[6:9]), FloatPosition(data[9:])])
 
-    def set(self, data=None):
+    def from_array(self, data=None):
         if(len(data) != 12):
-            raise ValueError("Matrix must have 12 values")
-        self.data = [FloatVector(data[:3]), FloatVector(data[3:6]), FloatVector(data[6:]), FloatPosition(data[9:])]
+            raise ValueError("FloatMatrix must have 12 values")
+        self.data = [FloatVector(data[:3]), FloatVector(data[3:6]), FloatVector(data[6:9]), FloatPosition(data[9:])]
 
-    def get(self):
-        return [vec.get() for vec in self.data]
+    def to_array(self):
+        data = []
+        for vec in self.data:
+            data.extend(vec.to_array())
+        return data
     
     def make(self):
         matrix = []
         for i in range(3):
-            matrix.append(tuple([*self.data[i].get(), 0.0]))
-        matrix.append(tuple([*self.data[3].get(), 1.0]))
+            matrix.append(tuple([*self.data[i].to_array(), 0.0]))
+        matrix.append(tuple([*self.data[3].to_array(), 1.0]))
         return matrix
     
     def unmake(self, matrix):
         mat = []
         for m in matrix:
             mat.extend(m[:3])
-        self.set(mat)    
+        self.from_array(mat)    
 
 class Color(Data):
     def __init__(self, data = None):
@@ -166,6 +156,36 @@ class Color(Data):
     def get(self):
         return self.data
     
+class RGB3Bytes(DataStruct):
+    def __init__(self, r = 0, g = 0, b = 0):
+        super().__init__('>3B')
+        self.r = r
+        self.g = g
+        self.b = b
+    def to_array(self):
+        return [self.r, self.g, self.b]
+    def unmake(self, data):
+        self.r = round(data[0]*255)
+        self.g = round(data[1]*255)
+        self.b = round(data[2]*255)
+        return self
+    
+class RGBA4Bytes(DataStruct):
+    def __init__(self, r = 0, g = 0, b = 0, a = 0):
+        super().__init__('>4B')
+        self.r = r
+        self.g = g
+        self.b = b
+        self.a = a
+    def to_array(self):
+        return [self.r, self.g, self.b, self.a]
+    def unmake(self, data):
+        self.r = round(data[0]*255)
+        self.g = round(data[1]*255)
+        self.b = round(data[2]*255)
+        self.a = round(data[3]*255)
+        return self
+        
 class Lights(Data):
     def __init__(self):
         self.flag = 0
@@ -176,7 +196,7 @@ class Lights(Data):
         self.pos = FloatPosition()
         self.rot = FloatVector()
     
-    def get(self):
+    def to_array(self):
         return [self.flag, *self.ambient.get(), *self.color.get(),self.unk1, self.unk2, *self.pos.get(), *self.rot.get()]
         
     def set(self, flag, ambient_r, ambient_g, ambient_b, color_r, color_g, color_b,unk1, unk2, x, y, z, a, b, c):
@@ -261,54 +281,46 @@ class CollisionTags(DataStruct):
     
     def write(self, buffer, cursor):
         # Pack object attributes into binary data
-        return struct.pack_into(self.format_string, buffer, cursor, *[self.unk, *self.fog.get(), *self.lights.get(), self.flags, self.unk2, self.unload, self.load])
-    
+        struct.pack_into(self.format_string, buffer, cursor, *[self.unk, *self.fog.get(), *self.lights.get(), self.flags, self.unk2, self.unload, self.load])
+        return cursor + self.size 
 
 class CollisionVertBuffer(DataStruct):
     def __init__(self, model, length):
         super().__init__(f'>{length*3}h')
+        self.length = length
         self.model = model
-        self.data = None
+        self.data = []
 
     def __str__(self):
         return str(self.data)
 
     def read(self, buffer, cursor):
-        self.data = struct.unpack_from(self.format_string, buffer, cursor)
+        for i in range(self.length):
+            xyz = ShortPosition().read(buffer, cursor)
+            self.data.append(xyz)
+            cursor += xyz.size
         
         return self
 
     def make(self):
-        vert_buffer = []
-        for i in range(len(self.data)//3):
-            vert_buffer.append(self.data[i*3:(i+1)*3])
-        return vert_buffer
+        return [vert.make() for vert in self.data]
     
     def unmake(self, mesh):
-        self.data = [round(co) for vert in mesh.data.vertices for co in vert.co]
+        self.data = [ShortPosition().from_array(vert.co) for vert in mesh.data.vertices]
         return self
-    
-    def write(self, buffer, cursor):
-        return struct.pack_into(self.format_string, buffer, cursor, *self.data)
     
 class CollisionVertStrips(DataStruct):
     def __init__(self, model, count):
         super().__init__(f'>{count}I')
         self.model = model
         self.data = None
-
-    def read(self, buffer, cursor):
-        self.data = struct.unpack_from(self.format_string, buffer, cursor)
-        return self
-
-    def make(self):
-        return self.data
+        self.strip_count = count
+        self.strip_size = 3
     
     def unmake(self, mesh):
         #this doesn't stripify the mesh but it is able to recognize existing strips in the faces' vertex indices
         face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
         last_face = face_buffer[0]
-        strips = []
         strip = 3
         for i, face in enumerate(face_buffer):
             if i == 0:
@@ -319,153 +331,17 @@ class CollisionVertStrips(DataStruct):
             elif strip % 2 == 0 and face[0] == last_face[0] and face[1] == last_face[2]:
                 strip+=1
             else:
-                strips.append(strip)
+                self.data.append(strip)
                 strip = 3
             
             if i == len(face_buffer) - 1:
-                strips.append(strip)
+                self.data.append(strip)
                 
-        self.data = strips
+        self.strip_count = len(self.data)
+        if all(strip == self.data[0] for strip in self.data):
+            self.strip_size = self.data[0]
+                
         return self
-    
-    def write(self, buffer, cursor):
-        return struct.pack_into(self.format_string, buffer, cursor, *self.data)
-    
-
-class Collision(DataStruct):
-    def __init__(self, model):
-        super().__init__('>4xI24xHHI4xI8xH')
-        self.model = model
-        self.tags = None
-        self.vert_strips = None
-        self.vert_buffer = None
-        self.strip_count = None
-        self.strip_size = None
-        self.id = None
-
-    def read(self, buffer, cursor):
-        self.id = cursor
-        tags_addr, strip_count, strip_size, vert_strips_addr, vert_buffer_addr, vert_count = struct.unpack_from(self.format_string, buffer, cursor)
-        if tags_addr:
-            self.tags = CollisionTags(self.model).read(buffer, tags_addr)
-        if vert_strips_addr:
-            self.vert_strips = CollisionVertStrips(self.model, strip_count).read(buffer, vert_strips_addr)
-        if vert_buffer_addr:
-            self.vert_buffer = CollisionVertBuffer(self.model, vert_count).read(buffer, vert_buffer_addr)
-        self.strip_size = strip_size
-        self.strip_count = strip_count
-
-    def make(self, parent):
-        if (self.vert_buffer is None or len(self.vert_buffer.data) < 3):
-            return
-        
-        verts = self.vert_buffer.make()
-        edges = []
-        faces = []
-        start = 0
-        vert_strips = [self.strip_size for s in range(self.strip_count)]
-        
-        if(self.vert_strips is not None): 
-            vert_strips = self.vert_strips.make()
-            for strip in vert_strips:
-                for s in range(strip -2):
-                    if (s % 2) == 0:
-                        faces.append( [start+s, start+s+1, start+s+2])
-                    else:
-                        faces.append( [start+s+1, start+s, start+s+2])
-                start += strip
-        else: 
-            for strip in vert_strips:
-                for s in range(strip -2):
-                    if (strip == 3):
-                        faces.append( [start+s, start+s+1, start+s+2])
-                    else:
-                        if (s % 2) == 0:
-                            faces.append( [start+s, start+s+1, start+s+3])
-                        else:
-                            faces.append( [start+s, start+s+1, start+s+2])
-                start += strip
-                
-        mesh_name = str(self.id) + "_" + "collision"
-        mesh = bpy.data.meshes.new(mesh_name)
-        obj = bpy.data.objects.new(mesh_name, mesh)
-        
-        obj['type'] = 'COL'   
-        obj['id'] = self.id
-        obj.scale = [self.model.scale, self.model.scale, self.model.scale]
-
-        self.model.collection.objects.link(obj)
-        mesh.from_pydata(verts, edges, faces)
-        obj.parent = parent
-
-        if(self.tags is not None): 
-            self.tags.make(obj)
-
-    def unmake(self, mesh):
-        self.vert_buffer = CollisionVertBuffer().unmake(mesh)
-        self.vert_strips = CollisionVertStrips().unmake(mesh)
-        self.tags = CollisionTags().unmake(mesh)
-
-        if len(self.vert_strips.data):
-            self.strip_count = len(self.vert_strips.data)
-            if all(strip == self.vert_strips.data[0] for strip in self.vert_strips.data):
-                self.strip_size = self.vert_strips.data[0]
-
-    def write(self, buffer, cursor):
-        headstart = cursor
-        bb = mesh_bounding_box(mesh)
-        writeFloatBE(buffer, bb['min'][0], cursor + 8)
-        writeFloatBE(buffer, bb['min'][1], cursor + 12)
-        writeFloatBE(buffer, bb['min'][2], cursor + 16)
-        writeFloatBE(buffer, bb['max'][0], cursor + 20)
-        writeFloatBE(buffer, bb['max'][1], cursor + 24)
-        writeFloatBE(buffer, bb['max'][2], cursor + 28)
-        writeInt16BE(buffer, mesh.get('vert_strip_count', 0), cursor + 32)
-        writeInt16BE(buffer, mesh.get('vert_strip_default', 0), cursor + 34)
-        self.model.highlight(hl)
-        outside_ref( cursor + 40, mesh['visuals'].get('group_parent', 0),model)
-        writeInt16BE(buffer, len(mesh['collision'].get('vert_buffer', [])), cursor + 56)
-        writeInt16BE(buffer, len(mesh['visuals'].get('vert_buffer', [])), cursor + 58)
-        writeInt16BE(buffer, mesh['visuals'].get('group_count', 0), cursor + 62)
-        cursor += 64
-
-        if mesh['collision']['vert_strips']:
-            highlight(headstart + 36,  hl)
-            writeUInt32BE(buffer, cursor, headstart + 36)
-            cursor = write_collision_vert_strips( buffer, cursor,  mesh['collision']['vert_strips'])
-
-        if mesh['collision']['vert_buffer']:
-            highlight(headstart + 44,  hl)
-            writeUInt32BE(buffer, cursor, headstart + 44)
-            cursor = write_collision_vert_buffer( buffer,  cursor, mesh['collision']['vert_buffer'])
-
-        if mesh['visuals']['material']:
-            highlight(headstart, hl)
-            mat_id = mesh['visuals']['material']
-            if model['mats'][mat_id]['write']:
-                writeUInt32BE(buffer, model['mats'][mat_id]['write'], headstart)
-            else:
-                writeUInt32BE(buffer, cursor, headstart)
-                cursor = write_mat(buffer,  cursor, mat_id,  hl, model)
-
-        index_buffer_addr = None
-        if mesh['visuals']['index_buffer']:
-            highlight(headstart + 48,  hl)
-            index_buffer_addr = cursor if cursor % 8 == 0 else cursor + 4
-            writeInt32BE(buffer, index_buffer_addr, headstart + 48)
-            cursor = write_visual_index_buffer(buffer,  index_buffer_addr, mesh['visuals']['index_buffer'], hl)
-
-        if mesh['visuals']['vert_buffer'] and len(mesh['visuals']['vert_buffer']):
-            highlight(headstart + 52,  hl)
-            writeUInt32BE(buffer, cursor, headstart + 52)
-            cursor = write_visual_vert_buffer( buffer, cursor,  mesh['visuals']['vert_buffer'], mesh['visuals']['index_buffer'],  index_buffer_addr)
-
-        if mesh['collision']['data']:
-            highlight(headstart + 4, hl)
-            writeUInt32BE(buffer, cursor, headstart + 4)
-            cursor = write_collision_data(buffer,  cursor, mesh['collision']['data'], hl,  model)
-
-        return cursor
     
 class VisualsVertChunk(DataStruct):
     def __init__(self, model):
@@ -478,16 +354,21 @@ class VisualsVertChunk(DataStruct):
         x, y, z, uv_x, uv_y, r, g, b, a = struct.unpack_from(self.format_string, buffer, cursor)
         self.co = [x, y, z]
         self.uv = [uv_x, uv_y]
-        self.color = [r, g, b, a]
+        self.color = RGBA4Bytes(r, g, b, a)
         return cursor + self.size
-    def make(self):
-        pass
+    def to_array(self):
+        return [*self.co, *self.uv, *self.color.to_array()]
+    
+    def verts_to_array(self):
+        return self.co
+    
     def unmake(self, co, uv, color):
-        self.co = co
-        self.uv = uv
-        self.color = color
+        self.co = [round(c) for c in co]
+        self.uv = [round(c*4096) for c in uv]
+        self.color = RGBA4Bytes().unmake(color)
+        return self
     def write(self, buffer, cursor):
-        struct.pack_into(self.format_string, buffer, cursor, *self.pos, *self.uv, *self.color)
+        struct.pack_into(self.format_string, buffer, cursor, *self.co, *self.uv, *self.color.make())
         return cursor + self.size
     
 class VisualsVertBuffer():
@@ -501,32 +382,41 @@ class VisualsVertBuffer():
             vert = VisualsVertChunk(self.model)
             cursor = vert.read(buffer, cursor)
             self.data.append(vert)
+        return self
+    
     def make(self):
-        pass
+        return [v.co for v in self.data]
+    
     def unmake(self, mesh):
         uv_data = None
         color_data = None
+        
         if mesh.data.uv_layers.active:
             uv_data = mesh.data.uv_layers.active.data
         if mesh.data.vertex_colors.active:
             color_data = mesh.data.vertex_colors.active.data
-        for poly in mesh.data.polygons:
-            for p in range(len(poly.vertices)):
-                uv = [0, 0]
-                color = [0, 0, 0]
-                
-                if uv_data:
-                    uv = uv_data[poly.loop_indices[p]].uv
-                if color_data:
-                    color = color_data[poly.loop_indices[p]].color
-                v = mesh.data.vertices[poly.vertices[p]]
-                
-                self.data.append(VisualsVertChunk(self.model).unmake(v.co, uv, [c for c in color]))
+        faces = [p for poly in mesh.data.polygons for p in poly.vertices ]
+        
+        for vert in mesh.data.vertices:
+            face_index = faces[faces[vert.index]]
+            uv = uv_data[face_index].uv
+            color = color_data[face_index].color
+            self.data.append(VisualsVertChunk(self.model).unmake(vert.co, uv, color))
                 
         self.length = len(self.data)
+        return self
+    
     def write(self, buffer, cursor):
         for vert in self.data:
             cursor = vert.write(buffer, cursor)
+        
+        #TODO implement the following ref update for index buffer references
+        # index_buffer.forEach((index, i) => {
+        #     if (index.type == 1) {
+        #         buffer.writeUInt32BE(vert_buffer_addr + index.start * 16, index_buffer_addr + i * 8 + 4)
+        #     }
+        # })
+            
         return cursor
     
 class VisualsIndexChunk1(DataStruct):
@@ -534,17 +424,21 @@ class VisualsIndexChunk1(DataStruct):
         self.model = model
         self.type = type
         super().__init__('>BBBBI')
-        self.unk1 = None
-        self.unk2 = None
-        self.size = None
-        self.start = None
+        self.unk1 = 0
+        self.unk2 = 0
+        self.start = 0
+        self.max = 0
         
     def read(self, buffer, cursor, vert_buffer_addr):
-        self.type, self.unk1, self.unk2, self.size, start = struct.unpack_from(self.format_string, buffer, cursor)
+        self.type, self.unk1, self.unk2, self.max, start = struct.unpack_from(self.format_string, buffer, cursor)
         self.start = round((start - vert_buffer_addr)/16)
         return cursor + self.size
     
-        
+    def write(self, buffer, cursor):
+        self.start = 0 #round((start - vert_buffer_addr)/16)
+        struct.pack_into(self.format_string, buffer, cursor, self.type, self.unk1, self.unk2, self.max, self.start)
+        return cursor + self.size
+      
 class VisualsIndexChunk3(DataStruct):
     def __init__(self, model, type):
         self.model = model
@@ -561,10 +455,26 @@ class VisualsIndexChunk5(DataStruct):
     def __init__(self, model, type):
         self.model = model
         self.type = type
+        self.base = 0
         super().__init__('>BBBB4x')
-        self.f1 = None
-        self.f2 = None
-        self.f3 = None
+        self.f1 = 0
+        self.f2 = 0
+        self.f3 = 0
+        
+    def from_array(self, data):
+        self.f1, self.f2, self.f3 = data
+        return self
+    
+    def to_array(self):
+        return [self.f1, self.f2, self.f3]
+        
+    def min_index(self):
+        return min(self.to_array())
+    
+    def adjust_indices(self, offset):
+        self.f1 = self.f1 - offset
+        self.f2 = self.f2 - offset
+        self.f3 = self.f3 - offset
         
     def read(self, buffer, cursor, vert_buffer_addr):
         self.type, f1, f2, f3 = struct.unpack_from(self.format_string, buffer, cursor)
@@ -572,18 +482,34 @@ class VisualsIndexChunk5(DataStruct):
         self.f2 = round(f2/2)
         self.f3 = round(f3/2)
         return cursor + self.size
+    
+    def write(self, buffer, cursor):
+        print(self.type, *[(i-self.base)*2 for i in self.to_array()])
+        struct.pack_into(self.format_string, buffer, cursor, self.type, *[(i-self.base)*2 for i in self.to_array()])
+        return cursor + self.size
         
 class VisualsIndexChunk6(DataStruct):
     def __init__(self, model, type):
         self.model = model
         self.type = type
+        self.base = 0
         super().__init__('>BBBBxBBB')
-        self.f1 = None
-        self.f2 = None
-        self.f3 = None
-        self.f4 = None
-        self.f5 = None
-        self.f6 = None
+        self.f1 = 0
+        self.f2 = 0
+        self.f3 = 0
+        self.f4 = 0
+        self.f5 = 0
+        self.f6 = 0
+    
+    def from_array(self, data):
+        self.f1, self.f2, self.f3, self.f4, self.f5, self.f6 = data
+        return self
+    
+    def to_array(self):
+        return [self.f1, self.f2, self.f3, self.f4, self.f5, self.f6]
+    
+    def min_index(self):
+        return min(self.to_array())
         
     def read(self, buffer, cursor, vert_buffer_addr):
         self.type, f1, f2, f3, f4, f5, f6 = struct.unpack_from(self.format_string, buffer, cursor)
@@ -594,22 +520,27 @@ class VisualsIndexChunk6(DataStruct):
         self.f5 = round(f5/2)
         self.f6 = round(f6/2)
         return cursor + self.size
+    
+    def write(self, buffer, cursor):
+        print(self.type, *[(i-self.base)*2 for i in self.to_array()])
+        struct.pack_into(self.format_string, buffer, cursor, self.type, *[(i-self.base)*2 for i in self.to_array()])
+        return cursor + self.size
             
 class VisualsIndexBuffer():
     def __init__(self, model):
         self.model = model
         self.data = []
-        
-    def read(self, buffer, cursor, vert_buffer_addr):
-        chunk_type = readUInt8(buffer, cursor)
-        CHUNK_MAPPING = {
+        self.map = {
             1: VisualsIndexChunk1,
             3: VisualsIndexChunk3,
             5: VisualsIndexChunk5,
             6: VisualsIndexChunk6,
         }
+    def read(self, buffer, cursor, vert_buffer_addr):
+        chunk_type = readUInt8(buffer, cursor)
+        
         while(chunk_type != 223):
-            chunk_class = CHUNK_MAPPING.get(chunk_type)
+            chunk_class = self.map.get(chunk_type)
             if chunk_class is None:
                 raise ValueError(f"Invalid index chunk type {chunk_type}")
             chunk = chunk_class(self.model, chunk_class)
@@ -617,6 +548,8 @@ class VisualsIndexBuffer():
             self.data.append(chunk)
             cursor += 8
             chunk_type = readUInt8(buffer, cursor)
+            
+        return self
             
     def make(self):
         faces = []
@@ -633,10 +566,55 @@ class VisualsIndexBuffer():
     
     def unmake(self, mesh):
         face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
+        while len(face_buffer) > 1:
+            chunk_type = 5
+            face = face_buffer[0]
+            next_face = face_buffer[1]
+            
+            
+            if face[2] == next_face[2] and face[0] == next_face[0] - 1 and face[1] == next_face[1] - 2:
+                chunk_type = 6
+                face_buffer = face_buffer[2:]
+                face.extend(next_face)
+            else:
+                face_buffer = face_buffer[1:]
+                
+            chunk_class = self.map.get(chunk_type)
+            chunk = chunk_class(self.model, chunk_type)
+            self.data.append(chunk.from_array(face))
         
+        #push the last chunk if there is one
+        if len(face_buffer):
+            chunk_class = self.map.get(5)
+            chunk = chunk_class(self.model, chunk_type)
+            self.data.append(chunk.from_array(face_buffer[0]))    
+            
+        #TODO test the following 
+
+        offset = 0
+        #insert initial chunk
+        self.data.insert(0, VisualsIndexChunk1(self.model, 1))
         
-    def write(self):
-        pass
+        for i, chunk in enumerate(self.data):
+            
+            min_index = chunk.min_index()
+            
+            if min_index - offset > 32:
+                offset = min_index
+                self.data.insert(i, VisualsIndexChunk1(self.model, 1))
+            
+            chunk.base = offset
+        
+        return self
+
+    def write(self, buffer, cursor):
+
+        for chunk in self.data:
+            cursor = chunk.write(buffer, cursor)
+            
+        #write final chunk
+        writeUInt8(buffer, 223, cursor)
+        return cursor + 8
     
 class MaterialTextureChunk(DataStruct):
     def __init__(self, model):
@@ -722,6 +700,8 @@ class Material(DataStruct):
         if unk_addr:
             self.unk = MaterialUnk(self.model)
             self.unk.read(buffer, unk_addr)
+            
+        return self
         
     def make(self):
         mat_name = str(self.id)
@@ -817,142 +797,247 @@ class Material(DataStruct):
         return material
     
     def unmake(self, material):
-        pass
+        return self
     def write(self, buffer, cursor):
         return cursor
     
-class Visuals(DataStruct):
+class MeshBoundingBox(DataStruct):
+    #only need to calculate bounding box for export workflow
+    def __init__(self):
+        super().__init__('>6f')
+        self.min_x = 0
+        self.min_y = 0
+        self.min_z = 0
+        self.max_x = 0
+        self.max_y = 0
+        self.max_z = 0
+    def unmake(self, mesh):
+        verts = []
+        if mesh is None:
+            return self
+        
+        if mesh.visuals_vert_buffer:
+            verts.extend(mesh.visuals_vert_buffer.make())
+        if mesh.collision_vert_buffer:
+            verts.extend(mesh.collision_vert_buffer.make())
+        
+        if len(verts) == 0:
+            return self
+        self.min_x = min([vert[0] for vert in verts])
+        self.min_y = min([vert[1] for vert in verts])
+        self.min_z = min([vert[2] for vert in verts])
+        self.max_x = max([vert[0] for vert in verts])
+        self.max_y = max([vert[1] for vert in verts])
+        self.max_z = max([vert[2] for vert in verts])
+        return self
+    def to_array(self):
+        return [self.min_x, self.min_y, self.min_z, self.max_x, self.max_y, self.max_z]
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, *self.to_array())
+        return self.size + cursor
+    
+class MeshGroupBoundingBox(MeshBoundingBox):
+    def unmake(self, meshgroup):
+        bb = []
+        for child in meshgroup.children:
+            bb.append(child.bounding_box.to_array())
+        self.min_x = min([b[0] for b in bb])
+        self.min_y = min([b[1] for b in bb])
+        self.min_z = min([b[2] for b in bb])
+        self.max_x = max([b[3] for b in bb])
+        self.max_y = max([b[4] for b in bb])
+        self.max_z = max([b[5] for b in bb])
+        return self
+    
+class Mesh(DataStruct):
     def __init__(self, model):
-        super().__init__('>I36xI4xII2xHI')
+        super().__init__('>2I6f2H5I2H2xH')
         self.model = model
+        
         self.material = None
-        self.vert_buffer = None
-        self.index_buffer = None
-        self.group_parent = None
-        self.group_count = None
-        self.id = None
+        self.collision_tags = None
+        self.bounding_box = None
+        self.strip_count = 0
+        self.strip_size = 3
+        self.vert_strips = None
+        self.group_parent_id = 0
+        self.collision_vert_buffer = None
+        self.visuals_index_buffer = None
+        self.visuals_vert_buffer = None
+        self.group_count = 0
+        
+    def has_visuals(self):
+        return self.visuals_vert_buffer is not None and self.visuals_index_buffer is not None
+    
+    def has_collision(self):
+        return self.collision_vert_buffer is not None and self.collision_vert_buffer.length >= 3
     
     def read(self, buffer, cursor):
         self.id = cursor
-        mat_addr, self.group_parent, index_buffer_addr, vert_buffer_addr, vert_count, self.group_count = struct.unpack_from(self.format_string, buffer, cursor)
+        mat_addr, collision_tags_addr, min_x, min_y, min_z, max_x, max_y, max_z, self.strip_count, self.strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count = struct.unpack_from(self.format_string, buffer, cursor)
         
-        if vert_buffer_addr:
-            self.vert_buffer = VisualsVertBuffer(self.model, vert_count)
-            self.vert_buffer.read(buffer, vert_buffer_addr)
-            
-        if index_buffer_addr:
-            self.index_buffer = VisualsIndexBuffer(self.model)
-            self.index_buffer.read(buffer, index_buffer_addr, vert_buffer_addr)
-            
         if mat_addr:
-            if mat_addr in self.model.materials: #we've already read this material
-                self.material = self.model.materials[mat_addr]
-            else:
-                self.model.materials[mat_addr] = Material(self.model)
-                self.model.materials[mat_addr].read(buffer, mat_addr)
-                self.material = self.model.materials[mat_addr]
+            if mat_addr not in self.model.materials:
+                self.model.materials[mat_addr] = Material(self.model).read(buffer, mat_addr)
+            self.material = self.model.materials[mat_addr]
+                
+        if collision_tags_addr:
+            self.collision_tags = CollisionTags(self.model).read(buffer, collision_tags_addr)
+                
+        #we can ignore saving bounding box data (min_x, min_y...) upon read, we'll just calculate it during unmake
+                    
+        if vert_strips_addr:
+            self.vert_strips = CollisionVertStrips(self.model, self.strip_count).read(buffer, vert_strips_addr)
+                    
+        if visuals_index_buffer_addr:
+            self.visuals_index_buffer = VisualsIndexBuffer(self.model).read(buffer, visuals_index_buffer_addr, visuals_vert_buffer_addr)
+        
+        if visuals_vert_buffer_addr:
+            self.visuals_vert_buffer = VisualsVertBuffer(self.model, visuals_vert_count).read(buffer, visuals_vert_buffer_addr)
+            
+        if collision_vert_buffer_addr:
+            self.collision_vert_buffer = CollisionVertBuffer(self.model, collision_vert_count).read(buffer, collision_vert_buffer_addr)
+                    
+        return self
     
     def make(self, parent):
-        if self.vert_buffer is None or self.index_buffer is None:
-            return
-        
-        verts = [vert.pos for vert in self.vert_buffer.data]
-        edges = []
-        faces = self.index_buffer.make()
-        mesh_name = str(self.id) + "_" + "visuals"
-        mesh = bpy.data.meshes.new(mesh_name)
-        obj = bpy.data.objects.new(mesh_name, mesh)
-        print(verts, faces)
-        obj['type'] = 'VIS'    
-        obj['id'] = self.id
-        obj.scale = [self.model.scale, self.model.scale, self.model.scale]
+        if self.has_collision():
+            verts = self.collision_vert_buffer.make()
+            edges = []
+            faces = []
+            start = 0
+            vert_strips = [self.strip_size for s in range(self.strip_count)]
+            
+            if(self.vert_strips is not None): 
+                vert_strips = self.vert_strips.make()
+                for strip in vert_strips:
+                    for s in range(strip -2):
+                        if (s % 2) == 0:
+                            faces.append( [start+s, start+s+1, start+s+2])
+                        else:
+                            faces.append( [start+s+1, start+s, start+s+2])
+                    start += strip
+            else: 
+                for strip in vert_strips:
+                    for s in range(strip -2):
+                        if (strip == 3):
+                            faces.append( [start+s, start+s+1, start+s+2])
+                        else:
+                            if (s % 2) == 0:
+                                faces.append( [start+s, start+s+1, start+s+3])
+                            else:
+                                faces.append( [start+s, start+s+1, start+s+2])
+                    start += strip
+                    
+            mesh_name = str(self.id) + "_" + "collision"
+            mesh = bpy.data.meshes.new(mesh_name)
+            obj = bpy.data.objects.new(mesh_name, mesh)
+            
+            obj['type'] = 'COL'   
+            obj['id'] = self.id
+            obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
-        self.model.collection.objects.link(obj)
-        mesh.from_pydata(verts, edges, faces)
-        obj.parent = parent
-        
-        mesh.materials.append(
-           self.material.make()
-        )
-        
-        #set vector colors / uv coords
-        uv_layer = mesh.uv_layers.new(name = 'uv')
-        color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
-        for poly in mesh.polygons:
-            for p in range(len(poly.vertices)):
-                v = self.vert_buffer.data[poly.vertices[p]]
-                uv_layer.data[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
-                color_layer.data[poly.loop_indices[p]].color = [a/255 for a in v.color]
+            self.model.collection.objects.link(obj)
+            mesh.from_pydata(verts, edges, faces)
+            obj.parent = parent
+
+            if(self.collision_tags is not None): 
+                self.collision_tags.make(obj)
+                
+        if self.has_visuals():
+            verts = self.visuals_vert_buffer.make()
+            edges = []
+            faces = self.visuals_index_buffer.make()
+            mesh_name = str(self.id) + "_" + "visuals"
+            mesh = bpy.data.meshes.new(mesh_name)
+            obj = bpy.data.objects.new(mesh_name, mesh)
+            obj['type'] = 'VIS'    
+            obj['id'] = self.id
+            obj.scale = [self.model.scale, self.model.scale, self.model.scale]
+
+            self.model.collection.objects.link(obj)
+            mesh.from_pydata(verts, edges, faces)
+            mesh.validate() #clean_customdata=False
+            obj.parent = parent
+            
+            if self.material:
+                mesh.materials.append(self.material.make())
+            
+            #set vector colors / uv coords
+            uv_layer = mesh.uv_layers.new(name = 'uv')
+            color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
+            
+            for poly in mesh.polygons:
+                for p in range(len(poly.vertices)):
+                    v = self.visuals_vert_buffer.data[poly.vertices[p]]
+                    uv_layer.data[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
+                    color_layer.data[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
+    
     def unmake(self, node):
         self.id = node.name
-        
-        self.material = Material(self.model).unmake(node)
-        self.vert_buffer = VisualsVertBuffer(self.model).unmake(node)
-        self.index_buffer = VisualsIndexBuffer(self.model).unmake(node)
-        
-        #TODO check if node has vertex group
-        if False:
-            self.group_parent = None
-            self.group_count = None
-        
+        if 'VIS' in node['type']:
+            self.material = Material(self.model).unmake(node)
+            self.visuals_vert_buffer = VisualsVertBuffer(self.model).unmake(node)
+            self.visuals_index_buffer = VisualsIndexBuffer(self.model).unmake(node)
+            
+            #TODO check if node has vertex group
+            if False:
+                self.group_parent = None
+                self.group_count = None
+                
+        if 'COL' in node['type']:
+            self.collision_tags = CollisionTags().unmake(node)
+            self.collision_vert_buffer = CollisionVertBuffer().unmake(node)
+            self.vert_strips = CollisionVertStrips().unmake(node)
+            
+        self.bounding_box = MeshBoundingBox().unmake(self)
+        return self
+    
     def write(self, buffer, cursor):
+        #initialize addresses
         mat_addr = 0
-        index_buffer_addr = 0
-        vert_buffer_addr = 0
-        visuals_start = cursor
-        print('visuals start', cursor)
+        collision_tags_addr = 0
+        vert_strips_addr = 0
+        collision_vert_buffer_addr = 0
+        visuals_index_buffer_addr = 0
+        visuals_vert_buffer_addr = 0
+        collision_vert_count = 0
+        visuals_vert_count = 0
+    
+        #save mesh location and move cursor to end of mesh header (that we haven't written yet)
+        mesh_start = cursor
         cursor += self.size
         
-        mat_addr = cursor
-        cursor = self.material.write(buffer, cursor)
+        #write each section
+        if self.vert_strips:
+            vert_strips_addr = cursor
+            cursor = self.vert_strips.write(buffer, cursor)
+            
+        if self.collision_vert_buffer:
+            collision_vert_buffer_addr = cursor
+            cursor = self.collision_vert_buffer.write(buffer, cursor)
         
-        #group parent
+        if self.material:
+            mat_addr = cursor
+            cursor = self.material.write(buffer, cursor)
+            
+        if self.visuals_index_buffer:
+            cursor = (cursor + 0x7) & 0xFFFFFFF8 #this section must be aligned to an address divisible by 8
+            visuals_index_buffer_addr = cursor
+            cursor = self.visuals_index_buffer.write(buffer, cursor)
+            
+        if self.visuals_vert_buffer:
+            visuals_vert_buffer_addr = cursor
+            cursor = self.visuals_vert_buffer.write(buffer, cursor)
+            
+        if self.collision_tags:
+            collision_tags_addr = cursor
+            cursor = self.collision_tags.write(buffer, cursor)
         
-        index_buffer_addr = cursor
-        cursor = self.index_buffer.write(buffer, cursor)
-        
-        vert_buffer_addr = cursor
-        cursor = self.vert_buffer.write(buffer, cursor)
-        
-        vert_count = self.vert_buffer.length
-        
-        #group count
-        print(cursor)
-        struct.pack_into(self.format_string, buffer, visuals_start, mat_addr, self.group_parent, index_buffer_addr, vert_buffer_addr, vert_count, self.group_count)
+        #finally, write mesh header
+        struct.pack_into(self.format_string, buffer, mesh_start, mat_addr, collision_tags_addr, *self.bounding_box.to_array(), self.strip_count, self.strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count)
         return cursor
-    
-class MeshBoundingBox():
-    #only need to calculate bounding box for export workflow
-    def __init__(self, mesh):
-        
-    
-class Mesh():
-    def __init__(self, model):
-        self.model = model
-        self.collision = Collision(self.model)
-        self.visuals = Visuals(self.model)
-        self.bounding_box = 
-    def read(self, buffer, cursor):
-        self.collision.read(buffer, cursor)
-        self.visuals.read(buffer, cursor)
-        return self
-    def make(self, parent):
-        self.collision.make(parent)
-        self.visuals.make(parent)
-        return
-    def unmake(self, node):
-        if node['type'] == 'VIS':
-            self.visuals.unmake(node)
-        elif node['type'] == 'COL':
-            self.collision.unmake(node)
-        return self
-    def write(self, buffer, cursor):
-        print('writing mesh')
-        self.collision.write(buffer, cursor)
-        self.visuals.write(buffer, cursor)
-    def bounding_box(self):
-        
-    
+            
 def create_node(node_type, model):
     NODE_MAPPING = {
         12388: MeshGroup12388,
@@ -971,6 +1056,7 @@ def create_node(node_type, model):
         raise ValueError(f"Invalid node type {node_type}")
     
 class Node(DataStruct):
+    
     def __init__(self, model, type):
         super().__init__('>7I')
         self.type = type
@@ -987,6 +1073,7 @@ class Node(DataStruct):
         self.model = model
         self.child_count = 0
         self.child_start = None
+        
     def read(self, buffer, cursor):
         self.id = cursor
         self.node_type, self.load_group1, self.load_group2, self.unk1, self.unk2, self.child_count, self.child_start = struct.unpack_from(self.format_string, buffer, cursor)
@@ -1020,6 +1107,7 @@ class Node(DataStruct):
                 self.children.append(node.read(buffer, child_address))
  
         return self
+    
     def make(self, parent=None):
         name = str(self.id)
         if (self.type in [53349, 53350]):
@@ -1050,14 +1138,11 @@ class Node(DataStruct):
             #         if parent != None and False:
             #             imparent = parent
             #             while imparent != None:
-            #                 #print(imparent, imparent['grouptag0'], imparent['grouptag3'])
             #                 if int(imparent['grouptag0']) == 53349 and int(imparent['grouptag3']) & 1048576 != 0:
-            #                     #print('found one')
             #                     offsetx += imparent['x']
             #                     offsety += imparent['y']
             #                     offsetz += imparent['z']
             #                 imparent = imparent.parent
-            #         #print(offsetx, offsety, offsetz)
             #         new_empty.matrix_world = [
             #         [node['xyz']['ax'], node['xyz']['ay'], node['xyz']['az'], 0],
             #         [node['xyz']['bx'], node['xyz']['by'], node['xyz']['bz'], 0],
@@ -1134,42 +1219,62 @@ class Node(DataStruct):
             for child in node.children:
                 n = create_node(child['node_type'], self.model)
                 self.children.append(n.unmake(child))
-        print(self.id, self.node_type, self.load_group1, self.load_group2, self.unk1, self.unk2)
         return self
-    def write(self, buffer, cursor):
-        struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.load_group1, self.load_group2, self.unk1, self.unk2, len(self.children), 0)
-        cursor += self.size
-        
-        return cursor
     
-    def write_children(self, buffer, cursor):
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.load_group1, self.load_group2, self.unk1, self.unk2, 0, 0)
+        return cursor + self.size
+    
+    def write_children(self, buffer, cursor, child_data_addr):
+        num_children = len(self.children)
+        
+        #write child count and child list pointer
+        writeUInt32BE(buffer, num_children, child_data_addr)
+        writeUInt32BE(buffer, cursor, child_data_addr + 4)
+        
         if not len(self.children):
             return cursor
-        for child in self.children:
+        
+        #write child ptr list
+        child_list_addr = cursor
+        cursor += num_children * 4
+        
+        #write children        
+        for index, child in enumerate(self.children):
+            child_ptr = child_list_addr + 4*index
+            writeUInt32BE(buffer, cursor, child_ptr)
+            self.model.highlight(child_ptr)
             cursor = child.write(buffer, cursor)
+            
         return cursor
 
 class MeshGroup12388(Node):
+    
     def __init__(self, model, type):
         super().__init__(model, type)
+        self.bounding_box = None
+        
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
         return self
+    
     def make(self, parent = None):
         return super().make(parent)
+    
     def unmake(self, node):
-        return super().unmake(node)
+        super().unmake(node)
+        self.bounding_box = MeshGroupBoundingBox().unmake(self)
+        return self
+        
     def write(self, buffer, cursor):
-        print('writing 12388')
         cursor = super().write(buffer, cursor)
-        child_addr_start = cursor - 4
-        writeInt32BE(buffer, cursor, child_addr_start)
-        self.model.highlight(child_addr_start)
-        cursor = super().write_children(buffer, cursor)
+        child_info_start = cursor - 8
+        cursor = self.bounding_box.write(buffer, cursor)
+        cursor += 8
+        cursor = super().write_children(buffer, cursor, child_info_start)
         return cursor
         
 class Group53348(Node):
-    print('writing 53348')
     
     def __init__(self, model, type):
         super().__init__(model, type)
@@ -1185,12 +1290,9 @@ class Group53348(Node):
     def unmake(self, node):
         return super().unmake(node)
     def write(self, buffer, cursor):
-        print('writing 53348')
         cursor = super().write(buffer, cursor)
-        child_addr_start = cursor - 4
-        writeInt32BE(buffer, cursor, child_addr_start)
-        self.model.highlight(child_addr_start)
-        cursor = super().write_children(buffer, cursor)
+        child_info_start = cursor - 8
+        cursor = super().write_children(buffer, cursor, child_info_start)
         return cursor
         
 class Group53349(Node):
@@ -1200,26 +1302,25 @@ class Group53349(Node):
         self.bonus = FloatPosition()
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
-        self.matrix.set(struct.unpack_from(">12f", buffer, cursor+28))
-        self.bonus.set(struct.unpack_from(">3f", buffer, cursor+76))
+        self.matrix.read(buffer, cursor+28)
+        self.bonus.read(buffer, cursor+76)
         return self
     def make(self, parent = None):
         empty = super().make(parent)
         #empty.matrix_world = self.matrix.make()
-        empty['bonus'] = self.bonus.get()
+        empty['bonus'] = self.bonus.to_array()
         return empty
     def unmake(self, node):
         super().unmake(node)
         self.matrix.unmake(node.matrix_world)
-        self.bonus.set(node['bonus'])
+        self.bonus.from_array(node['bonus'])
         return self
     def write(self, buffer, cursor):
-        print('writing 53349')
         cursor = super().write(buffer, cursor)
-        child_addr_start = cursor - 4
-        writeInt32BE(buffer, cursor, child_addr_start)
-        self.model.highlight(child_addr_start)
-        cursor = super().write_children(buffer, cursor)
+        child_data_start = cursor - 8
+        cursor = self.matrix.write(buffer, cursor)
+        cursor = self.bonus.write(buffer, cursor)
+        cursor = super().write_children(buffer, cursor, child_data_start)
         return cursor
         
 class Group53350(Node):
@@ -1247,12 +1348,9 @@ class Group53350(Node):
         self.unk3 = node['53350_unk3']
         self.unk4 = node['53350_unk4']
     def write(self, buffer, cursor):
-        print('writing 53350')
         cursor = super().write(buffer, cursor)
-        child_addr_start = cursor - 4
-        writeInt32BE(buffer, cursor, child_addr_start)
-        self.model.highlight(child_addr_start)
-        cursor = super().write_children(buffer, cursor)
+        child_data_start = cursor - 8
+        cursor = super().write_children(buffer, cursor, child_data_start)
         return cursor
   
 class Group20580(Node):
@@ -1266,12 +1364,9 @@ class Group20580(Node):
     def unmake(self, node):
         return super().unmake(node)
     def write(self, buffer, cursor):
-        print('writing 20580')
         cursor = super().write(buffer, cursor)
-        child_addr_start = cursor - 4
-        writeInt32BE(buffer, cursor, child_addr_start)
-        self.model.highlight(child_addr_start)
-        cursor = super().write_children(buffer, cursor)
+        child_data_start = cursor - 8
+        cursor = super().write_children(buffer, cursor, child_data_start)
         return cursor
       
 class Group20581(Node):
@@ -1286,12 +1381,10 @@ class Group20581(Node):
         return super().unmake(node)
     def write(self, buffer, cursor):
         cursor = super().write(buffer, cursor)
-        child_addr_start = cursor - 4
+        child_data_start = cursor - 8
         if len(self.children):
             cursor += 4
-        writeInt32BE(buffer, cursor, child_addr_start)
-        self.model.highlight(child_addr_start)
-        cursor = super().write_children(buffer, cursor)
+        cursor = super().write_children(buffer, cursor, child_data_start)
         return cursor
     
 class Group20582(Node):
@@ -1312,12 +1405,10 @@ class Group20582(Node):
         return self
     def write(self, buffer, cursor):
         cursor = super().write(buffer, cursor)
-        child_addr_start = cursor - 4
+        child_data_start = cursor - 8
         struct.pack_into(">11f", buffer, cursor, *self.floats)
         cursor += self.size
-        writeInt32BE(buffer, cursor, child_addr_start)
-        self.model.highlight(child_addr_start)
-        cursor = super().write_children(buffer, cursor)
+        cursor = super().write_children(buffer, cursor, child_data_start)
         return cursor
       
 class LStr(DataStruct):
@@ -1327,14 +1418,13 @@ class LStr(DataStruct):
         self.model = model
     def read(self, buffer, cursor):
         x, y, z = struct.unpack_from(self.format_string, buffer, cursor)
-        self.data.set([x, y , z])
+        self.data.from_array([x, y , z])
         return self
     def make(self):
         lightstreak_col = self.model.lightstreaks
         light = bpy.data.lights.new(name = "lightstreak", type = 'POINT')
         light_object = bpy.data.objects.new(name = "lightstreak", object_data = light)
         lightstreak_col.objects.link(light_object)
-        print(self.data.data)
         light_object.location = (self.data.data[0]*self.model.scale, self.data.data[1]*self.model.scale, self.data.data[2]*self.model.scale)
         
     def unmake(self):
@@ -1528,6 +1618,7 @@ def find_topmost_parent(obj):
     return obj
 
 class Model():
+    
     def __init__(self, id):
         self.modelblock = None
         self.collection = None
@@ -1612,7 +1703,7 @@ class Model():
         # write all nodes
         for node in self.nodes:
             cursor = node.write(buffer, cursor)
-
+            
         # write all animations
         for anim in self.Anim:
             cursor = anim.write(buffer, cursor)
