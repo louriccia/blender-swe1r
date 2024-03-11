@@ -111,7 +111,10 @@ class Spline(DataStruct):
         curveData.resolution_u = 10
         
         polyline = curveData.splines.new('BEZIER')
+        already = []
         for i, point in enumerate(self.points):
+            #TODO test if curve can contain both a closed and open spline
+            
             #detect main spline and create loop
             #if next is 0 (or one we have previously added)
             if point.next == 0:
@@ -121,10 +124,10 @@ class Spline(DataStruct):
             polyline.bezier_points.add(1)
             polyline.bezier_points[index].handle_left_type = 'FREE'
             polyline.bezier_points[index].handle_right_type = 'FREE'
-            polyline.bezier_points[index].co = tuple[self.points[previous].position.to_array()*scale]
-            polyline.bezier_points[index].handle_left =  tuple[self.points[previous].handle1.to_array()*scale]
-            polyline.bezier_points[index].handle_right =  tuple[self.points[previous].handle2.to_array()*scale]
-            
+            polyline.bezier_points[index].co = tuple[point.position.to_array()*scale]
+            polyline.bezier_points[index].handle_left =  tuple[point.handle1.to_array()*scale]
+            polyline.bezier_points[index].handle_right =  tuple[point.handle2.to_array()*scale]
+            already.append(i)
             #add alternate paths as disjoint curves
             #they will reproduce the points at which they split and rejoin the main spline
                     
