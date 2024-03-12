@@ -21,14 +21,12 @@
 
 import struct
 import bpy
-import math
-import os
 from .readwrite import *
 from .modelblock import DataStruct, FloatPosition, FloatVector
 
 class SplinePoint(DataStruct):
     def __init__(self):
-        super().__init__('>8h12x10h')
+        super().__init__('>8h48x10h')
         self.next_count = 0
         self.previous_count = 0
         self.next1 = 0
@@ -45,18 +43,24 @@ class SplinePoint(DataStruct):
         self.unk_set = [-1 for i in range(8)]
         self.unk = -1
         
+    def __str__(self):
+        return str(self.to_array())
     
     def read(self, buffer, cursor):
         self.next_count, self.previous_count, self.next1, self.next2, self.previous1, self.previous2, self.unknown1, self.unknown2, self.progress, *self.unk_set, self.unk = struct.unpack_from(self.format_string, buffer, cursor)
         self.position.read(buffer, cursor + 16)
-        self.rotation.read(buffer, cursor + 20)
-        self.handle1.read(buffer, cursor + 24)
-        self.handle2.read(buffer, cursor + 28)
+        self.rotation.read(buffer, cursor + 28)
+        self.handle1.read(buffer, cursor + 40)
+        self.handle2.read(buffer, cursor + 52)
         
         return self
     
-    def make(self):
-        pass
+    def make(self, polyline, scale):
+        polyline.bezier_points[-1].handle_left_type = 'FREE'
+        polyline.bezier_points[-1].handle_right_type = 'FREE'
+        polyline.bezier_points[-1].co = tuple([p*scale for p in self.position.to_array()])
+        polyline.bezier_points[-1].handle_left =  tuple([p*scale for p in self.handle1.to_array()])
+        polyline.bezier_points[-1].handle_right =  tuple([p*scale for p in self.handle2.to_array()])
     
     def unmake(spline):
         pass
@@ -87,87 +91,63 @@ class SplinePoint(DataStruct):
         self.progress, *self.unk_set, self.unk = data[20:]
     
 class Spline(DataStruct):
-    def __init__(self):
+    def __init__(self, id):
         super().__init__('>4I')
+        self.id = id
         self.unk = None
         self.point_count = 0
         self.segment_count = 0
         self.unk2 = None
         self.points = []
         
-    def read(self, buffer, cursor):
+    def read(self, splineblock):
+        
+        self.splineblock = splineblock
+        if self.id is None:
+            return
+        spline_buffers = splineblock.read([self.id])
+        buffer = spline_buffers[0][0]
+        cursor = 0
         self.unk, self.point_count, self.segment_count, self.unk2 = struct.unpack_from(self.format_string, buffer, cursor)
+        cursor += self.size
         for i in range(self.point_count):
             point = SplinePoint().read(buffer, cursor)
             self.points.append(point)
             cursor += point.size
         return self
     
-    def make(self):
-        scale = 0.01
-        
+    def make(self, scale):
         curveData = bpy.data.curves.new("name", type='CURVE')
         curveData.dimensions = '3D'
         curveData.resolution_u = 10
         
         polyline = curveData.splines.new('BEZIER')
         already = []
+        new = False
+        
         for i, point in enumerate(self.points):
-            #TODO test if curve can contain both a closed and open spline
             
-            #detect main spline and create loop
-            #if next is 0 (or one we have previously added)
-            if point.next == 0:
-                #cycle found
-                continue
+            if i is not 0 and new is False:
+                polyline.bezier_points.add(1)
             
-            polyline.bezier_points.add(1)
-            polyline.bezier_points[index].handle_left_type = 'FREE'
-            polyline.bezier_points[index].handle_right_type = 'FREE'
-            polyline.bezier_points[index].co = tuple[point.position.to_array()*scale]
-            polyline.bezier_points[index].handle_left =  tuple[point.handle1.to_array()*scale]
-            polyline.bezier_points[index].handle_right =  tuple[point.handle2.to_array()*scale]
+            if point.previous1 in already and new and i is not 0:
+                self.points[point.previous1].make(polyline, scale)
+                
+            point.make(polyline, scale)
             already.append(i)
-            #add alternate paths as disjoint curves
-            #they will reproduce the points at which they split and rejoin the main spline
-                    
-            #previous point
-            # previous = point.previous1
-            # offset = -1
-            # index = 0
-            # if previous < self.point_count and previous >= 0:
-            #     polyline.bezier_points.add(1)
-            #     polyline.bezier_points[index].handle_left_type = 'FREE'
-            #     polyline.bezier_points[index].handle_right_type = 'FREE'
-            #     polyline.bezier_points[index].co = tuple[self.points[previous].position.to_array()*scale]
-            #     polyline.bezier_points[index].handle_left =  tuple[self.points[previous].handle1.to_array()*scale]
-            #     polyline.bezier_points[index].handle_right =  tuple[self.points[previous].handle2.to_array()*scale]
-            #     index += 1
-            # #current point
-            # polyline.bezier_points[index].handle_left_type = 'FREE'
-            # polyline.bezier_points[index].handle_right_type = 'FREE'
-            # polyline.bezier_points[index].co = (float(row[9])*scale, float(row[10])*scale, float(row[11])*scale)
-            # polyline.bezier_points[index].handle_left = (float(row[15])*scale, float(row[16])*scale, float(row[17])*scale)
-            # polyline.bezier_points[index].handle_right = (float(row[18])*scale, float(row[19])*scale, float(row[20])*scale)
-            # index += 1
-            # #next point
-            # next = point.next1
-            # if next < self.point_count and next >= 0:
-            #     polyline.bezier_points.add(1)
-            #     polyline.bezier_points[index].handle_left_type = 'FREE'
-            #     polyline.bezier_points[index].handle_right_type = 'FREE'
-            #     polyline.bezier_points[index].co = (float(list_data[next][9])*scale, float(list_data[next][10])*scale, float(list_data[next][11])*scale)
-            #     polyline.bezier_points[index].handle_left = (float(list_data[next][15])*scale, float(list_data[next][16])*scale, float(list_data[next][17])*scale)
-            #     polyline.bezier_points[index].handle_right = (float(list_data[next][18])*scale, float(list_data[next][19])*scale, float(list_data[next][20])*scale)
+            
+            if point.next1 == 0:
+                polyline.use_cyclic_u = True #close spline
+                if i < len(self.points):
+                    polyline = curveData.splines.new('BEZIER') #start a new one
+                    new = True
+            elif point.next1 in already:
+                self.points[point.next1].make(polyline, scale)
+                if i < len(self.points):
+                    polyline = curveData.splines.new('BEZIER') #start a new one
+                    new = True
                 
         curveOB = bpy.data.objects.new("spline", curveData)
-        curveOB.data.bevel_depth = 0.06
-        curveOB.data.bevel_resolution = 10
-        curveOB.data.resolution_u = 50
-        material = bpy.data.materials.new('material_blank')
-        material.use_nodes = True
-        material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [0, 1, 0, 1]
-        curveOB.data.materials.append(material)
         return curveOB
     
     def unmake(self):

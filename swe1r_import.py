@@ -24,6 +24,8 @@ import os
 import bpy
 import struct
 from .modelblock import Model
+from .splineblock import Spline
+from .spline_map import spline_map
 from .block import Block
 
 # for material in bpy.data.materials:
@@ -1076,7 +1078,12 @@ def import_model(file_path, selector=None):
     if selector is None:
         selector = range(324)
         
-    for i, id in enumerate(selector):
-        model = Model(id).read(modelblock)
-        model.make()
+    for i, model_id in enumerate(selector):
+        model = Model(model_id).read(modelblock)
+        if spline_map[model_id]:
+            spline_id = spline_map[model_id]
+            
+            spline = Spline(spline_id).read(splineblock)
+            collection = model.make()
+            collection.objects.link(spline.make(model.scale))
     print(f'Successfully unpacked {len(selector)} models')

@@ -407,14 +407,17 @@ class VisualsVertBuffer():
         return self
     
     def write(self, buffer, cursor, index_buffer):
+        if not index_buffer.offset:
+            raise AttributeError(index_buffer, "Index buffer must be written before vertex buffer")
+        
         vert_buffer_addr = cursor
         for vert in self.data:
             cursor = vert.write(buffer, cursor)
         
         #we write the references within index buffer to this vert buffer
-        for i, chunk in enumerate(index_buffer):
+        for i, chunk in enumerate(index_buffer.data):
             if chunk.type == 1:
-                writeUInt32BE(vert_buffer_addr + chunk.base * 16, index_buffer.offset + i * 8 + 4)
+                writeUInt32BE(buffer, vert_buffer_addr + chunk.start * 16, index_buffer.offset + i * 8 + 4)
             
         return cursor
     
@@ -435,7 +438,7 @@ class VisualsIndexChunk1(DataStruct):
     
     def write(self, buffer, cursor):
         self.start = 0 #round((start - vert_buffer_addr)/16)
-        struct.pack_into(self.format_string, buffer, cursor, self.type, self.unk1, self.unk2, self.max, self.start)
+        struct.pack_into(self.format_string, buffer, cursor, self.type, self.unk1, self.unk2, self.max*2, self.start)
         return cursor + self.size
       
 class VisualsIndexChunk3(DataStruct):
@@ -607,20 +610,22 @@ class VisualsIndexBuffer():
             
             if min_index - offset > 32:
                 offset = min_index
-                self.data.append(i, VisualsIndexChunk1(self.model, 1))
+                chunk1 = VisualsIndexChunk1(self.model, 1)
+                chunk1.start = offset
+                self.data.append(chunk1)
             
             chunk.base = offset
             self.data.append(chunk)
         
         #finally, reverse crawl through the list and find max indeces for the 1chunks
         mi = 0
-        for i in range(len(self.data), 0, -1):
+        for i in range(len(self.data) - 1, -1, -1):
             chunk = self.data[i]
             if chunk.type == 1:
-                chunk.max = mi
+                chunk.max = mi + 1
                 mi = 0
                 continue
-            cmi = chunk.max_index()
+            cmi = chunk.max_index() - chunk.base
             if cmi > mi:
                 mi = cmi
                 
