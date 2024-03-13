@@ -262,9 +262,11 @@ class Spline(DataStruct):
         # every time there is a split (next_count == 2), we add a slot to the stack
         # the point advances until it finds a join (previous_count == 2)
         # once two points match in the stack, they collapse to one
+        progress = 0
         path_list = [self.points[0]]
         end = False
         while end is False:
+            print(progress, [p.id for p in path_list])
             #resolve joins
             if len(path_list) > 1:
                 join = True
@@ -272,16 +274,20 @@ class Spline(DataStruct):
                     unique = []
                     for i, point in enumerate(path_list):
                         if point.id in unique:
-                            index = path_list.index(point.id)
+                            index = unique.index(point.id)
                             joined_point = path_list[index]
-                            path_list[index] = self.points(joined_point.next1)
+                            path_list[index].progress = progress
+                            #progress += 1
+                            path_list[index] = self.points[joined_point.next1]
                             path_list.pop(i)
-                            continue
+                            break
                         unique.append(point.id)
-                    join = False
+                        if i == len(path_list) - 1:
+                            join = False
+                    
                     
             path_buffer = []
-            for point in path_list:
+            for i, point in enumerate(path_list):
                 #ignore points that exist at a join
                 if point.previous_count == 2:
                     continue 
@@ -294,7 +300,7 @@ class Spline(DataStruct):
                 if point.next1 == 0: 
                     end = True
                 #advance point
-                point = self.points[point.next1]
+                path_list[i] = self.points[point.next1]
             path_list.extend(path_buffer)
             
             progress += 1
