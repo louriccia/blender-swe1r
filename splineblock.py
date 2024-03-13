@@ -190,6 +190,7 @@ class Spline(DataStruct):
         #add all points from main_path
         for i, point in enumerate(main_path.bezier_points):
             p = SplinePoint().unmake(point)
+            p.id = point_count
             p.previous1 = point_count - 1
             p.next1 = point_count + 1
             if i == 0:
@@ -215,6 +216,7 @@ class Spline(DataStruct):
             points = path.bezier_points[1:-1]
             for i, point in enumerate(points):
                 p = SplinePoint().unmake(point)
+                p.id = point_count
                 p.previous1 = point_count - 1
                 p.next1 = point_count + 1
                 if i == 0:
@@ -234,27 +236,73 @@ class Spline(DataStruct):
         
         # calculate progress/indexing
         # FIXME This does not account for a path branching off of an already branched path; might need a recursive approach
-        progress = 0
-        for point in self.points:
-            if point.progress > -1:
-                continue
-            point.progress = progress
-            if point.next_count == 2:
-                left = self.points[point.next1]
-                right = self.points[point.next2]
-                stop = False
-                while stop is False:
-                    progress += 1
-                    if left.previous_count == 1:
-                        left.progress = progress
-                        left = self.points[left.next1]
-                    if right.previous_count == 1:
-                        right.progress = progress
-                        right = self.points[right.next1]
-                    if left.previous_count == 2 and right.previous_count == 2:
-                        stop = True
-            progress += 1
+        # progress = 0
+        # for point in self.points:
+        #     if point.progress > -1:
+        #         continue
+        #     point.progress = progress
+        #     if point.next_count == 2:
+        #         left = self.points[point.next1]
+        #         right = self.points[point.next2]
+        #         stop = False
+        #         while stop is False:
+        #             progress += 1
+        #             if left.previous_count == 1:
+        #                 left.progress = progress
+        #                 left = self.points[left.next1]
+        #             if right.previous_count == 1:
+        #                 right.progress = progress
+        #                 right = self.points[right.next1]
+        #             if left.previous_count == 2 and right.previous_count == 2:
+        #                 stop = True
+        #     progress += 1
                 
+        # we maintain a stack of points
+        # we advance the point by replacing it with its next1
+        # every time there is a split (next_count == 2), we add a slot to the stack
+        # the point advances until it finds a join (previous_count == 2)
+        # once two points match in the stack, they collapse to one
+        path_list = [self.points[0]]
+        end = False
+        while end is False:
+            #resolve joins
+            if len(path_list) > 1:
+                join = True
+                while join:
+                    unique = []
+                    for i, point in enumerate(path_list):
+                        if point.id in unique:
+                            index = path_list.index(point.id)
+                            joined_point = path_list[index]
+                            path_list[index] = self.points(joined_point.next1)
+                            path_list.pop(i)
+                            continue
+                        unique.append(point.id)
+                    join = False
+                    
+            path_buffer = []
+            for point in path_list:
+                #ignore points that exist at a join
+                if point.previous_count == 2:
+                    continue 
+                #detect split
+                if point.next_count == 2:
+                    path_buffer.append(self.points[point.next2])
+                #set progress
+                point.progress = progress
+                #detect end
+                if point.next1 == 0: 
+                    end = True
+                #advance point
+                point = self.points[point.next1]
+            path_list.extend(path_buffer)
+            
+            progress += 1
+             
+        # LIMITATIONS:
+        # cannot split or join more than 2 times on any point
+        # cannot have alt paths that start before and end after the finish line
+            
         for point in self.points:
             print(point)
                    
