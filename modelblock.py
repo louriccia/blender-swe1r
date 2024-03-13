@@ -733,6 +733,7 @@ class Material(DataStruct):
         if (self.texture is not None):
             material = bpy.data.materials.get(mat_name)
             if material is not None:
+                print("reusing material", material)
                 return material
             
             material = bpy.data.materials.new(mat_name)
@@ -818,7 +819,7 @@ class Material(DataStruct):
             material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
-            
+        print("made new material", material)
         return material
     
     def unmake(self, material):
@@ -985,8 +986,10 @@ class Mesh(DataStruct):
             mesh.validate() #clean_customdata=False
             obj.parent = parent
             
-            if self.material:
-                mesh.materials.append(self.material.make())
+            if self.material and isinstance(self.material.make(), Material) :
+                mat = self.material.make()
+                print('made a mat', mat, self.material.id)
+                mesh.materials.append(mat)
             
             #set vector colors / uv coords
             uv_layer = mesh.uv_layers.new(name = 'uv')

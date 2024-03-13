@@ -1082,7 +1082,6 @@ def import_model(file_path, selector=None):
         model = Model(model_id).read(modelblock)
         if spline_map[model_id]:
             spline_id = spline_map[model_id]
-            
             spline = Spline(spline_id).read(splineblock)
             collection = model.make()
             collection.objects.link(spline.make(model.scale))

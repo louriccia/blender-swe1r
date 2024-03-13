@@ -21,25 +21,27 @@
 
 import struct
 import bpy
+import math
 from .readwrite import *
 from .modelblock import DataStruct, FloatPosition, FloatVector
+from .popup import show_custom_popup
 
 class SplinePoint(DataStruct):
     def __init__(self):
         super().__init__('>8h48x10h')
-        self.next_count = 0
-        self.previous_count = 0
-        self.next1 = 0
-        self.next2 = 0
-        self.previous1 = 0
-        self.previous2 = 0
+        self.next_count = 1
+        self.previous_count = 1
+        self.next1 = -1
+        self.next2 = -1
+        self.previous1 = -1
+        self.previous2 = -1
         self.unknown1 = 0
         self.unknown2 = 0
         self.position = FloatPosition()
         self.rotation = FloatVector()
         self.handle1 = FloatPosition()
         self.handle2 = FloatPosition()
-        self.progress = 0
+        self.progress = -1
         self.unk_set = [-1 for i in range(8)]
         self.unk = -1
         
@@ -55,15 +57,19 @@ class SplinePoint(DataStruct):
         
         return self
     
-    def make(self, polyline, scale):
+    def make(self, polyline):
         polyline.bezier_points[-1].handle_left_type = 'FREE'
         polyline.bezier_points[-1].handle_right_type = 'FREE'
-        polyline.bezier_points[-1].co = tuple([p*scale for p in self.position.to_array()])
-        polyline.bezier_points[-1].handle_left =  tuple([p*scale for p in self.handle1.to_array()])
-        polyline.bezier_points[-1].handle_right =  tuple([p*scale for p in self.handle2.to_array()])
+        polyline.bezier_points[-1].co = tuple([p for p in self.position.to_array()])
+        polyline.bezier_points[-1].handle_left =  tuple([p for p in self.handle1.to_array()])
+        polyline.bezier_points[-1].handle_right =  tuple([p for p in self.handle2.to_array()])
     
-    def unmake(spline):
-        pass
+    def unmake(self, point):
+        self.position = FloatPosition().from_array([c for c in point.co])
+        self.rotation = FloatVector().from_array([0, 0, 1])
+        self.handle1 = FloatPosition().from_array([c for c in point.handle_left])
+        self.handle2 = FloatPosition().from_array([c for c in point.handle_right])
+        return self
     
     def to_array(self):
         return [self.next_count, 
@@ -91,13 +97,13 @@ class SplinePoint(DataStruct):
         self.progress, *self.unk_set, self.unk = data[20:]
     
 class Spline(DataStruct):
-    def __init__(self, id):
+    def __init__(self, id = None):
         super().__init__('>4I')
         self.id = id
-        self.unk = None
+        self.unk = 0
         self.point_count = 0
         self.segment_count = 0
-        self.unk2 = None
+        self.unk2 = 0
         self.points = []
         
     def read(self, splineblock):
@@ -127,31 +133,150 @@ class Spline(DataStruct):
         
         for i, point in enumerate(self.points):
             
-            if i is not 0 and new is False:
-                polyline.bezier_points.add(1)
-            
-            if point.previous1 in already and new and i is not 0:
-                self.points[point.previous1].make(polyline, scale)
+            if point.previous1 in already and new:
+                #the point that is included with the new polyline is made
+                # a dup of the point where this path branches off of main spline
+                self.points[point.previous1].make(polyline) 
+                new = False
+                polyline.bezier_points.add(1) #add a new slot for the unique point
                 
-            point.make(polyline, scale)
+            point.make(polyline)
             already.append(i)
             
-            if point.next1 == 0:
-                polyline.use_cyclic_u = True #close spline
-                if i < len(self.points):
-                    polyline = curveData.splines.new('BEZIER') #start a new one
+            if point.next1 in already: #we have reached the end of a path
+                if point.next1 == 0: #main spline should always close with 0... hopefully...
+                    polyline.use_cyclic_u = True #close main spline
+                else: #dup the point where the path rejoins main spline
+                    polyline.bezier_points.add(1)
+                    self.points[point.next1].make(polyline)
+                if i < len(self.points) - 1:
+                    polyline = curveData.splines.new('BEZIER') #start a new path
                     new = True
-            elif point.next1 in already:
-                self.points[point.next1].make(polyline, scale)
-                if i < len(self.points):
-                    polyline = curveData.splines.new('BEZIER') #start a new one
-                    new = True
-                
+                continue #skip adding a new point since a new polyline comes with a point already
+                    
+            polyline.bezier_points.add(1)
+        
         curveOB = bpy.data.objects.new("spline", curveData)
+        curveOB.scale = (scale, scale, scale)
+        curveOB['id'] = self.id
         return curveOB
     
-    def unmake(self):
-        pass
+    def unmake(self, collection):
+        spline_objects = [obj for obj in collection.objects if obj.type == 'CURVE']
+        
+        if len(spline_objects) < 1:
+            show_custom_popup(bpy.context, "No Spline", "No spline object found in the selected collection.")
+            return
+        if len(spline_objects) > 1:
+            show_custom_popup(bpy.context, "Too Many Splines", "Multiple splines found in the selected collection. Only one spline can be exported.")
+            return
+        
+        spline_object = spline_objects[0]
+        self.id = spline_object['id']
+        splines = spline_object.data.splines
+        main_paths = [spline for spline in splines if spline.use_cyclic_u and spline.type == 'BEZIER']
+        alt_paths = [spline for spline in splines if spline.use_cyclic_u is False and spline.type == 'BEZIER']
+        
+        if len(main_paths) < 1:
+            show_custom_popup(bpy.context, "No Main Spline", "You must create a closed bezier spline using Active Spline > Cyclic U")
+            return
+        if len(main_paths) > 1:
+            show_custom_popup(bpy.context, "Too Many Closed Splines", "Multiple closed bezier splines found in the spline object. Only one closed spline can be the main spline.")
+            return
+        
+        main_path = main_paths[0]
+        segment_count = 0
+        point_count = 0
+        #add all points from main_path
+        for i, point in enumerate(main_path.bezier_points):
+            p = SplinePoint().unmake(point)
+            p.previous1 = point_count - 1
+            p.next1 = point_count + 1
+            if i == 0:
+                p.previous1 = len(main_path.bezier_points) - 1
+            if i == len(main_path.bezier_points) - 1:
+                p.next1 = 0
+                
+            self.points.append(p)
+            point_count += 1
+            segment_count += 1
+            
+        for path in alt_paths:
+            
+            #first and last points will be dups of main spline or existing path
+            first = path.bezier_points[0]
+            last = path.bezier_points[-1]
+            
+            #find index of existing points
+            start = self.find_closest(first.co, 'start')
+            end = self.find_closest(last.co, 'end')
+            
+            #loop through and add points of path
+            points = path.bezier_points[1:-1]
+            for i, point in enumerate(points):
+                p = SplinePoint().unmake(point)
+                p.previous1 = point_count - 1
+                p.next1 = point_count + 1
+                if i == 0:
+                    p.previous1 = start
+                    self.points[start].next_count += 1
+                    self.points[start].next2 = point_count
+                if i == len(points) - 1:
+                    p.next1 = end
+                    self.points[end].previous_count += 1
+                    self.points[end].previous2 = point_count
+                self.points.append(p)
+                point_count += 1
+                segment_count += 1
+            
+            segment_count += 1
+    
+        
+        # calculate progress/indexing
+        # FIXME This does not account for a path branching off of an already branched path; might need a recursive approach
+        progress = 0
+        for point in self.points:
+            if point.progress > -1:
+                continue
+            point.progress = progress
+            if point.next_count == 2:
+                left = self.points[point.next1]
+                right = self.points[point.next2]
+                stop = False
+                while stop is False:
+                    progress += 1
+                    if left.previous_count == 1:
+                        left.progress = progress
+                        left = self.points[left.next1]
+                    if right.previous_count == 1:
+                        right.progress = progress
+                        right = self.points[right.next1]
+                    if left.previous_count == 2 and right.previous_count == 2:
+                        stop = True
+            progress += 1
+                
+        for point in self.points:
+            print(point)
+                   
+        self.point_count = len(self.points)
+        self.segment_count = segment_count
+        
+    def find_closest(self, co, cap = 'start'):
+        closest_index = None
+        closest_distance = float('inf')
+        
+        for i, point in enumerate(self.points):
+            if cap is "start" and point.next_count == 2:
+                continue
+            if cap is "end" and point.previous_count == 2:
+                continue
+            distance_vec = (d - co[j] for j, d in enumerate(point.position.to_array()))
+            distance = math.sqrt(sum([d**2 for d in distance_vec]))
+            
+            if distance < closest_distance:
+                closest_index = i
+                closest_distance = distance
+        return closest_index
     
     def write(self, buffer, cursor):
         struct.pack_into(self.format_string, buffer, cursor, self.unk, self.point_count, self.segment_count, self.unk2)
