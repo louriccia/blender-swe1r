@@ -4,7 +4,6 @@ import bpy
 import struct
 import json
 import math
-from .swe1r_import import read_block
 from .popup import show_custom_popup
 from .modelblock import Model
 from .splineblock import Spline
@@ -19,7 +18,9 @@ def export_model(col, file_path):
     spline = Spline().unmake(col)
     spline_buffer = spline.write()
     splineblock.inject([spline_buffer], spline.id)
-    splineblock.write(file_path + 'out_splineblock.bin')
+    
+    with open(file_path + 'out_splineblock.bin', 'wb') as file:
+        file.write(splineblock.write())
     
     #debug write
     with open(file_path + str(spline.id)+'.bin', 'wb') as file:

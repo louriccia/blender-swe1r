@@ -24,6 +24,7 @@ import bpy
 import math
 from .readwrite import *
 from .textureblock import Texture
+from .popup import show_custom_popup
 
 class Data:
     def get(self):
@@ -684,7 +685,8 @@ class MaterialTexture(DataStruct):
             return
         textureblock = self.model.modelblock.textureblock
         self.texture = Texture(self.tex_index, self.format, self.width, self.height)
-        self.texture.read(textureblock)
+        palette_buffer, pixel_buffer = textureblock.fetch(self.tex_index)
+        self.texture.read(palette_buffer, pixel_buffer)
         return self.texture.make()
         
 class MaterialUnk(DataStruct):
@@ -1566,6 +1568,10 @@ class ModelHeader():
 
     def read(self, buffer, cursor):
         self.model.ext = readString(buffer, cursor)
+        if self.model.ext not in ['Podd', 'MAlt', 'Trak', 'Part', 'Modl', 'Pupp', 'Scen']:
+            show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.model.ext}")
+            print(f"This model extension was not recognized: {self.model.ext}")
+            return None
         cursor = 4
         header = readInt32BE(buffer, cursor)
 
@@ -1673,7 +1679,9 @@ class Model():
             return
         cursor = 0
         cursor = self.header.read(buffer, cursor)
-        print('got here')
+        if cursor is None:
+            show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.header.model.ext}")
+            return None
         if self.AltN and self.ext != 'Podd':
             AltN = list(set(self.header.AltN))
             for i in range(len(AltN)):

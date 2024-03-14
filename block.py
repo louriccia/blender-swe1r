@@ -56,9 +56,7 @@ class Block():
         print('block read', addresses)
         return self
     
-    def write(self, path = None):
-        if path is None:
-            path = self.path
+    def write(self):
         asset_count = len(self.data[0])
         header = bytearray((asset_count * self.sub_chunks + 2) * 4)
         block = []
@@ -77,6 +75,7 @@ class Block():
     
     def inject(self, data, index):
         for j in range(self.sub_chunks):
+            print(j, index, len(self.data[j]))
             self.data[j][index] = data[j]
         return self
             

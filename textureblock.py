@@ -33,16 +33,15 @@ class Texture():
         self.height = height
         self.palette = None
         self.pixels = None
-    def read(self, textureblock):
+    def read(self, pixel_buffer, palette_buffer):
         if self.id is None or self.id < 0:
             return
-        pixel_buffers, palette_buffers = textureblock.read([self.id])
         if self.format in [512, 513]:
             self.palette = Palette(self)
-            self.palette.read(palette_buffers[0])
+            self.palette.read(palette_buffer)
             
         self.pixels = Pixels(self)
-        self.pixels.read(pixel_buffers[0])
+        self.pixels.read(pixel_buffer)
     def make(self):
         if int(self.id) < 0:
             return

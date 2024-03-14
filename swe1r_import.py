@@ -61,8 +61,11 @@ def import_model(file_path, selector=None):
         selector = range(324)
         
     for model_id in selector:
-        model_buffer = modelblock.fetch(model_id)[0]
+        model_buffer = modelblock.fetch(model_id)[1]
         model = Model(model_id).read(model_buffer)
+        if model is None:
+            print("There was an error while parsing the model")
+            return 
         model.modelblock = modelblock
         if spline_map[model_id]:
             spline_id = spline_map[model_id]

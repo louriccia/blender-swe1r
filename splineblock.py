@@ -57,6 +57,13 @@ class SplinePoint(DataStruct):
         
         return self
     
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, self.next_count, self.previous_count, self.next1, self.next2, self.previous1, self.previous2, self.unknown1, self.unknown2, self.progress, *self.unk_set, self.unk) 
+        self.position.write(buffer, cursor + 16)
+        self.rotation.write(buffer, cursor + 28)
+        self.handle1.write(buffer, cursor + 40)
+        self.handle2.write(buffer, cursor + 52)
+    
     def make(self, polyline):
         polyline.bezier_points[-1].handle_left_type = 'FREE'
         polyline.bezier_points[-1].handle_right_type = 'FREE'
@@ -98,23 +105,23 @@ class SplinePoint(DataStruct):
     
 class Spline(DataStruct):
     def __init__(self, id = None):
-        super().__init__('>4I')
+        super().__init__('>2H2I4B')
         self.id = id
-        self.unk = 0
+        self.unk = 1 # always 1
+        self.unk1 = 0
         self.point_count = 0
         self.segment_count = 0
-        self.unk2 = 0
+        self.unk2 = 1 # always 1
+        self.unk3 = 0
+        self.unk4 = 0
+        self.unk5 = 0
         self.points = []
         
-    def read(self, splineblock):
-        
-        self.splineblock = splineblock
+    def read(self, buffer):
         if self.id is None:
             return
-        spline_buffers = splineblock.read([self.id])
-        buffer = spline_buffers[0][0]
         cursor = 0
-        self.unk, self.point_count, self.segment_count, self.unk2 = struct.unpack_from(self.format_string, buffer, cursor)
+        self.unk, self.unk1, self.point_count, self.segment_count, self.unk2, self.unk3, self.unk4, self.unk5 = struct.unpack_from(self.format_string, buffer, cursor)
         cursor += self.size
         for i in range(self.point_count):
             point = SplinePoint().read(buffer, cursor)
@@ -259,13 +266,17 @@ class Spline(DataStruct):
             for p in path:
                 point = self.points[p]
                 point.progress = i
+                
+        splits = 0
+        for i, point in enumerate(self.points):
+            point.unk_set[0] = i
+            if point.next_count == 2:
+                point.unk_set[1] = len(self.points) + splits
+                splits += 1
         
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point
         # cannot have alt paths that start before and end after the finish line on main spline
-            
-        for point in self.points:
-            print(point)
                    
         self.point_count = len(self.points)
         self.segment_count = segment_count
@@ -292,7 +303,7 @@ class Spline(DataStruct):
     def write(self):
         buffer = bytearray(8000000)
         cursor = 0
-        struct.pack_into(self.format_string, buffer, cursor, self.unk, self.point_count, self.segment_count, self.unk2)
+        struct.pack_into(self.format_string, buffer, cursor, self.unk, self.unk1, self.point_count, self.segment_count, self.unk2, self.unk3, self.unk4, self.unk5)
         cursor += self.size
         for point in self.points:
             point.write(buffer, cursor)
