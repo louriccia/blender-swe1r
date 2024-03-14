@@ -1667,15 +1667,13 @@ class Model():
         self.textures = {}
         self.nodes = []
 
-    def read(self, modelblock):
-        self.modelblock = modelblock
+    def read(self, buffer):
+        print(buffer[:64])
         if self.id is None:
             return
-        offset_buffers, model_buffers = modelblock.read([self.id])
-        buffer = model_buffers[0]
         cursor = 0
         cursor = self.header.read(buffer, cursor)
-        
+        print('got here')
         if self.AltN and self.ext != 'Podd':
             AltN = list(set(self.header.AltN))
             for i in range(len(AltN)):

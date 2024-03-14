@@ -235,85 +235,42 @@ class Spline(DataStruct):
     
         
         # calculate progress/indexing
-        # FIXME This does not account for a path branching off of an already branched path; might need a recursive approach
-        # progress = 0
-        # for point in self.points:
-        #     if point.progress > -1:
-        #         continue
-        #     point.progress = progress
-        #     if point.next_count == 2:
-        #         left = self.points[point.next1]
-        #         right = self.points[point.next2]
-        #         stop = False
-        #         while stop is False:
-        #             progress += 1
-        #             if left.previous_count == 1:
-        #                 left.progress = progress
-        #                 left = self.points[left.next1]
-        #             if right.previous_count == 1:
-        #                 right.progress = progress
-        #                 right = self.points[right.next1]
-        #             if left.previous_count == 2 and right.previous_count == 2:
-        #                 stop = True
-        #     progress += 1
-                
-        # we maintain a stack of points
-        # we advance the point by replacing it with its next1
-        # every time there is a split (next_count == 2), we add a slot to the stack
-        # the point advances until it finds a join (previous_count == 2)
-        # once two points match in the stack, they collapse to one
-        progress = 0
-        path_list = [self.points[0]]
+        path_list = []
+        current = [0]
         end = False
         while end is False:
-            print(progress, [p.id for p in path_list])
-            #resolve joins
-            if len(path_list) > 1:
-                join = True
-                while join:
-                    unique = []
-                    for i, point in enumerate(path_list):
-                        if point.id in unique:
-                            index = unique.index(point.id)
-                            joined_point = path_list[index]
-                            path_list[index].progress = progress
-                            #progress += 1
-                            path_list[index] = self.points[joined_point.next1]
-                            path_list.pop(i)
-                            break
-                        unique.append(point.id)
-                        if i == len(path_list) - 1:
-                            join = False
-                    
-                    
-            path_buffer = []
-            for i, point in enumerate(path_list):
-                #ignore points that exist at a join
-                if point.previous_count == 2:
+            next = []
+            for i in list(set(current)):
+                point = self.points[i]
+                if point.previous_count == 2 and current.count(point.id) < 2:
+                    next.append(point.id)
                     continue 
-                #detect split
+                next.append(self.points[point.next1].id)
                 if point.next_count == 2:
-                    path_buffer.append(self.points[point.next2])
-                #set progress
-                point.progress = progress
-                #detect end
-                if point.next1 == 0: 
-                    end = True
-                #advance point
-                path_list[i] = self.points[point.next1]
-            path_list.extend(path_buffer)
+                    next.append(self.points[point.next2].id)
+                    
+            if 0 in next:
+                end = True
             
-            progress += 1
-             
+            path_list.append(list(set(current)))
+            current = next
+        
+        for i, path in enumerate(path_list):
+            for p in path:
+                point = self.points[p]
+                point.progress = i
+        
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point
-        # cannot have alt paths that start before and end after the finish line
+        # cannot have alt paths that start before and end after the finish line on main spline
             
         for point in self.points:
             print(point)
                    
         self.point_count = len(self.points)
         self.segment_count = segment_count
+        
+        return self
         
     def find_closest(self, co, cap = 'start'):
         closest_index = None
@@ -332,13 +289,15 @@ class Spline(DataStruct):
                 closest_distance = distance
         return closest_index
     
-    def write(self, buffer, cursor):
+    def write(self):
+        buffer = bytearray(8000000)
+        cursor = 0
         struct.pack_into(self.format_string, buffer, cursor, self.unk, self.point_count, self.segment_count, self.unk2)
         cursor += self.size
         for point in self.points:
             point.write(buffer, cursor)
             cursor += point.size
-        return cursor
+        return buffer[:cursor]
     
     def invert(self):
         inverted_points = []

@@ -31,54 +31,56 @@ class Block():
         self.sub_chunks = len(arr)
         self.path = path
         self.dir = os.path.dirname(self.path)
-    def read(self, selector):
+        print(self.path)
+        
+    def read(self):
         with open(self.path, 'rb') as file:
             file = file.read()
         asset_count = readUInt32BE(file, 0)
         cursor = 4
-        result = [[] for f in range(self.sub_chunks)]
-        for i in (selector if len(selector) else range(asset_count)):
+        self.data = [[] for f in range(self.sub_chunks)]
+        addresses = []
+        for i in range(asset_count):
             for j in range(self.sub_chunks):
-                asset_start = readUInt32BE(file, 4 + i*4*self.sub_chunks + j * 4)
+                offset = i*4*self.sub_chunks + j * 4
+                asset_start = readUInt32BE(file, 4 + offset)
                 cursor += 4
 
-                asset_end = readUInt32BE(file, 4 + i*4*self.sub_chunks + j * 4 + 4)
+                asset_end = readUInt32BE(file, 4 + offset + 4)
                 if not asset_end:
-                    asset_end = readUInt32BE(file, 4 + i*4*self.sub_chunks + j * 4 + 8)
+                    asset_end = readUInt32BE(file, 4 + offset + 8)
+                    
                 asset = file[asset_start:asset_end] if asset_start else None
-
-                result[j].append(asset)
-        return result
+                addresses.append(asset_start)
+                self.data[j].append(asset)
+        print('block read', addresses)
+        return self
     
     def write(self, path = None):
         if path is None:
             path = self.path
-        length = len(self.data[0])
-        index = bytearray((length * self.sub_chunks + 2) * 4)
+        asset_count = len(self.data[0])
+        header = bytearray((asset_count * self.sub_chunks + 2) * 4)
         block = []
-        block.append(index)
+        block.append(header)
 
-        struct.pack_into('>I', index, 0, length)  # write total number of assets
-        cursor = len(index)
-        for i in range(length):
+        struct.pack_into('>I', header, 0, asset_count)  # write total number of assets
+        cursor = len(header)
+        for i in range(asset_count):
             for j in range(self.sub_chunks):
-                struct.pack_into('>I', index, 4 + (i * self.sub_chunks + j) * 4, cursor if (arr[j][i] and len(arr[j][i])) else 0)
-                cursor += len(arr[j][i])
-                block.append(arr[j][i])
-        struct.pack_into('>I', index, (length * self.sub_chunks + 1) * 4, cursor)  # end of block offset
+                struct.pack_into('>I', header, 4 + (i * self.sub_chunks + j) * 4, cursor if (self.data[j][i] and len(self.data[j][i])) else 0)
+                cursor += len(self.data[j][i])
+                block.append(self.data[j][i])
+        struct.pack_into('>I', header, (asset_count * self.sub_chunks + 1) * 4, cursor)  # end of block offset
 
         return b''.join(block)
-
-def inject_model(offset_buffer, model_buffer, ind, file_path):
-    with open(file_path + '/out_modelblock.bin', 'rb') as file:
-        file = file.read()
-        read_block_result = read_block(file, [[], []], [])
-
-    offset_buffers, model_buffers = read_block_result
     
-    offset_buffers[ind] = offset_buffer
-    model_buffers[ind] = model_buffer
-    
-    block = write_block([offset_buffers, model_buffers])
-    return block
+    def inject(self, data, index):
+        for j in range(self.sub_chunks):
+            self.data[j][index] = data[j]
+        return self
+            
+    def fetch(self, index):
+        return [self.data[j][index] for j in range(self.sub_chunks)]
+
 
