@@ -168,6 +168,36 @@ class Spline(DataStruct):
         curveOB['id'] = self.id
         return curveOB
     
+    def calculate_progress(self):
+        # calculate progress/indexing
+        path_list = []
+        current = [0]
+        end = False
+        while end is False:
+            next = []
+            current_unique = list(set(current))
+            for i in current_unique:
+                point = self.points[i]
+                if point.previous_count == 2 and current.count(point.id) < 2:
+                    next.append(point.id)
+                    continue 
+                next.append(self.points[point.next1].id)
+                if point.next_count == 2:
+                    next.append(self.points[point.next2].id)
+                    
+            if 0 in next:
+                if len(next) > 1:
+                    raise ValueError("All paths must join before and split after starting line! You cannot have shortcuts that go around the finish line.")
+                end = True
+                        
+            path_list.append(current_unique)
+            current = next
+        
+        for i, path in enumerate(path_list):
+            for p in path:
+                point = self.points[p]
+                point.progress = i
+    
     def unmake(self, collection):
         spline_objects = [obj for obj in collection.objects if obj.type == 'CURVE']
         
@@ -181,6 +211,7 @@ class Spline(DataStruct):
         spline_object = spline_objects[0]
         self.id = spline_object['id']
         splines = spline_object.data.splines
+        
         main_paths = [spline for spline in splines if spline.use_cyclic_u and spline.type == 'BEZIER']
         alt_paths = [spline for spline in splines if spline.use_cyclic_u is False and spline.type == 'BEZIER']
         
@@ -194,6 +225,11 @@ class Spline(DataStruct):
         main_path = main_paths[0]
         segment_count = 0
         point_count = 0
+        
+        count = len(main_path.bezier_points) + sum([len(path.bezier_points) - 2 for path in alt_paths])
+        if count > 255:
+            raise ValueError(f"Too many spline points. Splines that contain more than 255 points are not supported. This scene contains {count} points.")
+        
         #add all points from main_path
         for i, point in enumerate(main_path.bezier_points):
             p = SplinePoint().unmake(point)
@@ -208,7 +244,9 @@ class Spline(DataStruct):
             self.points.append(p)
             point_count += 1
             segment_count += 1
-            
+        
+        self.calculate_progress()
+        
         for path in alt_paths:
             
             #first and last points will be dups of main spline or existing path
@@ -218,9 +256,17 @@ class Spline(DataStruct):
             #find index of existing points
             start = self.find_closest(first.co, 'start')
             end = self.find_closest(last.co, 'end')
+            points = path.bezier_points[1:-1]
+             
+            #check if path needs to be inverted
+            # this prevents a path from ending on an earlier point than where it started
+            if self.points[start].progress > self.points[end].progress:
+                tmp = start
+                start = end
+                end = tmp
+                points.reverse()
             
             #loop through and add points of path
-            points = path.bezier_points[1:-1]
             for i, point in enumerate(points):
                 p = SplinePoint().unmake(point)
                 p.id = point_count
@@ -239,40 +285,15 @@ class Spline(DataStruct):
                 segment_count += 1
             
             segment_count += 1
-    
-        
-        # calculate progress/indexing
-        path_list = []
-        current = [0]
-        end = False
-        while end is False:
-            next = []
-            for i in list(set(current)):
-                point = self.points[i]
-                if point.previous_count == 2 and current.count(point.id) < 2:
-                    next.append(point.id)
-                    continue 
-                next.append(self.points[point.next1].id)
-                if point.next_count == 2:
-                    next.append(self.points[point.next2].id)
-                    
-            if 0 in next:
-                end = True
+            self.calculate_progress()
             
-            path_list.append(list(set(current)))
-            current = next
-        
-        for i, path in enumerate(path_list):
-            for p in path:
-                point = self.points[p]
-                point.progress = i
-                
         splits = 0
         for i, point in enumerate(self.points):
             point.unk_set[0] = i
             if point.next_count == 2:
                 point.unk_set[1] = len(self.points) + splits
                 splits += 1
+            print(point)
         
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point

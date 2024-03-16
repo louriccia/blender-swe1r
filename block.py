@@ -31,7 +31,6 @@ class Block():
         self.sub_chunks = len(arr)
         self.path = path
         self.dir = os.path.dirname(self.path)
-        print(self.path)
         
     def read(self):
         with open(self.path, 'rb') as file:
@@ -53,7 +52,6 @@ class Block():
                 asset = file[asset_start:asset_end] if asset_start else None
                 addresses.append(asset_start)
                 self.data[j].append(asset)
-        print('block read', addresses)
         return self
     
     def write(self):
@@ -75,7 +73,6 @@ class Block():
     
     def inject(self, data, index):
         for j in range(self.sub_chunks):
-            print(j, index, len(self.data[j]))
             self.data[j][index] = data[j]
         return self
             

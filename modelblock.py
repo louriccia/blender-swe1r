@@ -490,7 +490,6 @@ class VisualsIndexChunk5(DataStruct):
         return cursor + self.size
     
     def write(self, buffer, cursor):
-        print(self.type, *[(i-self.base)*2 for i in self.to_array()])
         struct.pack_into(self.format_string, buffer, cursor, self.type, *[(i-self.base)*2 for i in self.to_array()])
         return cursor + self.size
         
@@ -531,7 +530,6 @@ class VisualsIndexChunk6(DataStruct):
         return cursor + self.size
     
     def write(self, buffer, cursor):
-        print(self.type, *[(i-self.base)*2 for i in self.to_array()])
         struct.pack_into(self.format_string, buffer, cursor, self.type, *[(i-self.base)*2 for i in self.to_array()])
         return cursor + self.size
             
@@ -718,7 +716,7 @@ class Material(DataStruct):
         self.format, texture_addr, unk_addr = struct.unpack_from(self.format_string, buffer, cursor)
         if texture_addr:
             if texture_addr in self.model.textures:
-                return self.model.textures[texture_addr]
+                self.texture = self.model.textures[texture_addr]
             else:
                 self.model.textures[texture_addr] = MaterialTexture(self.model)
                 self.model.textures[texture_addr].read(buffer, texture_addr)
@@ -735,7 +733,6 @@ class Material(DataStruct):
         if (self.texture is not None):
             material = bpy.data.materials.get(mat_name)
             if material is not None:
-                print("reusing material", material)
                 return material
             
             material = bpy.data.materials.new(mat_name)
@@ -812,7 +809,7 @@ class Material(DataStruct):
 
             image_node = material.node_tree.nodes["Image Texture"]
             image_node.image = b_tex
-
+            return material
         else:
             material = bpy.data.materials.new(mat_name)
             material.use_nodes = True
@@ -821,8 +818,7 @@ class Material(DataStruct):
             material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
-        print("made new material", material)
-        return material
+            return material
     
     def unmake(self, material):
         return self
@@ -979,7 +975,7 @@ class Mesh(DataStruct):
             mesh_name = str(self.id) + "_" + "visuals"
             mesh = bpy.data.meshes.new(mesh_name)
             obj = bpy.data.objects.new(mesh_name, mesh)
-            obj['type'] = 'VIS'    
+            obj['type'] = 'VIS'
             obj['id'] = self.id
             obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
@@ -988,9 +984,8 @@ class Mesh(DataStruct):
             mesh.validate() #clean_customdata=False
             obj.parent = parent
             
-            if self.material and isinstance(self.material.make(), Material) :
+            if self.material:
                 mat = self.material.make()
-                print('made a mat', mat, self.material.id)
                 mesh.materials.append(mat)
             
             #set vector colors / uv coords
@@ -1451,10 +1446,9 @@ class LStr(DataStruct):
         self.data.from_array([x, y , z])
         return self
     def make(self):
-        lightstreak_col = self.model.lightstreaks
         light = bpy.data.lights.new(name = "lightstreak", type = 'POINT')
         light_object = bpy.data.objects.new(name = "lightstreak", object_data = light)
-        lightstreak_col.objects.link(light_object)
+        self.model.collection.objects.link(light_object)
         light_object.location = (self.data.data[0]*self.model.scale, self.data.data[1]*self.model.scale, self.data.data[2]*self.model.scale)
         
     def unmake(self):
@@ -1474,11 +1468,10 @@ class ModelData():
             if readString(buffer, cursor) == 'LStr':
                 self.data.append(LStr(self.model).read(buffer, cursor))
                 cursor += 16
-                i += 4
             else:
                 self.data.append(readUInt32BE(buffer,cursor))
-                i+=1
                 cursor += 4
+            i+=1
         return cursor
     def make(self):
         for d in self.data:
@@ -1570,8 +1563,7 @@ class ModelHeader():
         self.model.ext = readString(buffer, cursor)
         if self.model.ext not in ['Podd', 'MAlt', 'Trak', 'Part', 'Modl', 'Pupp', 'Scen']:
             show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.model.ext}")
-            print(f"This model extension was not recognized: {self.model.ext}")
-            return None
+            raise ValueError("Unexpected model extension", self.model.ext)
         cursor = 4
         header = readInt32BE(buffer, cursor)
 
@@ -1604,12 +1596,6 @@ class ModelHeader():
         self.model.collection['ind'] = self.model.id
         self.model.collection['ext'] = self.model.ext
         
-       
-        
-        lightstreaks_col = bpy.data.collections.new("lightstreaks")
-        lightstreaks_col['type'] = 'LSTR'
-        self.model.lightstreaks = lightstreaks_col
-        self.model.collection.children.link(lightstreaks_col)
         if self.model.Data:
             self.model.Data.make()
         return
@@ -1674,7 +1660,6 @@ class Model():
         self.nodes = []
 
     def read(self, buffer):
-        print(buffer[:64])
         if self.id is None:
             return
         cursor = 0

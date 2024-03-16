@@ -31,6 +31,21 @@ Currently only tested on [Blender 4.0](https://download.blender.org/release/Blen
 1. Select a model from the Model dropdown. You may filter this list using the Type dropdown to filter the type of models to select from.
 2. Click the Import button
 
+## Spline Editing
+* To declare the main spline, select a point on the spline and check "Cyclic U" under Object Data Properties -> Active Spline -> Cyclic
+* To create an alternate path, create a new spline within the same curve object. The first and last points of the path will be merged to their closest relative points on the main spline.
+* After selecting two points, press F ~~to pay respects~~ to join them.
+
+#### Curve Tools
+The Curve Tools add-on that comes with Blender (edit -> preferences -> add-ons) has two really useful buttons: 
+'Set First Points' - can set the selected point as the first point in the spline and make it the start/finish line
+'Switch Direction' - reverses the spline
+
+#### Limitations
+* Splines cannot split or join more than 2 times on any point.
+* Splines cannot have paths that start before and end after the finish line on main spline.
+* Splines cannot have paths that end at an earlier point on the main spline than the point where they begin.
+
 ## Export a Model
 1. Coming soon
 
