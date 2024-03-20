@@ -80,6 +80,11 @@ class Texture():
         new_image['format'] = self.format
 
         return new_image
+    def unmake(self, image):
+        self.width, self.height = image.size
+        self.pixels = image.pixels
+        self.palette = Palette().unmake(image)
+        
     
 class Palette():
     def __init__(self, texture):
@@ -107,6 +112,19 @@ class Palette():
             self.data.append([r, g, b, a])
 
         return self.data
+    
+    def unmake(self, image):
+        threshold = 16 if image.format is 512 else 256
+        # Select the image
+        bpy.context.view_layer.objects.active = image
+
+        bpy.ops.palette.extract_from_image(threshold)
+        
+        palette = bpy.data.palettes[-1].colors
+        
+        bpy.data.palettes.remove(bpy.data.palettes[-1])
+        print(palette)
+        return palette
     
     def write(palette):
         if not palette:

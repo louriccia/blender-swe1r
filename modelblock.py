@@ -753,13 +753,12 @@ class Material(DataStruct):
             node_2 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             node_3 = material.node_tree.nodes.new("ShaderNodeMixRGB")
             node_3.blend_type = 'MULTIPLY'
-            node_3.inputs[0].default_value = 1
+            node_3.inputs['Fac'].default_value = 1
             material.node_tree.links.new(node_1.outputs["Color"], node_3.inputs["Color1"])
             material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color2"])
             material.node_tree.links.new(node_3.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             material.node_tree.links.new(node_1.outputs["Alpha"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
-            material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
-            material.node_tree.nodes["Principled BSDF"].inputs[7].default_value = 0 #turn off specular
+            material.node_tree.nodes["Principled BSDF"].inputs["Specular"].default_value = 0
             
             image = str(self.texture.tex_index)
             if image in ["1167", "1077", "1461", "1596"]: #probably shouldn't do it this way; TODO find specific tag

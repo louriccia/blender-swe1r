@@ -26,7 +26,7 @@ bl_info = {
 }
 
 import os
-
+import json
 
 if "bpy" in locals(): #means Blender already started once
     print('already loaded in blender')
@@ -51,6 +51,39 @@ else: #start up
 
 import bpy
 
+SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
+
+print('running on 4.0', SETTINGS_FILE)
+
+# Function to save settings to a JSON file
+def save_settings(self, context):
+    keys = ['import_folder', 'import_type', 'import_model', 'export_folder', 'export_model', 'export_texture', 'export_spline']
+    settings = {key: bpy.context.scene[key] for key in keys}
+    print(settings)
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(settings, f)
+
+# Function to load settings from a JSON file
+def load_settings():
+    settings = {}
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, 'r') as f:
+            settings = json.load(f)
+            print('loaded settings')
+    return settings
+
+# Example function to set/add a setting
+def set_setting(key, value):
+    print(key, value)
+    settings = load_settings()
+    settings[key] = value
+    save_settings(settings)
+
+# Example function to get a setting
+def get_setting(key, default=None):
+    settings = load_settings()
+    return settings.get(key, default)
+
 model_types = [('0', 'All', 'View all models'),
                             ('1', 'MAlt', 'High LOD pods'),
                             ('2', 'Modl', 'Misc animated elements'),
@@ -61,6 +94,13 @@ model_types = [('0', 'All', 'View all models'),
                             ('7', 'Trak', 'Tracks'),
                             ]
 models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
+
+bpy.types.WindowManager.import_folder = bpy.props.StringProperty(
+    name="Folder Path",
+    subtype='DIR_PATH',
+    default=""
+)
+
 
 # Callback function to dynamically update the items of the first dropdown based on the second dropdown selection
 def update_model_dropdown(self, context):
@@ -100,12 +140,12 @@ class ImportExportExamplePanel(bpy.types.Panel):
  
     def draw(self, context):
         layout = self.layout
-
+            
         # Section 1: Import
         box = layout.box()
         box.label(text="Import")
 
-        box.prop(context.scene, "import_folder_path", text="",   full_event=False)
+        box.prop(context.scene, "import_folder", full_event=False)
         box.prop(context.scene, "import_type", text="Type")
         box.prop(context.scene, "import_model", text="Model")
         box.operator("import.import_operator", text="Import")
@@ -114,7 +154,7 @@ class ImportExportExamplePanel(bpy.types.Panel):
         box = layout.box()
         box.label(text="Export")
 
-        box.prop(context.scene, "export_folder_path", text="",  full_event=False)
+        box.prop(context.scene, "export_folder", text="",  full_event=False)
            # Checkboxes on the same row
         row = box.row()
         row.prop(context.scene, "export_model", text="Model", icon='MESH_CUBE', toggle=True, icon_only=True)
@@ -127,9 +167,10 @@ class ImportExportExamplePanel(bpy.types.Panel):
 class ImportOperator(bpy.types.Operator):
     bl_label = "SWE1R Import/Export"
     bl_idname = "import.import_operator"
+    
 
     def execute(self, context):
-        folder_path = context.scene.import_folder_path
+        folder_path = context.scene.import_folder
         if folder_path == "":
             show_custom_popup(bpy.context, "No set import folder", "Select your folder containing the .bin files")
             return {'CANCELLED'}
@@ -148,7 +189,7 @@ class ExportOperator(bpy.types.Operator):
     bl_idname = "import.export_operator"
 
     def execute(self, context):
-        folder_path = context.scene.export_folder_path if context.scene.export_folder_path else context.scene.import_folder_path
+        folder_path = context.scene.export_folder if context.scene.export_folder else context.scene.import_folder
         selected_collection = context.view_layer.active_layer_collection.collection
         if 'ind' not in selected_collection:
             show_custom_popup(bpy.context, "Invalid collection selected", "Please select a model collection to export")
@@ -160,7 +201,7 @@ class ExportOperator(bpy.types.Operator):
             show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
             return {'CANCELLED'}
         
-        export_model(selected_collection, folder_path)
+        export_model(selected_collection, folder_path, [context.scene.export_model, context.scene.export_texture, context.scene.export_spline])
         
         return {'FINISHED'}
 
@@ -170,40 +211,41 @@ def menu_func(self, context):
     self.layout.operator(ExportOperator.bl_idname)
 
 def register():
-    bpy.utils.register_class(ImportExportExamplePanel)
-    bpy.utils.register_class(ImportOperator)
-    bpy.utils.register_class(ExportOperator)
-    bpy.types.TOPBAR_MT_file.append(menu_func)
-    bpy.types.Scene.import_folder_path = bpy.props.StringProperty(subtype='DIR_PATH', description="Select the lev01 folder (or any folder containing the .bin files)")
-    # Register the EnumProperty (dropdown)
+
+    bpy.types.Scene.import_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=save_settings, default =get_setting('import_folder', ""), description="Select the lev01 folder (or any folder containing the .bin files)")
     bpy.types.Scene.import_type = bpy.props.EnumProperty(
         items=model_types,
         name="Model Type",
         description="Select model type",
+        default=get_setting('import_type', 0), 
         update=update_model_dropdown
     )
-
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
         items=models,
         name="Model",
-        description="Select model"
+        description="Select model",
+        default=get_setting('import_model', 0), 
+        update=save_settings
     )
-
-    bpy.types.Scene.export_folder_path = bpy.props.StringProperty(subtype='DIR_PATH', description="Select the lev01 folder (or any folder you wish to export to)")
-    bpy.types.Scene.export_model = bpy.props.BoolProperty(name="Model", default=True)
-    bpy.types.Scene.export_texture = bpy.props.BoolProperty(name="Texture", default=True)
-    bpy.types.Scene.export_spline = bpy.props.BoolProperty(name="Spline", default=True)
-
+    bpy.types.Scene.export_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=save_settings, default=get_setting('export_folder', ""), description="Select the lev01 folder (or any folder you wish to export to)")
+    bpy.types.Scene.export_model = bpy.props.BoolProperty(name="Model", update=save_settings, default=get_setting('export_model', True))
+    bpy.types.Scene.export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('export_folder', True))
+    bpy.types.Scene.export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('export_folder', True))
+    
+    bpy.utils.register_class(ImportExportExamplePanel)
+    bpy.utils.register_class(ImportOperator)
+    bpy.utils.register_class(ExportOperator)
+    bpy.types.TOPBAR_MT_file.append(menu_func)
 
 def unregister():
     bpy.utils.unregister_class(ImportExportExamplePanel)
     bpy.utils.unregister_class(ImportOperator)
     bpy.utils.unregister_class(ExportOperator)
     bpy.types.TOPBAR_MT_file.remove(menu_func)
-    del bpy.types.Scene.import_folder_path
+    del bpy.types.Scene.import_folder
     del bpy.types.Scene.import_type
     del bpy.types.Scene.import_model
-    del bpy.types.Scene.export_folder_path
+    del bpy.types.Scene.export_folder
     del bpy.types.Scene.export_model
     del bpy.types.Scene.export_texture
     del bpy.types.Scene.export_spline
