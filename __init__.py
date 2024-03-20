@@ -53,36 +53,30 @@ import bpy
 
 SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
 
-print('running on 4.0', SETTINGS_FILE)
-
-# Function to save settings to a JSON file
 def save_settings(self, context):
     keys = ['import_folder', 'import_type', 'import_model', 'export_folder', 'export_model', 'export_texture', 'export_spline']
-    settings = {key: bpy.context.scene[key] for key in keys}
-    print(settings)
+    settings = load_settings()
+    for key in [key for key in keys if context.scene.get(key) is not None]:
+        settings[key] = context.scene.get(key)
     with open(SETTINGS_FILE, 'w') as f:
         json.dump(settings, f)
 
-# Function to load settings from a JSON file
 def load_settings():
     settings = {}
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'r') as f:
             settings = json.load(f)
-            print('loaded settings')
     return settings
 
-# Example function to set/add a setting
 def set_setting(key, value):
-    print(key, value)
     settings = load_settings()
     settings[key] = value
     save_settings(settings)
 
-# Example function to get a setting
 def get_setting(key, default=None):
     settings = load_settings()
-    return settings.get(key, default)
+    val = settings.get(key, default)
+    return val if val is not None else default
 
 model_types = [('0', 'All', 'View all models'),
                             ('1', 'MAlt', 'High LOD pods'),
@@ -95,14 +89,6 @@ model_types = [('0', 'All', 'View all models'),
                             ]
 models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
 
-bpy.types.WindowManager.import_folder = bpy.props.StringProperty(
-    name="Folder Path",
-    subtype='DIR_PATH',
-    default=""
-)
-
-
-# Callback function to dynamically update the items of the first dropdown based on the second dropdown selection
 def update_model_dropdown(self, context):
     model_type = model_types[int(context.scene.import_type)][1]
     
@@ -117,19 +103,7 @@ def update_model_dropdown(self, context):
         name="Model Selection",
         description="Select models to import",
     )
-
-# Define the second dropdown and set the update callback
-bpy.types.Scene.import_type = bpy.props.EnumProperty(
-    items=[("0", "All", "Select from all models of this type")],
-    name="Model Type",
-    description="Select model type",
-)
-
-bpy.types.Scene.import_model = bpy.props.EnumProperty(
-    items=models,
-    name="Model Selection",
-    description="Select models to import",
-)
+    save_settings(self, context)
 
 class ImportExportExamplePanel(bpy.types.Panel):
     bl_label = "SWE1R Import/Export"
@@ -162,7 +136,6 @@ class ImportExportExamplePanel(bpy.types.Panel):
         row.prop(context.scene, "export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
 
         box.operator("import.export_operator", text="Export")
-
 
 class ImportOperator(bpy.types.Operator):
     bl_label = "SWE1R Import/Export"
@@ -205,7 +178,6 @@ class ExportOperator(bpy.types.Operator):
         
         return {'FINISHED'}
 
-
 def menu_func(self, context):
     self.layout.operator(ImportOperator.bl_idname)
     self.layout.operator(ExportOperator.bl_idname)
@@ -229,8 +201,8 @@ def register():
     )
     bpy.types.Scene.export_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=save_settings, default=get_setting('export_folder', ""), description="Select the lev01 folder (or any folder you wish to export to)")
     bpy.types.Scene.export_model = bpy.props.BoolProperty(name="Model", update=save_settings, default=get_setting('export_model', True))
-    bpy.types.Scene.export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('export_folder', True))
-    bpy.types.Scene.export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('export_folder', True))
+    bpy.types.Scene.export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('export_texture', True))
+    bpy.types.Scene.export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('export_spline', True))
     
     bpy.utils.register_class(ImportExportExamplePanel)
     bpy.utils.register_class(ImportOperator)
