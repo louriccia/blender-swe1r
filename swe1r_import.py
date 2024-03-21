@@ -44,12 +44,12 @@ from .block import Block
 scale = 0.01
 
 def import_model(file_path, selector=None):
-    for image in bpy.data.images:
-        bpy.data.images.remove(image)
+    # for image in bpy.data.images:
+    #     bpy.data.images.remove(image)
         
-    for mat in bpy.data.materials:
-        bpy.data.materials.remove(mat)
-    
+    # for mat in bpy.data.materials:
+    #     bpy.data.materials.remove(mat)
+        
     modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
     textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
     splineblock = Block(file_path + 'out_splineblock.bin', [[]]).read()

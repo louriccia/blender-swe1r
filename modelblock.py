@@ -758,8 +758,7 @@ class Material(DataStruct):
             material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color2"])
             material.node_tree.links.new(node_3.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             material.node_tree.links.new(node_1.outputs["Alpha"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
-            material.node_tree.nodes["Principled BSDF"].inputs["Specular"].default_value = 0
-            
+            material.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0
             image = str(self.texture.tex_index)
             if image in ["1167", "1077", "1461", "1596"]: #probably shouldn't do it this way; TODO find specific tag
                 material.blend_method = 'BLEND'
@@ -812,9 +811,9 @@ class Material(DataStruct):
         else:
             material = bpy.data.materials.new(mat_name)
             material.use_nodes = True
-            material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
+            # material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
             colors = [0, 0, 0, 0] if self.unk is None else self.unk.color
-            material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
+            # material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             return material
@@ -924,6 +923,7 @@ class Mesh(DataStruct):
         return self
     
     def make(self, parent):
+        
         if self.has_collision():
             verts = self.collision_vert_buffer.make()
             edges = []
@@ -968,6 +968,7 @@ class Mesh(DataStruct):
                 self.collision_tags.make(obj)
                 
         if self.has_visuals():
+            
             verts = self.visuals_vert_buffer.make()
             edges = []
             faces = self.visuals_index_buffer.make()
@@ -983,18 +984,33 @@ class Mesh(DataStruct):
             mesh.validate() #clean_customdata=False
             obj.parent = parent
             
+            
             if self.material:
                 mat = self.material.make()
                 mesh.materials.append(mat)
+            
             
             #set vector colors / uv coords
             uv_layer = mesh.uv_layers.new(name = 'uv')
             color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
             
+            uv_layer = obj.data.uv_layers.active.data
+
+            for poly in obj.data.polygons:
+                print("Polygon index: %d, length: %d" % (poly.index, poly.loop_total))
+
+                # range is used here to show how the polygons reference loops,
+                # for convenience 'poly.loop_indices' can be used instead.
+                for loop_index in poly.loop_indices:
+                    print("    Vertex: %d" % obj.data.loops[loop_index].vertex_index)
+                               
+                    uv_layer[loop_index].uv = (1.0, 1.0)   
+                    print("    UV: %r" % uv_layer[loop_index].uv)                                             
+            
             for poly in mesh.polygons:
                 for p in range(len(poly.vertices)):
                     v = self.visuals_vert_buffer.data[poly.vertices[p]]
-                    uv_layer.data[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
+                    #uv_layer.data[poly.loop_indices[p]].uv = tuple([u/4096 for u in v.uv]) #crash
                     color_layer.data[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
     
     def unmake(self, node):
@@ -1467,10 +1483,11 @@ class ModelData():
             if readString(buffer, cursor) == 'LStr':
                 self.data.append(LStr(self.model).read(buffer, cursor))
                 cursor += 16
+                i+=4
             else:
                 self.data.append(readUInt32BE(buffer,cursor))
                 cursor += 4
-            i+=1
+                i+=1
         return cursor
     def make(self):
         for d in self.data:

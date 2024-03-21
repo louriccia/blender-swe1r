@@ -51,6 +51,10 @@ else: #start up
 
 import bpy
 
+version = bpy.app.version_string
+version = version.split(".")
+if version[0] is not "4" and version[1] is not "0":
+    print("blender-swe1r: Unsupported Blender version")
 SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
 
 def save_settings(self, context):

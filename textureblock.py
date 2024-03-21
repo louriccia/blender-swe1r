@@ -52,7 +52,7 @@ class Texture():
         if None in [self.format, self.width, self.height]:
             print(f"Texture {self.id} is missing width/height/format data")
             return
-
+        print(self.id, self.width, self.height)
         new_image = bpy.data.images.new(str(self.id), self.width, self.height)
         image_pixels = []    
         pixels = self.pixels.data
