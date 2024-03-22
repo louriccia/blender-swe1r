@@ -993,25 +993,15 @@ class Mesh(DataStruct):
             #set vector colors / uv coords
             uv_layer = mesh.uv_layers.new(name = 'uv')
             color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
-            
+            # no idea why but 4.0 requires I do this:
             uv_layer = obj.data.uv_layers.active.data
-
-            for poly in obj.data.polygons:
-                print("Polygon index: %d, length: %d" % (poly.index, poly.loop_total))
-
-                # range is used here to show how the polygons reference loops,
-                # for convenience 'poly.loop_indices' can be used instead.
-                for loop_index in poly.loop_indices:
-                    print("    Vertex: %d" % obj.data.loops[loop_index].vertex_index)
-                               
-                    uv_layer[loop_index].uv = (1.0, 1.0)   
-                    print("    UV: %r" % uv_layer[loop_index].uv)                                             
+            color_layer = obj.data.vertex_colors.active.data                                           
             
             for poly in mesh.polygons:
                 for p in range(len(poly.vertices)):
                     v = self.visuals_vert_buffer.data[poly.vertices[p]]
-                    #uv_layer.data[poly.loop_indices[p]].uv = tuple([u/4096 for u in v.uv]) #crash
-                    color_layer.data[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
+                    uv_layer[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
+                    color_layer[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
     
     def unmake(self, node):
         self.id = node.name

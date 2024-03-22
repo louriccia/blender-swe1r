@@ -13,7 +13,7 @@ This project is currently under active development. While it may be functional f
 - Export SWE1R models directly to .bin files
 
 ## Requirements
-[Blender 3.4](https://download.blender.org/release/Blender3.4/)
+[Blender 4.0](https://www.blender.org/download/releases/4-0/)
 
 ## Installation
 0. [Download the latest release](https://github.com/louriccia/blender_swe1r/releases) OR make a zip file of this repo 
