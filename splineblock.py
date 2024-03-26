@@ -22,7 +22,7 @@
 import struct
 import bpy
 import math
-from .readwrite import *
+from .general import *
 from .modelblock import DataStruct, FloatPosition, FloatVector
 from .popup import show_custom_popup
 
@@ -107,7 +107,7 @@ class Spline(DataStruct):
     def __init__(self, id = None):
         super().__init__('>2H2I4B')
         self.id = id
-        self.unk = 1 # always 1
+        self.unk = 1 # always 1 spline visibility??
         self.unk1 = 0
         self.point_count = 0
         self.segment_count = 0
@@ -184,19 +184,28 @@ class Spline(DataStruct):
                 next.append(self.points[point.next1].id)
                 if point.next_count == 2:
                     next.append(self.points[point.next2].id)
-                    
+                if point.next_count == 0:
+                    end = True
+
             if 0 in next:
                 if len(next) > 1:
                     raise ValueError("All paths must join before and split after starting line! You cannot have shortcuts that go around the finish line.")
                 end = True
-                        
+
             path_list.append(current_unique)
             current = next
-        
+
+        print('path list')
+        for path in path_list:
+            print(path)
         for i, path in enumerate(path_list):
             for p in path:
                 point = self.points[p]
                 point.progress = i
+                if i == len(path_list) - 2:
+                    point.progress = 0
+                if i == len(path_list) - 1:
+                    point.progress = 1
     
     def unmake(self, collection):
         spline_objects = [obj for obj in collection.objects if obj.type == 'CURVE']
@@ -212,12 +221,13 @@ class Spline(DataStruct):
         self.id = spline_object['id']
         splines = spline_object.data.splines
         
-        main_paths = [spline for spline in splines if spline.use_cyclic_u and spline.type == 'BEZIER']
-        alt_paths = [spline for spline in splines if spline.use_cyclic_u is False and spline.type == 'BEZIER']
+        main_paths = [spline for spline in splines if spline.type == 'BEZIER']
+        alt_paths = []
+        #alt_paths = [spline for spline in splines if spline.use_cyclic_u is False and spline.type == 'BEZIER']
         
-        if len(main_paths) < 1:
-            show_custom_popup(bpy.context, "No Main Spline", "You must create a closed bezier spline using Active Spline > Cyclic U")
-            return
+        # if len(main_paths) < 1:
+        #     show_custom_popup(bpy.context, "No Main Spline", "You must create a closed bezier spline using Active Spline > Cyclic U")
+        #     return
         if len(main_paths) > 1:
             show_custom_popup(bpy.context, "Too Many Closed Splines", "Multiple closed bezier splines found in the spline object. Only one closed spline can be the main spline.")
             return
@@ -237,13 +247,16 @@ class Spline(DataStruct):
             p.previous1 = point_count - 1
             p.next1 = point_count + 1
             if i == 0:
-                p.previous1 = len(main_path.bezier_points) - 1
+                p.previous1 = -1
+                p.previous_count = 0
             if i == len(main_path.bezier_points) - 1:
-                p.next1 = 0
-                
+                p.next_count = 0
+                p.next1 = -1
             self.points.append(p)
             point_count += 1
             segment_count += 1
+        
+        
         
         self.calculate_progress()
         
@@ -293,8 +306,13 @@ class Spline(DataStruct):
             if point.next_count == 2:
                 point.unk_set[1] = len(self.points) + splits
                 splits += 1
-            print(point)
+            if i == len(self.points) - 2:
+                point.unk_set[0] = 0
+            if i == len(self.points) - 1:
+                point.unk_set[0] = 1
         
+        for p in self.points:
+            print(p.to_array())
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point
         # cannot have alt paths that start before and end after the finish line on main spline

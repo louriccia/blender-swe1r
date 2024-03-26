@@ -31,8 +31,8 @@ import json
 if "bpy" in locals(): #means Blender already started once
     print('already loaded in blender')
     import importlib
-    importlib.reload(swe1r_import)
-    importlib.reload(swe1r_export)
+    importlib.reload(swr_import)
+    importlib.reload(swr_export)
     importlib.reload(block)
     importlib.reload(modelblock)
     importlib.reload(textureblock)
@@ -40,8 +40,8 @@ if "bpy" in locals(): #means Blender already started once
     importlib.reload(popup)
 else: #start up
     print('starting up for the first time')
-    from .swe1r_import import *
-    from .swe1r_export import *
+    from .swr_import import *
+    from .swr_export import *
     from .popup import *
     from .model_list import *
     from .modelblock import *

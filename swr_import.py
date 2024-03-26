@@ -19,10 +19,7 @@
 #     along with this program; if not, see <https://www.gnu.org
 # /licenses>.
 
-import sys
-import os
 import bpy
-import struct
 from .modelblock import Model
 from .splineblock import Spline
 from .spline_map import spline_map
@@ -44,11 +41,11 @@ from .block import Block
 scale = 0.01
 
 def import_model(file_path, selector=None):
-    # for image in bpy.data.images:
-    #     bpy.data.images.remove(image)
+    for image in bpy.data.images:
+        bpy.data.images.remove(image)
         
-    # for mat in bpy.data.materials:
-    #     bpy.data.materials.remove(mat)
+    for mat in bpy.data.materials:
+        bpy.data.materials.remove(mat)
         
     modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
     textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
@@ -74,3 +71,4 @@ def import_model(file_path, selector=None):
             collection = model.make()
             collection.objects.link(spline.make(model.scale))
     print(f'Successfully unpacked {len(selector)} models')
+    

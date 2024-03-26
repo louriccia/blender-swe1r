@@ -1,12 +1,8 @@
-import sys
-import os
 import bpy
-import struct
-import json
-import math
 from .popup import show_custom_popup
 from .modelblock import Model
 from .splineblock import Spline
+from .textureblock import Texture
 from .block import Block
     
 scale = 100
@@ -14,7 +10,10 @@ scale = 100
 def export_model(col, file_path, exports):
     types = [obj.type for obj in col.objects]
     model_export, texture_export, spline_export = exports
-    print(types)
+    
+    if not len(exports):
+        show_custom_popup(bpy.context, "No Export", f"Please select an element to export")
+        
     
     if 'MESH' in types and model_export:
         model = Model(col['ind']).unmake(col)
@@ -37,7 +36,15 @@ def export_model(col, file_path, exports):
             file.write(spline_buffer)
     
     if texture_export:
-        pass
-        
+        textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
+        for image in bpy.data.images:
+            id = int(image['id'])
+            texture = Texture(id).unmake(image)
+            pixel_buffer = texture.pixels.write()
+            palette_buffer = texture.palette.write()
+            textureblock.inject([pixel_buffer, palette_buffer], id)
+        with open(file_path + 'out_textureblock.bin', 'wb') as file:
+            file.write(textureblock.write())
+            
     show_custom_popup(bpy.context, "Exported!", f"Model {col['ind']} was successfully exported")
     

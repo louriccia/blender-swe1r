@@ -21,7 +21,7 @@
 
 import struct
 import os
-from .readwrite import *
+from .general import *
 
 class Block():
     def __init__(self, path, arr):
@@ -35,6 +35,8 @@ class Block():
     def read(self):
         with open(self.path, 'rb') as file:
             file = file.read()
+        if len(file) == 0:
+            return None
         asset_count = readUInt32BE(file, 0)
         cursor = 4
         self.data = [[] for f in range(self.sub_chunks)]
@@ -65,14 +67,16 @@ class Block():
         for i in range(asset_count):
             for j in range(self.sub_chunks):
                 struct.pack_into('>I', header, 4 + (i * self.sub_chunks + j) * 4, cursor if (self.data[j][i] and len(self.data[j][i])) else 0)
-                cursor += len(self.data[j][i])
-                block.append(self.data[j][i])
+                if self.data[j][i] is not None:
+                    cursor += len(self.data[j][i])
+                    block.append(self.data[j][i])
         struct.pack_into('>I', header, (asset_count * self.sub_chunks + 1) * 4, cursor)  # end of block offset
 
         return b''.join(block)
     
     def inject(self, data, index):
         for j in range(self.sub_chunks):
+            print(j, index, len(data))
             self.data[j][index] = data[j]
         return self
             

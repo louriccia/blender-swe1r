@@ -20,11 +20,13 @@
 # /licenses>.
 
 import struct
+import math
 import bpy
-from .readwrite import *
+from .general import *
+from .modelblock import DataStruct
 
 class Texture():
-    def __init__(self, id, format, width, height):
+    def __init__(self, id, format = 513, width = 32, height = 32):
         if(int(id) > 1647):
             raise ValueError(f"Unexpected texture index {id}")
         self.id = id
@@ -63,27 +65,61 @@ class Texture():
                 color = None
 
                 if self.format in [512, 513]:
-                    p = palette[pixels[ind]]
-                    color = [p[0] if p else 0, p[1] if p else 0, p[2] if p else 0, p[3] if p else 0]
+                    color = palette[pixels[ind]].to_array()
 
                 elif self.format in [1024, 1025]:
                     p = pixels[ind]
-                    color = [p if p else 0, p if p else 0, p if p else 0, 255]
+                    color = [p, p, p, 255]
 
                 elif self.format == 3:
                     p = pixels[ind]
-                    color = [p[0] if p else 0, p[1] if p else 0, p[2] if p else 0, p[3] if p else 0]
+                    color = [p[0], p[1], p[2], p[3]]
                     
                 image_pixels.extend(color)
         new_image.pixels = [p/255 for p in image_pixels]
         new_image['format'] = self.format
+        new_image['id'] = self.id
 
         return new_image
     def unmake(self, image):
         self.width, self.height = image.size
-        self.pixels = image.pixels
-        self.palette = Palette().unmake(image)
-        
+        self.palette = Palette(self).unmake(image)
+        self.pixels = Pixels(self).unmake(image)
+        return self
+    
+class RGBA5551(DataStruct):
+    def __init__(self):
+        super().__init__('>H')
+        self.r = 0
+        self.g = 0
+        self.b = 0
+        self.a = 0
+    def read(self, buffer, cursor):
+        pallete_color = struct.unpack_from(self.format_string, buffer, cursor)[0]
+        self.a = ((pallete_color >> 0) & 0x1) * 0xFF
+        self.b = round((((pallete_color >> 1) & 0x1F) / 0x1F) * 255)
+        self.g = round((((pallete_color >> 6) & 0x1F) / 0x1F) * 255)
+        self.r = round((((pallete_color >> 11) & 0x1F) / 0x1F) * 255)
+        if (self.r + self.g + self.b) > 0 and self.a == 0:
+            self.a = 255
+        return self
+    def to_array(self):
+        return [self.r, self.g, self.b, self.a]
+    def from_array(self, arr):
+        if len(arr) == 3:
+            arr.append(1.0)
+        self.r, self.g, self.b, self.a = arr
+        return self
+    def write(self, buffer, cursor):
+        r = int((self.r / 255) * 0x1F) << 11
+        g = int((self.g / 255) * 0x1F) << 6
+        b = int((self.b / 255) * 0x1F) << 1
+        a = int(self.a / 255)
+        color = (((r | g) | b) | a)
+        struct.pack_into(self.format_string, buffer, cursor, color)
+        return cursor + self.size
+    def __eq__(self, other):
+        return self.r == other.r and self.g == other.g and self.b == other.b and self.a == other.a
     
 class Palette():
     def __init__(self, texture):
@@ -101,47 +137,47 @@ class Palette():
             return []
 
         for cursor in range(0, format_map.get(format, 0) * 2, 2):
-            color = readInt16BE(buffer, cursor)
-            a = ((color >> 0) & 0x1) * 0xFF
-            b = round((((color >> 1) & 0x1F) / 0x1F) * 255)
-            g = round((((color >> 6) & 0x1F) / 0x1F) * 255)
-            r = round((((color >> 11) & 0x1F) / 0x1F) * 255)
-            if (r + g + b) > 0 and a == 0:
-                a = 255
-            self.data.append([r, g, b, a])
+            self.data.append(RGBA5551().read(buffer, cursor))
 
         return self.data
     
-    def unmake(self, image):
-        threshold = 16 if image.format is 512 else 256
-        # Select the image
-        bpy.context.view_layer.objects.active = image
-
-        bpy.ops.palette.extract_from_image(threshold)
-        
-        palette = bpy.data.palettes[-1].colors
-        
-        bpy.data.palettes.remove(bpy.data.palettes[-1])
-        print(palette)
-        return palette
+    def to_array(self):
+        return [c.to_array() for c in self.data]
     
-    def write(palette):
-        if not palette:
-            return bytearray()
-
-        buffer = bytearray(len(palette) * 2)
+    def unmake(self, image):
+        threshold = 16 if int(image['format']) == 512 else 256
+        pixels = image.pixels
+        
+        #TODO replace with color quantization solution
+        for i in range(0, len(pixels), 4):
+            color = RGBA5551().from_array([ int(j*255) for j in pixels[i: i+4]])
+            if not color in self.data:
+                self.data.append(color)
+            if len(self.data) == threshold:
+                break
+        return self
+    
+    def write(self):
+        buffer = bytearray(len(self.data) * 2)
         cursor = 0
 
-        for p in palette:
-            r = int((p[0] / 255) * 0x1F) << 11
-            g = int((p[1] / 255) * 0x1F) << 6
-            b = int((p[2] / 255) * 0x1F) << 1
-            a = int(p[3] / 255)
-            pal = (((r | g) | b) | a)
-            buffer[cursor:cursor + 2] = pal.to_bytes(2, 'big')
-            cursor += 2
+        for color in self.data:
+            cursor = color.write(buffer, cursor)
 
-        return bytes(buffer)
+        return buffer
+    
+    def closest(self, target):
+        def euclidean_distance(color1, color2):
+            return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
+        
+        min_distance = float('inf')
+        closest = None
+        for i, color in enumerate(self.data):
+            distance = euclidean_distance(target.to_array()[:3], color.to_array()[:3])  # Consider only RGB components for distance calculation
+            if distance < min_distance:
+                min_distance = distance
+                closest = i
+        return closest
     
 class Pixels():
     def __init__(self, texture):
@@ -188,6 +224,25 @@ class Pixels():
 
         return self.data
 
+    def unmake(self, image):
+        self.texture.format = int(image['format'])
+        format = self.texture.format
+        palette = None
+        if format in [512, 513]:
+            palette = self.texture.palette
+            
+        for i in range(0, len(image.pixels), 4):
+            pixel = image.pixels[i: i+4]
+            if format == 3:
+                self.data.append([c for c in pixel])
+            elif format in [512, 513]:
+                color = RGBA5551().from_array([int(p*255) for p in pixel])
+                closest = palette.closest(color)
+                self.data.append(closest)
+            elif format in [1024, 1025]:
+                self.data.append(sum(pixel[:3])/3)
+        return self
+
     def write(self):
         formatmap = {
             3: 4,
@@ -196,18 +251,16 @@ class Pixels():
             1024: 0.5,
             1025: 1
         }
-
-        buffer = bytearray(len(self.data) * int(formatmap[format]))
+        format = int(self.texture.format)
+        buffer = bytearray(int(len(self.data) * formatmap[format]))
         cursor = 0
-        format = self.texture.format
         if format in [512, 1024]:
-            for i in range(0, len(self.data) // 2):
+            for i in range(0, len(self.data), 2):
                 if format == 512:
-                    buffer[cursor] = (self.data[i * 2] << 4) | self.data[i * 2 + 1]
+                    struct.pack_into('>B', buffer, cursor, (self.data[i] << 4) | self.data[i + 1])
                 elif format == 1024:
-                    buffer[cursor] = (self.data[i * 2] // 0x11 << 4) | (self.data[i * 2 + 1] // 0x11)
+                    struct.pack_into('>B', buffer, cursor, (self.data[i] // 0x11 << 4) | (self.data[i + 1] // 0x11))
                 cursor += 1
-
         elif format in [513, 1025, 3]:
             for i in range(len(self.data)):
                 pixel = self.data[i]
@@ -219,92 +272,4 @@ class Pixels():
                     buffer[cursor] = pixel
                     cursor += 1
 
-        return bytes(buffer)
-
-def make_texture(texture, folder_path):
-    file_path = folder_path + 'out_textureblock.bin'
-    selector = [texture['tex_index']]
-
-    with open(file_path, 'rb') as file:
-        file = file.read()
-        read_block_result = read_block(file, [[], []], selector)
-
-    pixel_buffers, palette_buffers = read_block_result
-    tex = None
-    for i, buffer in enumerate(pixel_buffers):
-        pixels = read_pixels(buffer, texture['format'], texture['width']*texture['height'])
-        palette = read_palette(palette_buffers[i], texture['format'])
-        tex = draw_texture(pixels, palette, texture['width'], texture['height'], texture['format'], str(selector[i]) + '.png',  str(selector[i]))
-        
-    return tex
-
-def draw_texture(pixels, palette, width, height, format, path, index):
-    
-    if not pixels:
-        print(f"Texture {index} does not have any pixels")
-        return
-
-    if None in [format, width, height]:
-        print(f"Texture {index} is missing width/height/format data")
-        return
-
-    new_image = bpy.data.images.new(name=str(index), width=width, height=height)
-    image_pixels = []    
-
-    for i in range(height):
-        for j in range(width):
-            ind = i * width + j
-            p = None
-            color = None
-
-            if format in [512, 513]:
-                p = palette[pixels[ind]]
-                color = [p[0] if p else 0, p[1] if p else 0, p[2] if p else 0, p[3] if p else 0]
-
-            elif format in [1024, 1025]:
-                p = pixels[ind]
-                color = [p if p else 0, p if p else 0, p if p else 0, 255]
-
-            elif format == 3:
-                p = pixels[ind]
-                color = [p[0] if p else 0, p[1] if p else 0, p[2] if p else 0, p[3] if p else 0]
-
-            x = 0
-
-            image_pixels.extend(color)
-           
-    new_image.pixels = [p/255 for p in image_pixels]
-    new_image['format'] = format
-
-    return new_image
-
-
-
-
-
-
-
-def unmake_image(image):
-    if not image:
-        print("Invalid image provided.")
-        return None
-
-    format = image['format']
-    width = image.size[0]
-    height = image.size[1]
-    index = int(image.name)  # Assuming the name represents the index
-
-    pixels = []
-    palette = []
-
-    for i in range(height):
-        for j in range(width):
-            pixel_index = (i * width + j) * 4  # Each pixel has 4 components (RGBA)
-            color = image.pixels[pixel_index:pixel_index + 4]
-            pixels.extend(color)
-
-            # Assuming format 512 or 513 corresponds to a palette
-            if format in [512, 513] and color not in palette:
-                palette.append(color)
-
-    return pixels, palette, index
+        return buffer
