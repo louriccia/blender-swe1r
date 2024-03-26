@@ -202,10 +202,8 @@ class Spline(DataStruct):
             for p in path:
                 point = self.points[p]
                 point.progress = i
-                if i == len(path_list) - 2:
-                    point.progress = 0
                 if i == len(path_list) - 1:
-                    point.progress = 1
+                    point.progress = 0
     
     def unmake(self, collection):
         spline_objects = [obj for obj in collection.objects if obj.type == 'CURVE']
@@ -306,10 +304,8 @@ class Spline(DataStruct):
             if point.next_count == 2:
                 point.unk_set[1] = len(self.points) + splits
                 splits += 1
-            if i == len(self.points) - 2:
-                point.unk_set[0] = 0
             if i == len(self.points) - 1:
-                point.unk_set[0] = 1
+                point.unk_set[0] = 0
         
         for p in self.points:
             print(p.to_array())
