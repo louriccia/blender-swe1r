@@ -25,6 +25,11 @@ def export_model(col, file_path, exports):
     if 'CURVE' in types and spline_export:
         splineblock = Block(file_path + 'out_splineblock.bin', [[]]).read()
         spline = Spline().unmake(col)
+        
+        if spline is None:
+            show_custom_popup(bpy.context, "Spline Error", "There was an issue while exporting the spline")
+            return
+        
         spline_buffer = spline.write()
         splineblock.inject([spline_buffer], spline.id)
         

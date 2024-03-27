@@ -29,14 +29,8 @@ from .popup import show_custom_popup
 class SplinePoint(DataStruct):
     def __init__(self):
         super().__init__('>8h48x10h')
-        self.next_count = 1
-        self.previous_count = 1
-        self.next1 = -1
-        self.next2 = -1
-        self.previous1 = -1
-        self.previous2 = -1
-        self.unknown1 = 0
-        self.unknown2 = 0
+        self.next = []
+        self.previous = []
         self.position = FloatPosition()
         self.rotation = FloatVector()
         self.handle1 = FloatPosition()
@@ -49,7 +43,9 @@ class SplinePoint(DataStruct):
         return str(self.to_array())
     
     def read(self, buffer, cursor):
-        self.next_count, self.previous_count, self.next1, self.next2, self.previous1, self.previous2, self.unknown1, self.unknown2, self.progress, *self.unk_set, self.unk = struct.unpack_from(self.format_string, buffer, cursor)
+        next_count, previous_count, next1, next2, previous1, previous2, previous3, previous4, self.progress, *self.unk_set, self.unk = struct.unpack_from(self.format_string, buffer, cursor)
+        self.next = [next1, next2][:next_count]
+        self.previous = [previous1, previous2, previous3, previous4][:previous_count]
         self.position.read(buffer, cursor + 16)
         self.rotation.read(buffer, cursor + 28)
         self.handle1.read(buffer, cursor + 40)
@@ -58,7 +54,11 @@ class SplinePoint(DataStruct):
         return self
     
     def write(self, buffer, cursor):
-        struct.pack_into(self.format_string, buffer, cursor, self.next_count, self.previous_count, self.next1, self.next2, self.previous1, self.previous2, self.unknown1, self.unknown2, self.progress, *self.unk_set, self.unk) 
+        next_count = len(self.next)
+        previous_count = len(self.previous)
+        self.next = self.next + [-1] * (2 - len(self.next))
+        self.previous = self.previous + [-1] * (4 - len(self.previous))
+        struct.pack_into(self.format_string, buffer, cursor, next_count, previous_count, *self.next, *self.previous, self.progress, *self.unk_set, self.unk) 
         self.position.write(buffer, cursor + 16)
         self.rotation.write(buffer, cursor + 28)
         self.handle1.write(buffer, cursor + 40)
@@ -79,14 +79,8 @@ class SplinePoint(DataStruct):
         return self
     
     def to_array(self):
-        return [self.next_count, 
-                self.previous_count, 
-                self.next1, 
-                self.next2, 
-                self.previous1, 
-                self.previous2, 
-                self.unknown1, 
-                self.unknown2, 
+        return [*self.next, 
+                *self.previous, 
                 *self.position.to_array(),
                 *self.rotation.to_array(),
                 *self.handle1.to_array(),
@@ -96,7 +90,7 @@ class SplinePoint(DataStruct):
                 self.unk]
     
     def from_array(self, data):
-        self.next_count, self.previous_count, self.next1, self.next2, self.previous1, self.previous2, self.unknown1, self.unknown2 = data[:8]
+        self.next, self.previous = data[:8]
         self.position.from_array(data[8:11])
         self.rotation.from_array(data[11:14])
         self.handle1.from_array(data[14:17])
@@ -107,7 +101,7 @@ class Spline(DataStruct):
     def __init__(self, id = None):
         super().__init__('>2H2I4B')
         self.id = id
-        self.unk = 1 # always 1 spline visibility??
+        self.unk = 1 # always 1 spline visibility?
         self.unk1 = 0
         self.point_count = 0
         self.segment_count = 0
@@ -139,23 +133,25 @@ class Spline(DataStruct):
         new = False
         
         for i, point in enumerate(self.points):
+            previous = None if len(point.previous) == 0 else point.previous[0]
+            next = None if len(point.next) == 0 else point.next[0]
             
-            if point.previous1 in already and new:
+            if previous in already and new:
                 #the point that is included with the new polyline is made
                 # a dup of the point where this path branches off of main spline
-                self.points[point.previous1].make(polyline) 
+                self.points[previous].make(polyline) 
                 new = False
                 polyline.bezier_points.add(1) #add a new slot for the unique point
                 
             point.make(polyline)
             already.append(i)
             
-            if point.next1 in already: #we have reached the end of a path
-                if point.next1 == 0: #main spline should always close with 0... hopefully...
+            if next in already or len(point.next) == 0: #we have reached the end of a path
+                if 0 in point.next:
                     polyline.use_cyclic_u = True #close main spline
                 else: #dup the point where the path rejoins main spline
                     polyline.bezier_points.add(1)
-                    self.points[point.next1].make(polyline)
+                    self.points[next].make(polyline)
                 if i < len(self.points) - 1:
                     polyline = curveData.splines.new('BEZIER') #start a new path
                     new = True
@@ -168,24 +164,24 @@ class Spline(DataStruct):
         curveOB['id'] = self.id
         return curveOB
     
-    def calculate_progress(self):
+    def calculate_progress(self, loop):
         # calculate progress/indexing
         path_list = []
         current = [0]
         end = False
         while end is False:
+            
             next = []
             current_unique = list(set(current))
             for i in current_unique:
                 point = self.points[i]
-                if point.previous_count == 2 and current.count(point.id) < 2:
-                    next.append(point.id)
+                if len(point.previous) > current.count(point.id):
+                    next.extend([point.id]*current.count(point.id))
                     continue 
-                next.append(self.points[point.next1].id)
-                if point.next_count == 2:
-                    next.append(self.points[point.next2].id)
-                if point.next_count == 0:
+                if len(point.next) == 0:
                     end = True
+                else:
+                    next.extend(point.next)
 
             if 0 in next:
                 if len(next) > 1:
@@ -195,21 +191,18 @@ class Spline(DataStruct):
             path_list.append(current_unique)
             current = next
 
-        print('path list')
-        for path in path_list:
-            print(path)
         for i, path in enumerate(path_list):
             for p in path:
                 point = self.points[p]
                 point.progress = i
-                if i == len(path_list) - 1:
+                if i == len(path_list) - 1 and not loop:
                     point.progress = 0
     
     def unmake(self, collection):
         spline_objects = [obj for obj in collection.objects if obj.type == 'CURVE']
         
         if len(spline_objects) < 1:
-            show_custom_popup(bpy.context, "No Spline", "No spline object found in the selected collection.")
+            show_custom_popup(bpy.context, "No Spline Object", "No spline object found in the selected collection.")
             return
         if len(spline_objects) > 1:
             show_custom_popup(bpy.context, "Too Many Splines", "Multiple splines found in the selected collection. Only one spline can be exported.")
@@ -219,57 +212,74 @@ class Spline(DataStruct):
         self.id = spline_object['id']
         splines = spline_object.data.splines
         
-        main_paths = [spline for spline in splines if spline.type == 'BEZIER']
-        alt_paths = []
-        #alt_paths = [spline for spline in splines if spline.use_cyclic_u is False and spline.type == 'BEZIER']
+        #find bezier splines
+        paths = [spline for spline in splines if spline.type == 'BEZIER'] # and len(spline.bezier_points)>=2
         
-        # if len(main_paths) < 1:
-        #     show_custom_popup(bpy.context, "No Main Spline", "You must create a closed bezier spline using Active Spline > Cyclic U")
-        #     return
-        if len(main_paths) > 1:
-            show_custom_popup(bpy.context, "Too Many Closed Splines", "Multiple closed bezier splines found in the spline object. Only one closed spline can be the main spline.")
+        if len(paths) == 0:
+            show_custom_popup(bpy.context, "No bezier splines", "No bezier splines were found in the selected collection")
             return
         
-        main_path = main_paths[0]
+        #sort descending by number of points
+        longest_paths = sorted(paths, key = lambda spline: len(spline.bezier_points), reverse=True)
+        looped_paths = sorted(paths, key = lambda spline: spline.use_cyclic_u, reverse=True)
+        alt_paths = []
+        main_path = None
+        loop = False
+        
+        #find main path
+        if looped_paths[0].use_cyclic_u:
+            main_path = looped_paths[0]  
+            if len(looped_paths) > 1:
+                alt_paths = [spline for spline in longest_paths[1:] if spline.use_cyclic_u is False]
+            loop = True
+        else:
+            main_path = longest_paths[0]
+            if len(longest_paths) > 1:
+                alt_paths = longest_paths[1:]
+
+        #begin deconstruction        
         segment_count = 0
         point_count = 0
         
-        count = len(main_path.bezier_points) + sum([len(path.bezier_points) - 2 for path in alt_paths])
+        main_len = len(main_path.bezier_points)
+        count = main_len + sum([len(path.bezier_points) - 2 for path in alt_paths])
         if count > 255:
             raise ValueError(f"Too many spline points. Splines that contain more than 255 points are not supported. This scene contains {count} points.")
+        
         
         #add all points from main_path
         for i, point in enumerate(main_path.bezier_points):
             p = SplinePoint().unmake(point)
             p.id = point_count
-            p.previous1 = point_count - 1
-            p.next1 = point_count + 1
-            if i == 0:
-                p.previous1 = -1
-                p.previous_count = 0
-            if i == len(main_path.bezier_points) - 1:
-                p.next_count = 0
-                p.next1 = -1
+            
+            if i == 0 and loop:
+                p.previous.append(main_len - 1)
+            elif i != 0: 
+                p.previous.append(point_count - 1)
+                
+            if i == main_len - 1 and loop:
+                p.next.append(0)
+            elif i != main_len - 1:
+                p.next.append(point_count + 1)
+                
             self.points.append(p)
             point_count += 1
             segment_count += 1
         
+        self.calculate_progress(loop)
         
-        
-        self.calculate_progress()
-        
-        for path in alt_paths:
+        for k, path in enumerate(alt_paths):
             
-            #first and last points will be dups of main spline or existing path
+            # first and last points will be dups of main spline or existing path
             first = path.bezier_points[0]
             last = path.bezier_points[-1]
             
-            #find index of existing points
+            # find index of existing points
             start = self.find_closest(first.co, 'start')
             end = self.find_closest(last.co, 'end')
             points = path.bezier_points[1:-1]
              
-            #check if path needs to be inverted
+            # check if path needs to be inverted
             # this prevents a path from ending on an earlier point than where it started
             if self.points[start].progress > self.points[end].progress:
                 tmp = start
@@ -277,38 +287,39 @@ class Spline(DataStruct):
                 end = tmp
                 points.reverse()
             
-            #loop through and add points of path
+            # loop through and add points of path
             for i, point in enumerate(points):
                 p = SplinePoint().unmake(point)
                 p.id = point_count
-                p.previous1 = point_count - 1
-                p.next1 = point_count + 1
-                if i == 0:
-                    p.previous1 = start
-                    self.points[start].next_count += 1
-                    self.points[start].next2 = point_count
-                if i == len(points) - 1:
-                    p.next1 = end
-                    self.points[end].previous_count += 1
-                    self.points[end].previous2 = point_count
+                
+                if i == 0: # start of path connects to existing point
+                    p.previous.append(start)
+                    self.points[start].next.append(point_count)
+                if i == len(points) - 1: # end of path connects to existing point
+                    p.next.append(end)
+                    self.points[end].previous.append(point_count)
+                    
+                if not len(p.previous):
+                    p.previous.append(point_count - 1)
+                if not len(p.next):
+                    p.next.append(point_count + 1)
+                
                 self.points.append(p)
                 point_count += 1
                 segment_count += 1
             
             segment_count += 1
-            self.calculate_progress()
+            self.calculate_progress(loop)
             
         splits = 0
         for i, point in enumerate(self.points):
             point.unk_set[0] = i
-            if point.next_count == 2:
+            if len(point.next) == 2:
                 point.unk_set[1] = len(self.points) + splits
                 splits += 1
-            if i == len(self.points) - 1:
+            if i == len(self.points) - 1 and not loop:
                 point.unk_set[0] = 0
-        
-        for p in self.points:
-            print(p.to_array())
+            
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point
         # cannot have alt paths that start before and end after the finish line on main spline
@@ -323,9 +334,9 @@ class Spline(DataStruct):
         closest_distance = float('inf')
         
         for i, point in enumerate(self.points):
-            if cap is "start" and point.next_count == 2:
+            if cap is "start" and len(point.next) >= 2:
                 continue
-            if cap is "end" and point.previous_count == 2:
+            if cap is "end" and len(point.previous) >= 4:
                 continue
             distance_vec = (d - co[j] for j, d in enumerate(point.position.to_array()))
             distance = math.sqrt(sum([d**2 for d in distance_vec]))
@@ -344,41 +355,5 @@ class Spline(DataStruct):
             point.write(buffer, cursor)
             cursor += point.size
         return buffer[:cursor]
-    
-    def invert(self):
-        inverted_points = []
-        double_count = 0
-        biggest_num0 = 0
 
-        for point in self.points:
-            if point.progress > biggest_num0:
-                biggest_num0 = point.progress
-
-        for i, point in enumerate(self.points):
-            inverted_point = SplinePoint.from_array(
-                [
-                    point.next_count,
-                    point.previous_count,
-                    point.previous1,
-                    point.previous2,
-                    point.next1,
-                    point.next2,
-                    point.unknown1,
-                    point.unknown2,
-                    *point.position.to_array(),
-                    *point.rotation.to_array(),
-                    *point.handle2.to_array(),
-                    *point.handle1.to_array(),
-                    0 if point.progress == 0 else biggest_num0 - point.progress + 1,
-                    *point.unk_set,
-                    point.unk
-                ]
-            )
-            
-            if point.next_count == 2:
-                double_count += 1
-
-            inverted_points.append(inverted_point)
-        self.points = inverted_points
-        return self
 

@@ -166,8 +166,17 @@ class ExportOperator(bpy.types.Operator):
     bl_idname = "import.export_operator"
 
     def execute(self, context):
-        folder_path = context.scene.export_folder if context.scene.export_folder else context.scene.import_folder
+        selected_objects = context.selected_objects
         selected_collection = context.view_layer.active_layer_collection.collection
+        if selected_objects:
+            selected_collection = selected_objects[0].users_collection[0]
+            
+        if selected_collection is None:
+            show_custom_popup(bpy.context, "No collection", "Exported items must be part of a collection")
+            return {'CANCELLED'}
+                
+        folder_path = context.scene.export_folder if context.scene.export_folder else context.scene.import_folder
+        
         if 'ind' not in selected_collection:
             show_custom_popup(bpy.context, "Invalid collection selected", "Please select a model collection to export")
             return {'CANCELLED'}

@@ -265,9 +265,8 @@ class Pixels():
             for i in range(len(self.data)):
                 pixel = self.data[i]
                 if format == 3:
-                    for j in range(4):
-                        buffer[cursor] = pixel[j]
-                        cursor += 1
+                    struct.pack_into('>4B', buffer, cursor, *[int(p*255) for p in pixel])
+                    cursor += 4
                 else:
                     buffer[cursor] = pixel
                     cursor += 1
