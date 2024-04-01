@@ -166,43 +166,34 @@ class CollisionVertStrips(DataStruct):
         self.include_buffer = False
     
     def unmake(self, mesh):
-        #this doesn't stripify the mesh but it is able to recognize existing strips in the faces' vertex indices
-        #TODO this needs to be able to recognize given vert strip patterns and non-provided vert strip patterns
+        #recognizes strips in the pattern of the faces' vertex indices
         face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
         
         if not len(face_buffer):
             return self
         
-        last_face = face_buffer[0]
-        strip = 3
-        strip_counter = 1
-        for i, face in enumerate(face_buffer):
-            if i == 0:
-                continue
-            
-            last_face = face_buffer[i-1]
-            shared = [i for i in face if i in last_face]
-            
-            if len(shared) == 0:
-                self.data.append(strip)
-                strip = 3
-                strip_counter = 0
-            else:
-                strip += 1
+        while len(face_buffer):
+            end_strip = 1
+            for i in range(1, len(face_buffer)):
+                last = face_buffer[i - 1]
                 
-                if last_face[0] % 2 == 0 and last_face[0] + 1 == last_face[1] and last_face[1] + 1 == last_face[2]:
+                # this detects cases where the strip buffer needs to be written
+                # the index pattern is different depending on whether the strip buffer is provided or not
+                if last[0] % 2 == 0 and last[0] + 1 == last[1] and last[1] + 1 == last[2]:
                     self.include_buffer = True
-
-            if i == len(face_buffer) - 1:
-                self.data.append(strip)
                 
-            strip_counter += 1
+                # a strip continues as long as there are 2 shared indeces between adjacent faces
+                shared = [j for j in face_buffer[i] if j in last]
+                if len(shared) == 0:
+                    break
+                end_strip += 1
                 
-        if len(self.data) == 0:
-            print("NO DATA")
-            return self
-                
+            # push strip size and process remaining faces
+            face_buffer = face_buffer[end_strip:]
+            self.data.append(end_strip + 2)
+            
         self.strip_count = len(self.data)
+        # if all the strips are the same, update strip_size, otherwise we need to write this buffer
         if all(strip == self.data[0] for strip in self.data):
             self.strip_size = self.data[0]
         else:
