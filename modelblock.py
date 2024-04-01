@@ -127,7 +127,7 @@ class CollisionTags(DataStruct):
         return cursor + self.size 
 
 class CollisionVertBuffer(DataStruct):
-    def __init__(self, model, length):
+    def __init__(self, model, length = 0):
         super().__init__(f'>{length*3}h')
         self.length = length
         self.model = model
@@ -147,42 +147,68 @@ class CollisionVertBuffer(DataStruct):
     def make(self):
         return [vert.make() for vert in self.data]
     
+    def to_array(self):
+        return [a for d in self.data for a in d.to_array()]
+    
     def unmake(self, mesh):
+        self.length = len(mesh.data.vertices)
         self.data = [ShortPosition().from_array(vert.co) for vert in mesh.data.vertices]
+        super().__init__(f'>{len(self.data)*3}h')
         return self
     
 class CollisionVertStrips(DataStruct):
-    def __init__(self, model, count):
+    def __init__(self, model, count = 0):
         super().__init__(f'>{count}I')
         self.model = model
-        self.data = None
+        self.data = []
         self.strip_count = count
         self.strip_size = 3
+        self.include_buffer = False
     
     def unmake(self, mesh):
         #this doesn't stripify the mesh but it is able to recognize existing strips in the faces' vertex indices
+        #TODO this needs to be able to recognize given vert strip patterns and non-provided vert strip patterns
         face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
+        
+        if not len(face_buffer):
+            return self
+        
         last_face = face_buffer[0]
         strip = 3
+        strip_counter = 1
         for i, face in enumerate(face_buffer):
             if i == 0:
                 continue
+            
             last_face = face_buffer[i-1]
-            if strip % 2 == 1 and face[0] == last_face[2] and face[1] == last_face[1]:
-                strip+=1
-            elif strip % 2 == 0 and face[0] == last_face[0] and face[1] == last_face[2]:
-                strip+=1
-            else:
+            shared = [i for i in face if i in last_face]
+            
+            if len(shared) == 0:
                 self.data.append(strip)
                 strip = 3
-            
+                strip_counter = 0
+            else:
+                strip += 1
+                
+                if last_face[0] % 2 == 0 and last_face[0] + 1 == last_face[1] and last_face[1] + 1 == last_face[2]:
+                    self.include_buffer = True
+
             if i == len(face_buffer) - 1:
                 self.data.append(strip)
+                
+            strip_counter += 1
+                
+        if len(self.data) == 0:
+            print("NO DATA")
+            return self
                 
         self.strip_count = len(self.data)
         if all(strip == self.data[0] for strip in self.data):
             self.strip_size = self.data[0]
+        else:
+            self.include_buffer = True
                 
+        super().__init__(f'>{len(self.data)}I')
         return self
     
 class VisualsVertChunk(DataStruct):
@@ -494,21 +520,21 @@ class MaterialTexture(DataStruct):
         super().__init__('>Ihh4x8H6I4xhh')
         self.model = model
         self.id = None
-        self.unk0 = None
-        self.unk1 = None
-        self.unk2 = None
-        self.unk3 = None
-        self.format = None
-        self.unk4 = None
-        self.width = None
-        self.height = None
-        self.unk5 = None
-        self.unk6 = None
-        self.unk7 = None
-        self.unk8 = None
+        self.unk0 = 0
+        self.unk1 = 0
+        self.unk2 = 0
+        self.unk3 = 0
+        self.format = 0
+        self.unk4 = 0
+        self.width = 0
+        self.height = 0
+        self.unk5 = 0
+        self.unk6 = 0
+        self.unk7 = 0
+        self.unk8 = 0
         self.chunks = []
-        self.unk9 = None
-        self.tex_index = None
+        self.unk9 = 0
+        self.tex_index = 0
         
     def read(self, buffer, cursor):
         unk_pointers = []
@@ -527,21 +553,56 @@ class MaterialTexture(DataStruct):
         pixel_buffer, palette_buffer = textureblock.fetch(self.tex_index)
         self.texture.read(pixel_buffer, palette_buffer)
         return self.texture.make()
+    
+    def unmake(self, image):
+        self.width, self.height = image.size
+        self.unk1 = min(self.width * 4, 32768)
+        self.unk2 = min(self.height * 4, 32768)
+        self.format = int(image['format'])
+        self.unk5 = min(32768, self.width * 512)
+        self.unk6 = min(32768, self.height * 512)
+        return self
+    
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, self.unk0, self.unk1, self.unk3, self.format, self.unk4, self.width, self.height, self.unk5, self.unk6, self.unk7, self.unk8, *[0, 0, 0, 0, 0, 0], self.unk9, self.tex_index)
+        cursor += self.size
+        for chunk in self.chunks:
+            cursor = chunk.write(buffer, cursor)
+        return cursor
         
-class MaterialUnk(DataStruct):
+class MaterialShader(DataStruct):
     def __init__(self, model):
-        super().__init__('>17H4B7H')
+        # notes from tilman https://discord.com/channels/441839750555369474/441842584592056320/1222313834425876502
+        super().__init__('>IH4IH2IH4x7H')
         self.model = model
-        self.data = None
-        self.color = []
+        self.unk1 = 0
+        self.unk2 = 0 # maybe "combiner cycle type"
+        # combine mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetCombineLERP.htm
+        self.color_combine_mode_cycle1 = 0
+        self.alpha_combine_mode_cycle1 = 0
+        self.color_combine_mode_cycle2 = 0
+        self.alpha_combine_mode_cycle2 = 0
+        self.unk5 = 0
+        # render mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetRenderMode.htm
+        self.render_mode_1 = 0
+        self.render_mode_2 = 0
+        self.unk8 = 0
+        self.color = RGBA4Bytes()
+        self.unk = []
     def read(self, buffer, cursor):
-        data = []
-        *data, r, g, b, a, unk17, unk18, unk19, unk20, unk21, unk22, unk23 = struct.unpack_from(self.format_string, buffer, cursor)
-        self.color = [r, g, b, a]
-        self.data = data.extend([unk17, unk18, unk19, unk20, unk21, unk22, unk23])
+        self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, *self.unk = struct.unpack_from(self.format_string, buffer, cursor)
+        self.color.read(buffer, cursor + 34)
     
     def make(self):
         pass
+    
+    def unmake(self):
+        return self
+    
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, *self.unk, *[0,0,0,0,0,0,0])
+        self.color.write(buffer, cursor + 34)
+        return cursor + self.size
     
 class Material(DataStruct):
     def __init__(self, model):
@@ -550,11 +611,11 @@ class Material(DataStruct):
         self.model = model
         self.format = 0
         self.texture = None
-        self.unk = None
+        self.shader = MaterialShader(self.model)
         
     def read(self, buffer, cursor):
         self.id = cursor
-        self.format, texture_addr, unk_addr = struct.unpack_from(self.format_string, buffer, cursor)
+        self.format, texture_addr, shader_addr = struct.unpack_from(self.format_string, buffer, cursor)
         if texture_addr:
             if texture_addr in self.model.textures:
                 self.texture = self.model.textures[texture_addr]
@@ -563,9 +624,9 @@ class Material(DataStruct):
                 self.model.textures[texture_addr].read(buffer, texture_addr)
                 self.texture = self.model.textures[texture_addr]
             
-        if unk_addr:
-            self.unk = MaterialUnk(self.model)
-            self.unk.read(buffer, unk_addr)
+        # there should always be a shader_addr
+        assert shader_addr > 0, "Material should have shader"
+        self.shader.read(buffer, shader_addr)
             
         return self
         
@@ -585,7 +646,7 @@ class Material(DataStruct):
                 material.blend_method = 'BLEND'
             if self.texture.format != 6:
                 material.use_backface_culling = True
-            if self.unk.data is not None and self.unk.data[1] == 8:
+            if self.shader is not None and False: #self.unk.shader[1] == 8:
                 material.show_transparent_back = False
             else:
                 material.show_transparent_back = True
@@ -653,15 +714,36 @@ class Material(DataStruct):
             material = bpy.data.materials.new(mat_name)
             material.use_nodes = True
             # material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
-            colors = [0, 0, 0, 0] if self.unk is None else self.unk.color
+            # colors = [0, 0, 0, 0] if self.unk is None else self.unk.color
             # material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             return material
     
-    def unmake(self, material):
+    def unmake(self, mesh):
+        #find if the mesh has an image texture
+        for slot in mesh.material_slots:
+            material = slot.material
+            
+            if material:
+                for node in material.node_tree.nodes:
+                    if node.type == 'TEX_IMAGE':
+                        self.texture = MaterialTexture(self.model).unmake(node.image)
+                break
         return self
+        
     def write(self, buffer, cursor):
+        material_start = cursor
+        cursor += self.size
+        tex_addr = 0
+        if self.texture:
+            tex_addr = cursor
+            cursor = self.texture.write(buffer, cursor)
+            
+        shader_addr = cursor
+        cursor = self.shader.write(buffer, cursor)
+        
+        struct.pack_into(self.format_string, buffer, material_start, self.format, tex_addr, shader_addr)
         return cursor
     
 class MeshBoundingBox(DataStruct):
@@ -786,12 +868,13 @@ class Mesh(DataStruct):
                     for s in range(strip -2):
                         if (strip == 3):
                             faces.append( [start+s, start+s+1, start+s+2])
+                        elif (s % 2) == 0:
+                            faces.append( [start+s, start+s+1, start+s+3])
                         else:
-                            if (s % 2) == 0:
-                                faces.append( [start+s, start+s+1, start+s+3])
-                            else:
-                                faces.append( [start+s, start+s+1, start+s+2])
+                            faces.append( [start+s, start+s+1, start+s+2])
                     start += strip
+                    
+            print(self.id, faces, vert_strips, self.vert_strips is None)
                     
             mesh_name = str(self.id) + "_" + "collision"
             mesh = bpy.data.meshes.new(mesh_name)
@@ -857,9 +940,10 @@ class Mesh(DataStruct):
                 self.group_count = None
                 
         if 'COL' in node['type']:
-            self.collision_tags = CollisionTags().unmake(node)
-            self.collision_vert_buffer = CollisionVertBuffer().unmake(node)
-            self.vert_strips = CollisionVertStrips().unmake(node)
+            self.collision_tags = CollisionTags(self.model).unmake(node)
+            self.collision_vert_buffer = CollisionVertBuffer(self.model).unmake(node)
+            self.vert_strips = CollisionVertStrips(self.model).unmake(node)
+            print(self.id, self.vert_strips.data, self.vert_strips.strip_count, self.vert_strips.strip_size, self.vert_strips.include_buffer)
             
         self.bounding_box = MeshBoundingBox().unmake(self)
         return self
@@ -874,20 +958,26 @@ class Mesh(DataStruct):
         visuals_vert_buffer_addr = 0
         collision_vert_count = 0
         visuals_vert_count = 0
-    
+        strip_count = 0
+        strip_size = 3
         #save mesh location and move cursor to end of mesh header (that we haven't written yet)
         mesh_start = cursor
         cursor += self.size
         
         #write each section
         if self.vert_strips:
-            vert_strips_addr = cursor
-            cursor = self.vert_strips.write(buffer, cursor)
-            
+            strip_count = self.vert_strips.strip_count
+            strip_size = self.vert_strips.strip_size
+            if self.vert_strips.include_buffer:
+                vert_strips_addr = cursor
+                cursor = self.vert_strips.write(buffer, cursor)
+                
         if self.collision_vert_buffer:
             collision_vert_buffer_addr = cursor
             cursor = self.collision_vert_buffer.write(buffer, cursor)
-        
+            collision_vert_count = len(self.collision_vert_buffer.data)
+            if cursor % 4 is not 0:
+                cursor += cursor % 4
         if self.material:
             mat_addr = cursor
             cursor = self.material.write(buffer, cursor)
@@ -896,6 +986,7 @@ class Mesh(DataStruct):
             cursor = (cursor + 0x7) & 0xFFFFFFF8 #this section must be aligned to an address divisible by 8
             visuals_index_buffer_addr = cursor
             cursor = self.visuals_index_buffer.write(buffer, cursor)
+            visuals_vert_count = len(self.visuals_index_buffer.data)
             
         if self.visuals_vert_buffer:
             visuals_vert_buffer_addr = cursor
@@ -906,7 +997,7 @@ class Mesh(DataStruct):
             cursor = self.collision_tags.write(buffer, cursor)
         
         #finally, write mesh header
-        struct.pack_into(self.format_string, buffer, mesh_start, mat_addr, collision_tags_addr, *self.bounding_box.to_array(), self.strip_count, self.strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count)
+        struct.pack_into(self.format_string, buffer, mesh_start, mat_addr, collision_tags_addr, *self.bounding_box.to_array(), strip_count, strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count)
         return cursor
             
 def create_node(node_type, model):
@@ -937,10 +1028,10 @@ class Node(DataStruct):
         self.AltN = []
         self.header = []
         self.node_type = None
-        self.load_group1 = None
-        self.load_group2 = None
-        self.unk1 = None
-        self.unk2 = None
+        self.load_group1 = -1
+        self.load_group2 = -1
+        self.unk1 = 0
+        self.unk2 = 0
         self.model = model
         self.child_count = 0
         self.child_start = None
@@ -1027,8 +1118,7 @@ class Node(DataStruct):
             #         [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
             #         [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale, 1],
             #         ]
-            
-                
+                 
         else:
             new_empty = bpy.data.objects.new(name, None)
             #new_empty.empty_display_type = 'PLAIN_AXES'
@@ -1075,6 +1165,9 @@ class Node(DataStruct):
             if not isinstance(node, dict):
                 node.make(new_empty)
             
+        if self.id in self.model.header.offsets:
+            new_empty['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
+            
         return new_empty
     def unmake(self, node):
         self.id = node.name
@@ -1083,6 +1176,8 @@ class Node(DataStruct):
         self.load_group2 = int(node['load_group2'])
         self.unk1 =  node['unk1']
         self.unk2 = node['unk2']
+        if 'header' in node:
+            self.header = node['header']
         if self.node_type == 12388:
             for child in node.children:
                 self.children.append(Mesh(self.model).unmake(child))
@@ -1093,6 +1188,9 @@ class Node(DataStruct):
         return self
     
     def write(self, buffer, cursor):
+        #write references to this node in the model header
+        for i in self.header:
+            struct.pack_into(f">{len(self.header)}I", buffer, 4 + 4*i, *[cursor]*len(self.header))
         struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.load_group1, self.load_group2, self.unk1, self.unk2, 0, 0)
         return cursor + self.size
     
@@ -1203,7 +1301,7 @@ class Group53350(Node):
         self.unk4 = None
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
-        self.unk1, self.unk2, self.unk3, self.unk4 = struct.unpack_from(">3If", buffer, cursor+28)
+        self.unk1, self.unk2, self.unk3, self.unk4 = struct.unpack_from(">3if", buffer, cursor+28)
         return self
     def make(self, parent = None):
         new_empty = super().make(parent)
@@ -1218,6 +1316,7 @@ class Group53350(Node):
         self.unk2 = node['53350_unk2']
         self.unk3 = node['53350_unk3']
         self.unk4 = node['53350_unk4']
+        return self
     def write(self, buffer, cursor):
         cursor = super().write(buffer, cursor)
         child_data_start = cursor - 8
@@ -1580,6 +1679,7 @@ class Model():
             for offset in self.ref_keeper[ref]:
                 writeUInt32BE(buffer, self.ref_map[str(ref)], offset)
         crop = math.ceil(cursor / (32 * 4)) * 4
+        
         return [self.hl[:crop], buffer[:cursor]]
     
     def outside_ref(self, cursor, ref):

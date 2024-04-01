@@ -4,6 +4,7 @@ from .modelblock import Model
 from .splineblock import Spline
 from .textureblock import Texture
 from .block import Block
+from .general import *
     
 scale = 100
 
@@ -16,11 +17,31 @@ def export_model(col, file_path, exports):
         
     
     if 'MESH' in types and model_export:
+        modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
         model = Model(col['ind']).unmake(col)
-        # #inject data and write to modelblock file    
-        # block = inject_model(offset_buffer, model_buffer, col['ind'], file_path)
-        # with open(file_path + 'out_modelblock.bin', 'wb') as file:
-        #     file.write(block)
+        id = model.id
+        if model is None:
+            show_custom_popup(bpy.context, "Model Error", "There was an issue while exporting the model")
+            return
+        
+        offset_buffer, model_buffer = model.write()
+        modelblock.inject([offset_buffer, model_buffer], id)
+        
+        with open(file_path + 'out_modelblock.bin', 'wb') as file:
+            file.write(modelblock.write())
+            
+        #debug write
+        with open(file_path + 'model_' + str(model.id)+'.bin', 'wb') as file:
+            file.write(model_buffer)
+            
+        debug_text = ["string, float, int32, int16_1, int16_2, int8_1, int8_2, int8_3, int8_4, local_offset"]
+        for i in range(0, len(model_buffer), 4):
+            debug_string = f"{readString(model_buffer, i)}, {readFloatBE(model_buffer, i)}, {readUInt32BE(model_buffer, i)}, {readUInt16BE(model_buffer, i)}, {readUInt16BE(model_buffer, i+2)}, {readUInt8(model_buffer, i)}, {readUInt8(model_buffer, i + 1)}, {readUInt8(model_buffer, i + 2)}, {readUInt8(model_buffer, i + 3)}, {i}"
+            debug_text.append(debug_string)
+            
+        with open(file_path + 'debug.txt', 'a') as file:
+            for string in debug_text:
+                file.write(string + '\n')
     
     if 'CURVE' in types and spline_export:
         splineblock = Block(file_path + 'out_splineblock.bin', [[]]).read()
