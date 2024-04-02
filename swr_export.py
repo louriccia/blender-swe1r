@@ -34,9 +34,9 @@ def export_model(col, file_path, exports):
         with open(file_path + 'model_' + str(model.id)+'.bin', 'wb') as file:
             file.write(model_buffer)
             
-        debug_text = ["string, float, int32, int16_1, int16_2, int8_1, int8_2, int8_3, int8_4, local_offset"]
+        debug_text = ["float, int32, int16_1, int16_2, int8_1, int8_2, int8_3, int8_4, local_offset"]
         for i in range(0, len(model_buffer), 4):
-            debug_string = f"{readString(model_buffer, i)}, {readFloatBE(model_buffer, i)}, {readUInt32BE(model_buffer, i)}, {readUInt16BE(model_buffer, i)}, {readUInt16BE(model_buffer, i+2)}, {readUInt8(model_buffer, i)}, {readUInt8(model_buffer, i + 1)}, {readUInt8(model_buffer, i + 2)}, {readUInt8(model_buffer, i + 3)}, {i}"
+            debug_string = f"{readFloatBE(model_buffer, i)}, {readUInt32BE(model_buffer, i)}, {readUInt16BE(model_buffer, i)}, {readUInt16BE(model_buffer, i+2)}, {readUInt8(model_buffer, i)}, {readUInt8(model_buffer, i + 1)}, {readUInt8(model_buffer, i + 2)}, {readUInt8(model_buffer, i + 3)}, {i}"
             debug_text.append(debug_string)
             
         with open(file_path + 'debug.txt', 'a') as file:

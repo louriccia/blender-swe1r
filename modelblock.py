@@ -230,6 +230,8 @@ class VisualsVertChunk(DataStruct):
         struct.pack_into(self.format_string, buffer, cursor, *self.co, *self.uv, *self.color.make())
         return cursor + self.size
     
+
+    
 class VisualsVertBuffer():
     def __init__(self, model, length = 0):
         self.model = model
@@ -265,6 +267,9 @@ class VisualsVertBuffer():
         self.length = len(self.data)
         return self
     
+    def to_array(self):
+        return [d.to_array() for d in self.data]
+    
     def write(self, buffer, cursor, index_buffer):
         if not index_buffer.offset:
             raise AttributeError(index_buffer, "Index buffer must be written before vertex buffer")
@@ -281,6 +286,7 @@ class VisualsVertBuffer():
         return cursor
     
 class VisualsIndexChunk1(DataStruct):
+    # http://n64devkit.square7.ch/n64man/gsp/gSPVertex.htm
     def __init__(self, model, type):
         self.model = model
         self.type = type
@@ -295,24 +301,31 @@ class VisualsIndexChunk1(DataStruct):
         self.start = round((start - vert_buffer_addr)/16)
         return cursor + self.size
     
+    def to_array(self):
+        return [self.type, self.unk1, self.unk2, self.max, self.start]
+    
     def write(self, buffer, cursor):
-        self.start = 0 #round((start - vert_buffer_addr)/16)
         struct.pack_into(self.format_string, buffer, cursor, self.type, self.unk1, self.unk2, self.max*2, self.start)
         return cursor + self.size
       
 class VisualsIndexChunk3(DataStruct):
+    # http://n64devkit.square7.ch/n64man/gsp/gSPCullDisplayList.htm
     def __init__(self, model, type):
         self.model = model
         self.type = type
         super().__init__('>B6xB')
         self.unk = None
         
+    def to_array(self):
+        return [self.type, self.unk]
+    
     def read(self, buffer, cursor, vert_buffer_addr):
         self.type, self.unk = struct.unpack_from(self.format_string, buffer, cursor)
         
         return cursor + self.size
         
 class VisualsIndexChunk5(DataStruct):
+    # http://n64devkit.square7.ch/n64man/gsp/gSP1Triangle.htm
     def __init__(self, model, type):
         self.model = model
         self.type = type
@@ -352,6 +365,7 @@ class VisualsIndexChunk5(DataStruct):
         return cursor + self.size
         
 class VisualsIndexChunk6(DataStruct):
+    # http://n64devkit.square7.ch/n64man/gsp/gSP2Triangles.htm
     def __init__(self, model, type):
         self.model = model
         self.type = type
@@ -430,7 +444,12 @@ class VisualsIndexBuffer():
                 faces.append([start + chunk.f4, start + chunk.f5, start + chunk.f6])
         return faces
     
+    def to_array(self):
+        return [d.to_array() for d in self.data]
+    
     def unmake(self, mesh):
+        
+        MAX_INDECES = 32 #this is just an arbitrary value to reset index offset (similar to the original pattern)
         
         #grab the base index buffer data from mesh.data.polygons and construct initial chunk list
         face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
@@ -441,7 +460,7 @@ class VisualsIndexBuffer():
             next_face = face_buffer[1]
             
             #detect 6chunk
-            if face[2] == next_face[2] and face[0] == next_face[0] - 1 and face[1] == next_face[1] - 2:
+            if len([i for i in face if i in next_face]):
                 chunk_type = 6
                 face_buffer = face_buffer[2:]
                 face.extend(next_face)
@@ -465,7 +484,7 @@ class VisualsIndexBuffer():
         for i, chunk in enumerate(index_buffer):
             min_index = chunk.min_index()
             
-            if min_index - offset > 32:
+            if min_index - offset > MAX_INDECES:
                 offset = min_index
                 chunk1 = VisualsIndexChunk1(self.model, 1)
                 chunk1.start = offset
@@ -865,8 +884,6 @@ class Mesh(DataStruct):
                             faces.append( [start+s, start+s+1, start+s+2])
                     start += strip
                     
-            print(self.id, faces, vert_strips, self.vert_strips is None)
-                    
             mesh_name = str(self.id) + "_" + "collision"
             mesh = bpy.data.meshes.new(mesh_name)
             obj = bpy.data.objects.new(mesh_name, mesh)
@@ -885,6 +902,7 @@ class Mesh(DataStruct):
         if self.has_visuals():
             
             verts = self.visuals_vert_buffer.make()
+           
             edges = []
             faces = self.visuals_index_buffer.make()
             mesh_name = str(self.id) + "_" + "visuals"
@@ -924,7 +942,7 @@ class Mesh(DataStruct):
             self.material = Material(self.model).unmake(node)
             self.visuals_vert_buffer = VisualsVertBuffer(self.model).unmake(node)
             self.visuals_index_buffer = VisualsIndexBuffer(self.model).unmake(node)
-            
+
             #TODO check if node has vertex group
             if False:
                 self.group_parent = None
@@ -934,7 +952,6 @@ class Mesh(DataStruct):
             self.collision_tags = CollisionTags(self.model).unmake(node)
             self.collision_vert_buffer = CollisionVertBuffer(self.model).unmake(node)
             self.vert_strips = CollisionVertStrips(self.model).unmake(node)
-            print(self.id, self.vert_strips.data, self.vert_strips.strip_count, self.vert_strips.strip_size, self.vert_strips.include_buffer)
             
         self.bounding_box = MeshBoundingBox().unmake(self)
         return self
@@ -977,11 +994,12 @@ class Mesh(DataStruct):
             cursor = (cursor + 0x7) & 0xFFFFFFF8 #this section must be aligned to an address divisible by 8
             visuals_index_buffer_addr = cursor
             cursor = self.visuals_index_buffer.write(buffer, cursor)
-            visuals_vert_count = len(self.visuals_index_buffer.data)
+            
             
         if self.visuals_vert_buffer:
             visuals_vert_buffer_addr = cursor
             cursor = self.visuals_vert_buffer.write(buffer, cursor, self.visuals_index_buffer)
+            visuals_vert_count = len(self.visuals_vert_buffer.data)
             
         if self.collision_tags:
             collision_tags_addr = cursor
