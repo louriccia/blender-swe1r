@@ -569,6 +569,7 @@ class MaterialTexture(DataStruct):
     
     def unmake(self, image):
         self.width, self.height = image.size
+        self.tex_index = int(image['id'])
         self.unk1 = min(self.width * 4, 32768)
         self.unk2 = min(self.height * 4, 32768)
         self.format = int(image['format'])
@@ -622,7 +623,7 @@ class Material(DataStruct):
         super().__init__('>I4xII')
         self.id = None
         self.model = model
-        self.format = 0
+        self.format = 14
         self.texture = None
         self.shader = MaterialShader(self.model)
         
