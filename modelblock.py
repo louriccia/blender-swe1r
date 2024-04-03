@@ -256,13 +256,16 @@ class VisualsVertBuffer():
             uv_data = mesh.data.uv_layers.active.data
         if mesh.data.vertex_colors.active:
             color_data = mesh.data.vertex_colors.active.data
-        faces = [p for poly in mesh.data.polygons for p in poly.vertices ]
         
         for vert in mesh.data.vertices:
-            face_index = faces[faces[vert.index]]
-            uv = uv_data[face_index].uv
-            color = color_data[face_index].color
-            self.data.append(VisualsVertChunk(self.model).unmake(vert.co, uv, color))
+            self.data.append(VisualsVertChunk(self.model))
+            
+        #there's probably a better way to do this but this works for now
+        #https://docs.blender.org/api/current/bpy.types.Mesh.html
+        for poly in mesh.data.polygons:
+            for loop_index in poly.loop_indices:
+                vert_index = mesh.data.loops[loop_index].vertex_index
+                self.data[vert_index].unmake(mesh.data.vertices[vert_index].co, uv_data[loop_index].uv, color_data[loop_index].color)
                 
         self.length = len(self.data)
         return self
