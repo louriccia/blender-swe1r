@@ -64,11 +64,11 @@ def import_model(file_path, selector=None):
             print("There was an error while parsing the model")
             return 
         model.modelblock = modelblock
-        if spline_map[model_id]:
+        collection = model.make()
+        if model_id in spline_map:
             spline_id = spline_map[model_id]
             spline_buffer = splineblock.fetch(spline_id)[0]
             spline = Spline(spline_id).read(spline_buffer)
-            collection = model.make()
             collection.objects.link(spline.make(model.scale))
     print(f'Successfully unpacked {len(selector)} models')
     

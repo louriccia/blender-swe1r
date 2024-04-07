@@ -113,6 +113,9 @@ class FloatPosition(DataStruct):
         super().from_array(data)
         return self
     
+    def to_array(self):
+        return self.data
+    
 class FloatVector(FloatPosition):
     def from_array(self, data = None):
         for d in data:
@@ -120,6 +123,9 @@ class FloatVector(FloatPosition):
                 raise ValueError(f"Vec3 {d} in {data} is not normalized")
         super().from_array(data)
         return self
+    
+    def to_array(self):
+        return self.data
 
 class ShortPosition(DataStruct):
     def __init__(self, data = None):
@@ -142,12 +148,17 @@ class FloatMatrix(DataStruct):
         if data is None:
             self.data = [FloatVector(), FloatVector(), FloatVector(), FloatPosition()]
         else:
-            self.from_array([FloatVector(data[:3]), FloatVector(data[3:6]), FloatVector(data[6:9]), FloatPosition(data[9:])])
+            self.from_array([FloatVector().from_array(data[:3]), FloatVector().from_array(data[3:6]), FloatVector().from_array(data[6:9]), FloatPosition().from_array(data[9:])])
+
+    def read(self, buffer, cursor):
+        super().read(buffer, cursor)
+        self.from_array(self.data)
+        return self
 
     def from_array(self, data=None):
         if(len(data) != 12):
             raise ValueError("FloatMatrix must have 12 values")
-        self.data = [FloatVector(data[:3]), FloatVector(data[3:6]), FloatVector(data[6:9]), FloatPosition(data[9:])]
+        self.data = [FloatVector().from_array(data[:3]), FloatVector().from_array(data[3:6]), FloatVector().from_array(data[6:9]), FloatPosition().from_array(data[9:])]
 
     def to_array(self):
         data = []
@@ -155,18 +166,23 @@ class FloatMatrix(DataStruct):
             data.extend(vec.to_array())
         return data
     
-    def make(self):
+    def make(self, scale):
         matrix = []
         for i in range(3):
             matrix.append(tuple([*self.data[i].to_array(), 0.0]))
-        matrix.append(tuple([*self.data[3].to_array(), 1.0]))
+        matrix.append(tuple([*[a * scale for a in self.data[3].to_array()], 1.0]))
         return matrix
     
-    def unmake(self, matrix):
+    def unmake(self, matrix, scale):
         mat = []
-        for m in matrix:
-            mat.extend(m[:3])
-        self.from_array(mat)    
+        for i in range(3):
+            mat.extend(matrix[i][:3])
+        mat.extend([a / scale for a in matrix[3][:3]])
+        self.from_array(mat)  
+    
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, *self.to_array())
+        return cursor + self.size
 
 class Color(Data):
     def __init__(self, data = None):
