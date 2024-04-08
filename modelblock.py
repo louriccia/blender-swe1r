@@ -199,6 +199,9 @@ class CollisionVertStrips(DataStruct):
         else:
             self.include_buffer = True
                 
+        if self.include_buffer:
+            self.strip_size = 5
+                
         super().__init__(f'>{len(self.data)}I')
         return self
     
@@ -603,16 +606,16 @@ class MaterialShader(DataStruct):
         super().__init__('>IH4IH2IH4x7H')
         self.model = model
         self.unk1 = 0
-        self.unk2 = 0 # maybe "combiner cycle type"
+        self.unk2 = 2 # maybe "combiner cycle type"
         # combine mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetCombineLERP.htm
-        self.color_combine_mode_cycle1 = 0
-        self.alpha_combine_mode_cycle1 = 0
-        self.color_combine_mode_cycle2 = 0
-        self.alpha_combine_mode_cycle2 = 0
+        self.color_combine_mode_cycle1 = 0b1000111110000010000011111
+        self.alpha_combine_mode_cycle1 = 0b111000001110000011100000100
+        self.color_combine_mode_cycle2 = 0b11111000111110001111100000000
+        self.alpha_combine_mode_cycle2 = 0b111000001110000011100000000
         self.unk5 = 0
         # render mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetRenderMode.htm
-        self.render_mode_1 = 0
-        self.render_mode_2 = 0
+        self.render_mode_1 = 0b11001000000000000000000000000000
+        self.render_mode_2 = 0b100010010000000111000
         self.unk8 = 0
         self.color = RGBA4Bytes()
         self.unk = []
@@ -620,10 +623,13 @@ class MaterialShader(DataStruct):
         self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, *self.unk = struct.unpack_from(self.format_string, buffer, cursor)
         self.color.read(buffer, cursor + 34)
     
-    def make(self):
-        pass
+    def make(self, material):
+        if self.unk1 == 8:
+            material.show_transparent_back = True
     
-    def unmake(self):
+    def unmake(self, material):
+        if material.show_transparent_back:
+            self.unk1 = 8
         return self
     
     def to_array(self):
@@ -640,6 +646,25 @@ class Material(DataStruct):
         self.id = None
         self.model = model
         self.format = 14
+        #0000001   1   254 1 = lightmap
+        #0000010   2   253 no apparent changes
+        #0000100   4   251 
+        #0001000   8   247 0 = double sided, 1 = single sided
+        #0010000   16  239 1 = weird lighting
+        #0100000   32  223 
+        #1000000   64  191 1 =  breaking change
+
+        #0000100 format 4 is only used for engine trail, binder, and flame effects
+        #0000110 format 6 seems to indicate doublesidedness
+        #0000111 format 7
+        #0001100 format 12 is for any kind of skybox material
+        #0001110 14/15/71 are used for a majority
+        #0001111 15
+        #1000110 70
+        #1000111 71
+        #0010111 23/31/87 are used exclusively with texture 35 possibly for sheen
+        #0011111
+        #1010111
         self.texture = None
         self.written = None
         self.shader = MaterialShader(self.model)
@@ -673,14 +698,12 @@ class Material(DataStruct):
             #material.blend_method = 'BLEND' #use for transparency
             material.blend_method = 'CLIP'
             
+            self.shader.make(material)
+            
             if self.texture.format == 3:
                 material.blend_method = 'BLEND'
-            if self.texture.format != 6:
+            if (self.format & 8):
                 material.use_backface_culling = True
-            if self.shader is not None and False: #self.unk.shader[1] == 8:
-                material.show_transparent_back = False
-            else:
-                material.show_transparent_back = True
             
             node_1 = material.node_tree.nodes.new("ShaderNodeTexImage")
             node_2 = material.node_tree.nodes.new("ShaderNodeVertexColor")
@@ -761,6 +784,12 @@ class Material(DataStruct):
                 self.id = material_name
                 if material_name in self.model.materials:
                     return self.model.materials[material_name]
+                
+                if material.use_backface_culling == False:
+                    self.format &= 0b11110111
+                
+                self.shader.unmake(material)
+                
                 for node in material.node_tree.nodes:
                     if node.type == 'TEX_IMAGE':
                         self.texture = MaterialTexture(self.model).unmake(node.image)
@@ -786,6 +815,8 @@ class Material(DataStruct):
         return cursor
     
 class MeshBoundingBox(DataStruct):
+    """Defines the minimum and maximum bounds of a mesh"""
+    
     #only need to calculate bounding box for export workflow
     def __init__(self):
         super().__init__('>6f')
@@ -800,10 +831,13 @@ class MeshBoundingBox(DataStruct):
         if mesh is None:
             return self
         
-        if mesh.visuals_vert_buffer:
-            verts.extend(mesh.visuals_vert_buffer.make())
+        
         if mesh.collision_vert_buffer:
             verts.extend(mesh.collision_vert_buffer.make())
+            
+        # on meshes with both collision and visuals, collision takes precedence
+        if mesh.visuals_vert_buffer and len(verts) == 0:
+            verts.extend(mesh.visuals_vert_buffer.make())
         
         if len(verts) == 0:
             return self
@@ -865,6 +899,8 @@ class Mesh(DataStruct):
             if mat_addr not in self.model.materials:
                 self.model.materials[mat_addr] = Material(self.model).read(buffer, mat_addr)
             self.material = self.model.materials[mat_addr]
+                
+        print(f"{self.id}, {self.material.id}, {[bin(a) if type(a) != list else a for a in self.material.shader.to_array()]}")
                 
         if collision_tags_addr:
             self.collision_tags = CollisionTags(self.model).read(buffer, collision_tags_addr)
