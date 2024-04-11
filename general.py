@@ -73,6 +73,7 @@ class Data:
 class DataStruct:
     
     def __init__(self, format_string):
+        self.parent = None
         self.format_string = format_string
         self.size = struct.calcsize(self.format_string)
         
@@ -120,7 +121,7 @@ class FloatVector(FloatPosition):
     def from_array(self, data = None):
         for d in data:
             if d > 1.0 or d < -1.0:
-                raise ValueError(f"Vec3 {d} in {data} is not normalized")
+                print(f"Vec3 {d} in {data} is not normalized")
         super().from_array(data)
         return self
     
@@ -229,7 +230,7 @@ class RGB3Bytes(DataStruct):
         return self
     
 class RGBA4Bytes(DataStruct):
-    def __init__(self, r = 0, g = 0, b = 0, a = 0):
+    def __init__(self, r = 0, g = 0, b = 0, a = 255):
         super().__init__('>4B')
         self.r = r
         self.g = g

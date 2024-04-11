@@ -136,7 +136,7 @@ class Palette():
         if not buffer:
             return []
 
-        for cursor in range(0, format_map.get(format, 0) * 2, 2):
+        for cursor in range(0, len(buffer), 2):
             self.data.append(RGBA5551().read(buffer, cursor))
 
         return self.data
