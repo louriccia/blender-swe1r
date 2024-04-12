@@ -156,7 +156,6 @@ class CollisionVertBuffer(DataStruct):
         self.length = len(mesh.data.vertices)
         self.data = [ShortPosition().from_array(vert.co) for vert in mesh.data.vertices]
         super().__init__(f'>{len(self.data)*3}h')
-        print('vert buffer', [d.to_array() for d in self.data])
         return self
     
 class CollisionVertStrips(DataStruct):
@@ -173,7 +172,6 @@ class CollisionVertStrips(DataStruct):
     def unmake(self, mesh):
         #recognizes strips in the pattern of the faces' vertex indices
         face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
-        print('face_buffer', face_buffer)
         if not len(face_buffer):
             return self
         
@@ -187,7 +185,7 @@ class CollisionVertStrips(DataStruct):
                 if last[0] % 2 == 0 and last[0] + 1 == last[1] and last[1] + 1 == last[2]:
                     self.include_buffer = True
                 
-                # a strip continues as long as there are 2 shared indeces between adjacent faces
+                # a strip continues as long as there are 2 shared indices between adjacent faces
                 shared = [j for j in face_buffer[i] if j in last]
                 if len(shared) == 0:
                     break
@@ -208,7 +206,6 @@ class CollisionVertStrips(DataStruct):
                 
         if self.include_buffer:
             self.strip_size = 5
-        print('vert strips', self.data)
         super().__init__(f'>{len(self.data)}I')
         return self
     
@@ -476,60 +473,55 @@ class VisualsIndexBuffer():
         return [d.to_array() for d in self.data]
     
     def unmake(self, mesh):
-        
-        MAX_INDECES = 34 #this is just an arbitrary value to reset index offset (similar to the original pattern)
-        
         #grab the base index buffer data from mesh.data.polygons and construct initial chunk list
         face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
+        
+        
+        #print('visual face buffer', face_buffer)
+        #for face in face_buffer:
+            #if max(face) - min(face) > 40:
+                #print('ISSUE', face)
+        
         index_buffer = []
         while len(face_buffer) > 1:
-            chunk_type = 5
-            face = face_buffer[0]
-            next_face = face_buffer[1]
-            
-            #detect 6chunk
-            #if len([i for i in face if i in next_face]):
             chunk_type = 6
-            face_buffer = face_buffer[2:]
-            face.extend(next_face)
-            # else:
-            #     face_buffer = face_buffer[1:]
-                
             chunk_class = self.map.get(chunk_type)
             chunk = chunk_class(self, self.model, chunk_type)
-            index_buffer.append(chunk.from_array(face))
-        
+            chunk.from_array([f for face in face_buffer[:2] for f in face])
+            index_buffer.append(chunk)
+            face_buffer = face_buffer[2:]
+                
         #push the last chunk if there is one
         if len(face_buffer):
             index_buffer.append(VisualsIndexChunk5(self, self.model, 5).from_array(face_buffer[0]))    
             
-        offset = 0
-        #go through our index buffer and copy to data while figuring out where the 1chunks should go
-        self.data = [VisualsIndexChunk1(self, self.model, 1)]
-        
-        for i, chunk in enumerate(index_buffer):
+            
+        #partition chunk list
+        partitions = []
+        partition = []
+        for chunk in index_buffer:
             min_index = chunk.min_index()
-            
-            if min_index - offset > MAX_INDECES:
-                offset = min_index
-                chunk1 = VisualsIndexChunk1(self, self.model, 1)
-                chunk1.start = offset
-                self.data.append(chunk1)
-            
-            chunk.base = offset
-            self.data.append(chunk)
-        
-        #finally, reverse crawl through the list and find max indeces for the 1chunks
-        mi = 0
-        for i in range(len(self.data) - 1, -1, -1):
-            chunk = self.data[i]
-            if chunk.type == 1:
-                chunk.max = mi + 1
-                mi = 0
-                continue
-            cmi = chunk.max_index() - chunk.base
-            if cmi > mi:
-                mi = cmi
+            if len(partition):
+                min_index = min([chunk.min_index() for chunk in partition])
+            max_index = chunk.max_index()
+            if max_index - min_index > 40:
+                partition_push = partition[:]
+                partitions.append(partition_push)
+                partition = []
+            partition.append(chunk)
+        partitions.append(partition)
+        #add each partition and chunk1 to reset base for each one
+        for partition in partitions:
+            min_index = min([chunk.min_index() for chunk in partition]) 
+            max_index = max([chunk.max_index() for chunk in partition])
+            index_range = max_index - min_index
+            chunk1 = VisualsIndexChunk1(self, self.model, 1)
+            chunk1.start = min_index
+            chunk1.max = index_range + 1
+            self.data.append(chunk1)
+            for chunk in partition:
+                chunk.base = min_index
+                self.data.append(chunk)
         
         return self
 
@@ -977,7 +969,7 @@ class Mesh(DataStruct):
                     
         return self
     
-    def make(self, parent):
+    def make(self, parent, collection):
         
         if self.has_collision():
             verts = self.collision_vert_buffer.make()
@@ -1014,7 +1006,7 @@ class Mesh(DataStruct):
             obj['id'] = self.id
             obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
-            self.model.collection.objects.link(obj)
+            collection.objects.link(obj)
             mesh.from_pydata(verts, edges, faces)
             obj.parent = parent
 
@@ -1034,7 +1026,7 @@ class Mesh(DataStruct):
             obj['id'] = self.id
             obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
-            self.model.collection.objects.link(obj)
+            collection.objects.link(obj)
             mesh.from_pydata(verts, edges, faces)
             mesh.validate() #clean_customdata=False
             obj.parent = parent
@@ -1060,6 +1052,8 @@ class Mesh(DataStruct):
     
     def unmake(self, node):
         self.id = node.name
+        if 'type' not in node:
+            node['type'] = 'VIS'
         if 'VIS' in node['type']:
             self.material = Material(self, self.model).unmake(node)
             self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
@@ -1071,7 +1065,6 @@ class Mesh(DataStruct):
                 self.group_count = None
                 
         if 'COL' in node['type']:
-            print(self.id)
             self.collision_tags = CollisionTags(self, self.model).unmake(node)
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node)
             self.vert_strips = CollisionVertStrips(self, self.model).unmake(node)
@@ -1219,105 +1212,60 @@ class Node(DataStruct):
  
         return self
     
-    def make(self, parent=None):
+    def make(self, parent=None, collection = None):
         name = '{:07d}'.format(self.id)
-        if (self.type in [53349, 53350]):
-            new_empty = bpy.data.objects.new(name, None)
-            self.model.collection.objects.link(new_empty)
-            
+        
+        if self.model.ext == 'Trak':
+            if 0 in self.header:
+                track_collection = bpy.data.collections.new('Track')
+                collection.children.link(track_collection)
+                collection = track_collection
+            elif 2 in self.header:
+                skybox_collection = bpy.data.collections.new('Skybox')
+                collection.children.link(skybox_collection)
+                collection = skybox_collection
+        
+        if self.type in [53349, 53350]:
+            new_node = bpy.data.objects.new(name, None)
+            collection.objects.link(new_node)
             #new_empty.empty_display_size = 2
             if self.unk1 &  1048576 != 0:
-                new_empty.empty_display_type = 'ARROWS'
-                new_empty.empty_display_size = 0.5
+                new_node.empty_display_type = 'ARROWS'
+                new_node.empty_display_size = 0.5
                 
             elif self.unk1 & 524288 != 0:
-                new_empty.empty_display_type = 'CIRCLE'
-                new_empty.empty_display_size = 0.5
+                new_node.empty_display_type = 'CIRCLE'
+                new_node.empty_display_size = 0.5
             else:
-                new_empty.empty_display_type = 'PLAIN_AXES'
-            # if self.type ==53349:
-            #     #new_empty.location = [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale]
-            #     if self.unk1 &  1048576 != 0 and False:
-                    
-            #         global offsetx
-            #         global offsety
-            #         global offsetz
-            #         offsetx = node['xyz']['x1']
-            #         offsety = node['xyz']['y1']
-            #         offsetz = node['xyz']['z1']
-            #         imparent = None
-            #         if parent != None and False:
-            #             imparent = parent
-            #             while imparent != None:
-            #                 if int(imparent['grouptag0']) == 53349 and int(imparent['grouptag3']) & 1048576 != 0:
-            #                     offsetx += imparent['x']
-            #                     offsety += imparent['y']
-            #                     offsetz += imparent['z']
-            #                 imparent = imparent.parent
-            #         new_empty.matrix_world = [
-            #         [node['xyz']['ax'], node['xyz']['ay'], node['xyz']['az'], 0],
-            #         [node['xyz']['bx'], node['xyz']['by'], node['xyz']['bz'], 0],
-            #         [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
-            #         [node['xyz']['x']*scale + offsetx*scale,  node['xyz']['y']*scale + offsety*scale, node['xyz']['z']*scale + offsetz*scale, 1],
-            #         ]
-            #     elif False:
-            #         new_empty.matrix_world = [
-            #         [node['xyz']['ax'], node['xyz']['ay'], node['xyz']['az'], 0],
-            #         [node['xyz']['bx'], node['xyz']['by'], node['xyz']['bz'], 0],
-            #         [node['xyz']['cx'], node['xyz']['cy'], node['xyz']['cz'], 0],
-            #         [node['xyz']['x']*scale, node['xyz']['y']*scale, node['xyz']['z']*scale, 1],
-            #         ]
+                new_node.empty_display_type = 'PLAIN_AXES'
+
                  
         else:
-            new_empty = bpy.data.objects.new(name, None)
+            new_node = bpy.data.objects.new(name, None)
             #new_empty.empty_display_type = 'PLAIN_AXES'
-            new_empty.empty_display_size = 0
-            self.model.collection.objects.link(new_empty)
-            
+            new_node.empty_display_size = 0
+            collection.objects.link(new_node)
+
         #set group tags
-        new_empty['node_type'] = self.node_type
-        new_empty['vis_flags'] = str(self.vis_flags)
-        new_empty['col_flags'] = str(self.col_flags)
-        new_empty['unk1'] = self.unk1
-        new_empty['unk2'] = self.unk2
-        
-        # if False and (self.type in [53349, 53350]):
-        #     new_empty['grouptag3'] = bin(int(node['head'][3]))
-        #     if 'xyz' in node:
-        #         new_empty['x'] = node['xyz']['x']
-        #         new_empty['y'] = node['xyz']['y']
-        #         new_empty['z'] = node['xyz']['z']
-        #         if 'x1' in node['xyz']:
-        #             new_empty['x1'] = node['xyz']['x1']
-        #             new_empty['y1'] = node['xyz']['y1']
-        #             new_empty['z1'] = node['xyz']['z1']
+        new_node['node_type'] = self.node_type
+        new_node['vis_flags'] = str(self.vis_flags)
+        new_node['col_flags'] = str(self.col_flags)
+        new_node['unk1'] = self.unk1
+        new_node['unk2'] = self.unk2
             
         #assign parent
         if parent is not None:
-            #savedState = new_empty.matrix_world
-            new_empty.parent = parent
-            # if self.type not in [53349, 53350] or self.unk1 & 1048576 == 0 and False:
-            #     new_empty.parent = parent
-            #     #if(node['head'][3] & 1048576) == 0:
-            #     #loc = new_empty.constraints.new(type='COPY_LOCATION')
-            #     #loc.target = parent
-            #     #elif(node['head'][3] & 524288) == 0:
-            #         #rot = new_empty.constraints.new(type='COPY_ROTATION')
-            #         #rot.target = parent
-            #     #else:
-            #         #new_empty.parent = parent
-                    
-            # else:
-            #     new_empty.parent = parent
-            #new_empty.matrix_world = savedState
-        for node in self.children:
+            new_node.parent = parent
+                
+        
+        for node in self.children :
             if not isinstance(node, dict):
-                node.make(new_empty)
+                node.make(new_node, collection)
             
         if self.id in self.model.header.offsets:
-            new_empty['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
+            new_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
             
-        return new_empty
+        return new_node
     def unmake(self, node):
         self.id = node.name
         self.node_type = node['node_type']
@@ -1360,7 +1308,6 @@ class Node(DataStruct):
             if not has_vis:
                 self.vis_flags &= 0b11111111111111111111111111111011
             
-        print(self.node_type, self.vis_flags, self.col_flags, self.unk1, self.unk2)
         struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.vis_flags, self.col_flags, self.unk1, self.unk2, 0, 0)
         return cursor + self.size
     
@@ -1394,6 +1341,13 @@ class Node(DataStruct):
             
         return cursor
     
+def link_to_descendant_collection(obj):
+    col = None
+    parent = obj.parent
+    while col is None and parent is not None:
+        col = find_collection_by_object(parent)
+        parent = parent.parent
+    return col
 
 class MeshGroup12388(Node):
     
@@ -1406,8 +1360,8 @@ class MeshGroup12388(Node):
         super().read(buffer, cursor)
         return self
     
-    def make(self, parent = None):
-        return super().make(parent)
+    def make(self, parent = None, collection = None):
+        return super().make(parent, collection)
     
     def unmake(self, node):
         super().unmake(node)
@@ -1434,8 +1388,8 @@ class Group53348(Node):
         super().read(buffer, cursor)
         self.matrix = FloatMatrix(struct.unpack_from(">12f", buffer, cursor+28))
         return self
-    def make(self, parent = None):
-        empty = super().make(parent)
+    def make(self, parent = None, collection = None):
+        empty = super().make(parent, collection)
         empty.matrix_world = self.matrix.get()
         return empty
     def unmake(self, node):
@@ -1451,15 +1405,19 @@ class Group53349(Node):
         super().__init__(parent, model, type)
         self.parent = parent
         self.matrix = FloatMatrix()
+        self.matrix.data[0].data[0] = 1.0
+        self.matrix.data[1].data[1] = 1.0
+        self.matrix.data[2].data[2] = 1.0
         self.bonus = FloatPosition()
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
         self.matrix.read(buffer, cursor+28)
         self.bonus.read(buffer, cursor+76)
         return self
-    def make(self, parent = None):
-        empty = super().make(parent)
-        empty.matrix_world = self.matrix.make(self.model.scale)
+    def make(self, parent = None, collection = None):
+        empty = super().make(parent, collection)
+        if not isinstance(empty, bpy.types.Collection):
+            empty.matrix_world = self.matrix.make(self.model.scale)
         
         empty['bonus'] = self.bonus.to_array()
         return empty
@@ -1485,7 +1443,7 @@ class Group53350(Node):
     def __init__(self, parent, model, type):
         super().__init__(parent, model, type)
         self.parent = parent
-        self.unk1 = 0
+        self.unk1 = 65536
         self.unk2 = 0
         self.unk3 = 0
         self.unk4 = 1.0
@@ -1493,8 +1451,8 @@ class Group53350(Node):
         super().read(buffer, cursor)
         self.unk1, self.unk2, self.unk3, self.unk4 = struct.unpack_from(">3if", buffer, cursor+28)
         return self
-    def make(self, parent = None):
-        new_empty = super().make(parent)
+    def make(self, parent = None, collection = None):
+        new_empty = super().make(parent, collection)
         new_empty['53350_unk1'] = self.unk1
         new_empty['53350_unk2'] = self.unk2
         new_empty['53350_unk3'] = self.unk3
@@ -1523,8 +1481,8 @@ class Group20580(Node):
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
         return self
-    def make(self, parent = None):
-        return super().make(parent)
+    def make(self, parent = None, collection = None):
+        return super().make(parent, collection)
     def unmake(self, node):
         return super().unmake(node)
     def write(self, buffer, cursor):
@@ -1539,8 +1497,8 @@ class Group20581(Node):
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
         return self
-    def make(self, parent = None):
-        return super().make(parent)
+    def make(self, parent = None, collection = None):
+        return super().make(parent, collection)
     def unmake(self, node):
         return super().unmake(node)
     def write(self, buffer, cursor):
@@ -1559,8 +1517,8 @@ class Group20582(Node):
         super().read(buffer, cursor)
         self.floats = struct.unpack_from(">11f", buffer, cursor+28)
         return self
-    def make(self, parent = None):
-        empty = super().make(parent)
+    def make(self, parent = None, collection = None):
+        empty = super().make(parent, collection)
         empty['floats'] = self.floats
         return self
     def unmake(self, node):
@@ -1788,6 +1746,12 @@ def find_topmost_parent(obj):
         obj = obj.parent
     return obj
 
+def find_collection_by_object(obj):
+    for collection in bpy.data.collections:
+        if obj.name in collection.objects:
+            return collection
+    return None
+
 class Model():
     
     def __init__(self, id):
@@ -1841,7 +1805,7 @@ class Model():
         
         self.header.make()
         for node in self.nodes:
-            node.make()
+            node.make(None, collection)
 
         return collection
 
@@ -1851,72 +1815,75 @@ class Model():
         self.header.unmake(collection)
         self.nodes = []
         
-        if 'parent' in collection: return
+        #if 'parent' in collection: return
         
         viscol = []
         vis = []
         col = []
         
-        for obj in [obj for obj in collection.objects if obj.type == 'MESH']:
-            mesh = Mesh(None, self).unmake(obj)
-            if mesh.has_collision() and mesh.has_visuals():
-                viscol.append(mesh)
-            elif mesh.has_collision():
-                col.append(mesh)
-            elif mesh.has_visuals():
-                vis.append(mesh)
-        
         root = Group20580(self, self, 20580)
-        trak_group = Group20580(root, self, 20580)
-        
-        
-        
-        
-        if len(viscol):
-            node = MeshGroup12388(trak_group, self, 12388)
-            for child in viscol: 
-                child.parent = node
-                node.children.append(child)
-            node.calc_bounding()
-            trak_group.children.append(node)
-        
-        if len(vis):
-            node = MeshGroup12388(trak_group, self, 12388)
-            for child in vis: 
-                child.parent = node
-                node.children.append(child)
-            node.calc_bounding()
-            trak_group.children.append(node)
-            
-        if len(col):
-            node = MeshGroup12388(trak_group, self, 12388)
-            for child in col: 
-                child.parent = node
-                node.children.append(child)
-            node.calc_bounding()
-            trak_group.children.append(node)
-   
-        trak_group.header = [0, 1]         
-        
-        root.children.append(trak_group)
-        
-        #skybox
-        sky_group = Group20580(root, self, 20580)
-        sky_empty = Group53349(sky_group, self, 53349)
-        sky_empty.header = [2]
-        sky_group.children.append(sky_empty)
-        sky_to_camera = Group53350(sky_empty, self, 53350)
-        sky_empty.children.append(sky_to_camera)
-        root.children.append(sky_group)
         
         self.nodes.append(root)
         
+        for child_collection in collection.children:
+            if child_collection.name == 'Track':
+                for obj in [obj for obj in child_collection.objects if obj.type == 'MESH']:
+                    mesh = Mesh(None, self).unmake(obj)
+                    if mesh.has_collision() and mesh.has_visuals():
+                        viscol.append(mesh)
+                    elif mesh.has_collision():
+                        col.append(mesh)
+                    elif mesh.has_visuals():
+                        vis.append(mesh)
+                trak_group = Group20580(root, self, 20580)
         
-        #for Trak
-        #   20580
-        #       12388 - all viscols
-        #       12388 - all vis
-        #       12388 - all col
+                if len(viscol):
+                    node = MeshGroup12388(trak_group, self, 12388)
+                    for child in viscol: 
+                        child.parent = node
+                        node.children.append(child)
+                    node.calc_bounding()
+                    trak_group.children.append(node)
+                
+                if len(vis):
+                    node = MeshGroup12388(trak_group, self, 12388)
+                    for child in vis: 
+                        child.parent = node
+                        node.children.append(child)
+                    node.calc_bounding()
+                    trak_group.children.append(node)
+                    
+                if len(col):
+                    node = MeshGroup12388(trak_group, self, 12388)
+                    for child in col: 
+                        child.parent = node
+                        node.children.append(child)
+                    node.calc_bounding()
+                    trak_group.children.append(node)
+        
+                trak_group.header = [0, 1]         
+                
+                root.children.append(trak_group)
+                
+            if child_collection.name == 'Skybox':
+                sky_group = Group20580(root, self, 20580)
+                sky_empty = Group53349(sky_group, self, 53349)
+                sky_empty.header = [2]
+                sky_to_camera = Group53350(sky_empty, self, 53350)
+                sky_mesh = MeshGroup12388(sky_to_camera, self, 12388)
+                
+                for obj in [obj for obj in child_collection.objects if obj.type == 'MESH']:
+                    mesh = Mesh(sky_mesh, self).unmake(obj)
+                    mesh.material.shader.render_mode_1 = 0b1100000010000010000000001000
+                    mesh.material.shader.render_mode_2 = 0b11000000100010000000001000
+                    sky_mesh.children.append(mesh)
+                    mesh.parent = sky_mesh
+                sky_mesh.calc_bounding()
+                sky_to_camera.children.append(sky_mesh)
+                sky_empty.children.append(sky_to_camera)
+                sky_group.children.append(sky_empty)
+                root.children.append(sky_group)
+        
             
         return self
 

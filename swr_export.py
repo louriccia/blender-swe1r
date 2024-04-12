@@ -10,12 +10,14 @@ scale = 100
 
 def export_model(col, file_path, exports):
     types = [obj.type for obj in col.objects]
+    for child in col.children:
+        for obj in child.objects:
+            types.append(obj.type)
     model_export, texture_export, spline_export = exports
     
     if not len(exports):
         show_custom_popup(bpy.context, "No Export", f"Please select an element to export")
         
-    
     if 'MESH' in types and model_export:
         modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
         model = Model(col['ind']).unmake(col)
