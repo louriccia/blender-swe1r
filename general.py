@@ -135,6 +135,9 @@ class ShortPosition(DataStruct):
         if data is not None:
             self.from_array(data)  
     
+    def __eq__(self, other):
+        return self.data == other.data
+    
     def from_array(self, data=None):
         super().from_array(data)  
         self.data = [round(d) for d in self.data]
@@ -238,6 +241,8 @@ class RGBA4Bytes(DataStruct):
         self.a = a
     def to_array(self):
         return [self.r, self.g, self.b, self.a]
+    def __eq__(self, other):
+        return self.to_array() == other.to_array()
     def unmake(self, data):
         self.r = round(data[0]*255)
         self.g = round(data[1]*255)

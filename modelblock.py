@@ -230,6 +230,9 @@ class VisualsVertChunk(DataStruct):
     def verts_to_array(self):
         return self.co
     
+    def __eq__(self, other):
+        return self.co == other.co and self.uv == other.uv and self.color == other.color
+    
     def unmake(self, co, uv, color):
         self.co = [round(c) for c in co]
         if uv:
@@ -472,30 +475,21 @@ class VisualsIndexBuffer():
     def to_array(self):
         return [d.to_array() for d in self.data]
     
-    def unmake(self, mesh):
+    def unmake(self, faces):
         #grab the base index buffer data from mesh.data.polygons and construct initial chunk list
-        face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
-        
-        
-        #print('visual face buffer', face_buffer)
-        #for face in face_buffer:
-            #if max(face) - min(face) > 40:
-                #print('ISSUE', face)
         
         index_buffer = []
-        while len(face_buffer) > 1:
+        while len(faces) > 1:
             chunk_type = 6
             chunk_class = self.map.get(chunk_type)
             chunk = chunk_class(self, self.model, chunk_type)
-            chunk.from_array([f for face in face_buffer[:2] for f in face])
+            chunk.from_array([f for face in faces[:2] for f in face])
             index_buffer.append(chunk)
-            face_buffer = face_buffer[2:]
+            faces = faces[2:]
                 
         #push the last chunk if there is one
-        if len(face_buffer):
-            index_buffer.append(VisualsIndexChunk5(self, self.model, 5).from_array(face_buffer[0]))    
-            
-            
+        if len(faces):
+            index_buffer.append(VisualsIndexChunk5(self, self.model, 5).from_array(faces[0]))    
         #partition chunk list
         partitions = []
         partition = []
@@ -948,8 +942,6 @@ class Mesh(DataStruct):
                 self.model.materials[mat_addr] = Material(self, self.model).read(buffer, mat_addr)
             self.material = self.model.materials[mat_addr]
                 
-        #print(f"{self.id}, {self.material.id}, {[bin(a) if type(a) != list else a for a in self.material.shader.to_array()]}")
-                
         if collision_tags_addr:
             self.collision_tags = CollisionTags(self, self.model).read(buffer, collision_tags_addr)
                 
@@ -970,7 +962,6 @@ class Mesh(DataStruct):
         return self
     
     def make(self, parent, collection):
-        
         if self.has_collision():
             verts = self.collision_vert_buffer.make()
             edges = []
@@ -979,6 +970,7 @@ class Mesh(DataStruct):
             vert_strips = [self.strip_size for s in range(self.strip_count)]
             
             if(self.vert_strips is not None): 
+                
                 vert_strips = self.vert_strips.make()
                 for strip in vert_strips:
                     for s in range(strip -2):
@@ -997,7 +989,6 @@ class Mesh(DataStruct):
                         else:
                             faces.append( [start+s, start+s+1, start+s+2])
                     start += strip
-                    
             mesh_name = '{:07d}'.format(self.id) + "_" + "collision"
             mesh = bpy.data.meshes.new(mesh_name)
             obj = bpy.data.objects.new(mesh_name, mesh)
@@ -1054,20 +1045,181 @@ class Mesh(DataStruct):
         self.id = node.name
         if 'type' not in node:
             node['type'] = 'VIS'
+            
         if 'VIS' in node['type']:
             self.material = Material(self, self.model).unmake(node)
             self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
-            self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(node)
+            verts = self.visuals_vert_buffer.data
+            faces = [[v for v in face.vertices] for face in node.data.polygons]            
+            
+            #tesselate faces
+            t_faces = []
+            for face in faces:
+                if len(face) > 4:
+                    raise ValueError("Polygon with more than 4 vertices detected")
+                if len(face) == 4:
+                    t_faces.append([face[0], face[1], face[2]])
+                    t_faces.append([face[0], face[2], face[3]])
+                else:
+                    t_faces.append(face)
+            faces = t_faces
+            
+            #replace each index with its vert
+            faces = [[verts[i] for i in face] for face in faces]
+            
+            #reorder faces to maximize shared edges
+            ordered_faces = []
+            ordered_faces.append(faces.pop(0))
+            while len(faces):
+                last_face = ordered_faces[-1]
+                shared = None
+                for f, face in enumerate(faces):
+                    if len([i for i in face if i in last_face]) > 1:
+                        shared = f
+                        break
+                if shared != None:
+                    ordered_faces.append(faces.pop(shared))
+                else:
+                    ordered_faces.append(faces.pop(0))
+                
+            #relist vertices so indices aren't too far apart    
+            new_verts = []
+            new_faces = []
+            for face in ordered_faces:
+                new_face = []
+                for vert in face:
+                    current_index = len(new_verts)
+                    index = -1
+                    #find last instance of vert
+                    try:
+                        index = current_index - new_verts[::-1].index(vert) - 1
+                    except ValueError:
+                        index = -1
+                    
+                    if index > -1 and current_index - index < 64:
+                        new_face.append(index)
+                    else: 
+                        new_verts.append(vert)
+                        new_face.append(current_index)
+                        
+                new_faces.append(new_face)
 
             #TODO check if node has vertex group
             if False:
                 self.group_parent = None
                 self.group_count = None
                 
+            self.visuals_vert_buffer.data = new_verts
+            self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
+                
         if 'COL' in node['type']:
             self.collision_tags = CollisionTags(self, self.model).unmake(node)
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node)
             self.vert_strips = CollisionVertStrips(self, self.model).unmake(node)
+            
+            faces = [[v for v in face.vertices] for face in node.data.polygons]            
+            verts = self.collision_vert_buffer.data
+            
+            #tesselate/validate faces
+            t_faces = []
+            for face in faces:
+                if len(face) > 4:
+                    raise ValueError("Polygon with more than 4 vertices detected")
+                if len(face) == 4:
+                    t_faces.append([face[0], face[1], face[2]])
+                    t_faces.append([face[0], face[2], face[3]])
+                else:
+                    t_faces.append(face)
+            faces = t_faces
+            
+            #replace each index with its vert
+            faces = [[verts[i] for i in face] for face in faces]
+            
+            def unshared_vert(list1, list2):
+                for i, index in enumerate(list1):
+                    if index not in list2:
+                        return i
+                return None
+            
+            def get_edge(list1, list2):
+                nonshared = unshared_vert(list1, list2)
+                if nonshared is None:
+                    return None
+                    
+                edge = list1[:]
+                edge.pop(nonshared)
+                
+                if nonshared == 1:
+                    edge = edge[::-1]
+                    
+                return edge
+
+            
+            #restrip mesh
+            strips = []
+            new_verts = []
+            strip = []
+            strip.append(faces.pop(0))
+            strip_verts = []
+            while len(faces):
+                last_face = strip[-1]
+                shared = None
+                
+                #search for a suitable adjacent face to continue strip
+                for f, face in enumerate(faces):
+                    #ignore faces with less than 2 shared verts
+                    if len([i for i in face if i in last_face]) < 2:
+                        continue
+                    
+                    #not only must the faces share an edge, the edge must run opposite to ensure they have same normals
+                    edge1 = get_edge(last_face, face)
+                    if edge1 is None:
+                        continue
+                    edge2 = get_edge(face, last_face) 
+                    if edge1 != edge2[::-1]:
+                        continue
+                    
+                    if len(strip_verts) == 0:
+                        unshared = unshared_vert(last_face, face)
+                        strip_verts.append(last_face[unshared])
+                        strip_verts.extend(edge1)
+                        
+                    #additionally, we need to check that the shared edge is opposite the third to last vert
+                    if strip_verts[-3] in face:  
+                        continue
+                    
+                    next_unshared = unshared_vert(face, last_face)
+                    strip_verts.append(face[next_unshared])
+                    shared = f
+                    break
+                        
+                if shared is not None:
+                    strip.append(faces.pop(shared))
+                else:
+                    if len(strip_verts) == 0:
+                        strip_verts.extend(last_face)
+                    strips.append(strip[:])
+                    new_verts.extend(strip_verts[:])
+                    strip_verts = []
+                    strip = []
+                    strip.append(faces.pop(0))
+                    
+            if len(strip):
+                new_verts.extend(strip_verts[:])
+                strips.append(strip)
+                new_verts.extend([s for s in strip[0]])
+            
+            strip_list = [2+ len(strip) for strip in strips]
+            self.collision_vert_buffer.data = new_verts
+            self.collision_vert_buffer.format_string = f'>{len(new_verts)*3}h'
+            self.collision_vert_buffer.size = struct.calcsize(f'>{len(new_verts)*3}h')
+            self.strip_count = len(strip_list)
+            self.vert_strips.strip_count = len(strip_list)
+            self.vert_strips.data = strip_list
+            self.vert_strips.format_string = f'>{len(strip_list)}I'
+            self.vert_strips.size = struct.calcsize(f'>{len(strip_list)}I')
+            self.vert_strips.strip_size = 5
+            self.vert_strips.include_buffer = True
             
         self.bounding_box = MeshBoundingBox(self, self.model).unmake(self)
         return self
@@ -1340,14 +1492,6 @@ class Node(DataStruct):
             cursor = child.write(buffer, cursor)
             
         return cursor
-    
-def link_to_descendant_collection(obj):
-    col = None
-    parent = obj.parent
-    while col is None and parent is not None:
-        col = find_collection_by_object(parent)
-        parent = parent.parent
-    return col
 
 class MeshGroup12388(Node):
     
@@ -1745,12 +1889,6 @@ def find_topmost_parent(obj):
     while obj.parent is not None:
         obj = obj.parent
     return obj
-
-def find_collection_by_object(obj):
-    for collection in bpy.data.collections:
-        if obj.name in collection.objects:
-            return collection
-    return None
 
 class Model():
     
