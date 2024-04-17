@@ -154,7 +154,10 @@ class CollisionVertBuffer(DataStruct):
     
     def unmake(self, mesh):
         self.length = len(mesh.data.vertices)
-        self.data = [ShortPosition().from_array(vert.co) for vert in mesh.data.vertices]
+        for vert in mesh.data.vertices:
+            co = mesh.matrix_world @ vert.co
+            co = [round(c/self.model.scale) for c in co]
+            self.data.append(ShortPosition().from_array(co))
         super().__init__(f'>{len(self.data)*3}h')
         return self
     
@@ -234,7 +237,7 @@ class VisualsVertChunk(DataStruct):
         return self.co == other.co and self.uv == other.uv and self.color == other.color
     
     def unmake(self, co, uv, color):
-        self.co = [round(c) for c in co]
+        self.co = [round(c/self.model.scale) for c in co]
         if uv:
             self.uv = [round(c*4096) for c in uv]
         if color:
@@ -282,7 +285,7 @@ class VisualsVertBuffer():
                 vert_index = mesh.data.loops[loop_index].vertex_index
                 uv = None if not uv_data else uv_data[loop_index].uv
                 color = None if not color_data else color_data[loop_index].color
-                self.data[vert_index].unmake(mesh.data.vertices[vert_index].co, uv, color)
+                self.data[vert_index].unmake(mesh.matrix_world @ mesh.data.vertices[vert_index].co, uv, color)
                 
         self.length = len(self.data)
         return self
