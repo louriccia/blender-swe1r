@@ -323,7 +323,7 @@ class Spline(DataStruct):
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point
         # cannot have alt paths that start before and end after the finish line on main spline
-                   
+
         self.point_count = len(self.points)
         self.segment_count = segment_count
         

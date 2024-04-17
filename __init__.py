@@ -130,7 +130,13 @@ class ImportExportExamplePanel(bpy.types.Panel):
         box.prop(context.scene, "import_model", text="Model")
         box.operator("import.import_operator", text="Import")
 
-        # Section 2: Export
+        #Section 2: Edit
+        box = layout.box()
+        box.label(text = 'Edit')
+        
+        box.operator("import.v_color", text="Set Up Vertex Colors")
+
+        # Section 3: Export
         box = layout.box()
         box.label(text="Export")
 
@@ -192,6 +198,17 @@ class ExportOperator(bpy.types.Operator):
         export_model(selected_collection, folder_path, [context.scene.export_model, context.scene.export_texture, context.scene.export_spline])
         
         return {'FINISHED'}
+    
+class VertexColorOperator(bpy.types.Operator):
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "import.v_color"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.geometry.color_attribute_add(name = "color", domain = "CORNER", data_type="BYTE_COLOR", color = [1.0, 1.0, 1.0, 1.0])
+        return {'FINISHED'}
 
 def menu_func(self, context):
     self.layout.operator(ImportOperator.bl_idname)
@@ -222,12 +239,14 @@ def register():
     bpy.utils.register_class(ImportExportExamplePanel)
     bpy.utils.register_class(ImportOperator)
     bpy.utils.register_class(ExportOperator)
+    bpy.utils.register_class(VertexColorOperator)
     bpy.types.TOPBAR_MT_file.append(menu_func)
 
 def unregister():
     bpy.utils.unregister_class(ImportExportExamplePanel)
     bpy.utils.unregister_class(ImportOperator)
     bpy.utils.unregister_class(ExportOperator)
+    bpy.utils.unregister_class(VertexColorOperator)
     bpy.types.TOPBAR_MT_file.remove(menu_func)
     del bpy.types.Scene.import_folder
     del bpy.types.Scene.import_type

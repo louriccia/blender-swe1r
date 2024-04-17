@@ -70,6 +70,8 @@ def export_model(col, file_path, exports):
         textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
         for image in bpy.data.images:
             id = int(image['id'])
+            if not 'format' in image:
+                image['format'] = 513
             texture = Texture(id).unmake(image)
             pixel_buffer = texture.pixels.write()
             palette_buffer = texture.palette.write()

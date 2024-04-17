@@ -140,11 +140,11 @@ class ShortPosition(DataStruct):
     
     def from_array(self, data=None):
         super().from_array(data)  
-        self.data = [round(d) for d in self.data]
+        self.data = [round(min(32767, max(-32768, d))) for d in self.data]
         return self
     
     def to_array(self):
-        return [round(d) for d in self.data]
+        return [round(min(32767, max(-32768, c))) for c in self.data]
     
 class FloatMatrix(DataStruct):
     def __init__(self, data = None):

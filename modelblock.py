@@ -241,6 +241,8 @@ class VisualsVertChunk(DataStruct):
             self.color = RGBA4Bytes().unmake(color)
         return self
     def write(self, buffer, cursor):
+        self.co = [min(32767, max(-32768, c)) for c in self.co]
+        self.uv = [min(32767, max(-32768, c)) for c in self.uv]
         struct.pack_into(self.format_string, buffer, cursor, *self.co, *self.uv, *self.color.make())
         return cursor + self.size
     
@@ -593,10 +595,16 @@ class MaterialTexture(DataStruct):
         if image is None:
             return self
         self.width, self.height = image.size
-        self.tex_index = int(image['id'])
+        if 'id' in image:
+            self.tex_index = int(image['id'])
+        else:
+            image['id'] = self.model.texture_index
+            image['format'] = 513
+            self.tex_index = self.model.texture_index
+            self.model.texture_index += 1
         self.unk1 = min(self.width * 4, 65535)
         self.unk2 = min(self.height * 4, 65535)
-        self.format = int(image['format'])
+        self.format = int(image['format']) if 'format' in image else 512
         self.unk5 = min(65535, self.width * 512)
         self.unk6 = min(65535, self.height * 512)
         self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
@@ -1044,8 +1052,10 @@ class Mesh(DataStruct):
     def unmake(self, node):
         self.id = node.name
         if 'type' not in node:
-            node['type'] = 'VIS'
-            
+            node['type'] = 'VISCOL'
+        
+        print(self.id, node['type'])    
+        
         if 'VIS' in node['type']:
             self.material = Material(self, self.model).unmake(node)
             self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
@@ -1123,6 +1133,9 @@ class Mesh(DataStruct):
             #tesselate/validate faces
             t_faces = []
             for face in faces:
+                for vert in face:
+                    if len([v for v in face if v == vert]) > 1:
+                        print("DOUBLE VERT")
                 if len(face) > 4:
                     raise ValueError("Polygon with more than 4 vertices detected")
                 if len(face) == 4:
@@ -1173,9 +1186,9 @@ class Mesh(DataStruct):
                     
                     #not only must the faces share an edge, the edge must run opposite to ensure they have same normals
                     edge1 = get_edge(last_face, face)
-                    if edge1 is None:
-                        continue
                     edge2 = get_edge(face, last_face) 
+                    if edge1 is None or edge2 is None:
+                        continue
                     if edge1 != edge2[::-1]:
                         continue
                     
@@ -1896,6 +1909,7 @@ class Model():
         self.parent = None
         self.modelblock = None
         self.collection = None
+        self.texture_index = 894
         self.ext = None
         self.id = id
         self.scale = 0.01
