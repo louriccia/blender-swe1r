@@ -233,7 +233,7 @@ class RGB3Bytes(DataStruct):
         return self
     
 class RGBA4Bytes(DataStruct):
-    def __init__(self, r = 0, g = 0, b = 0, a = 255):
+    def __init__(self, r = 255, g = 255, b = 255, a = 255):
         super().__init__('>4B')
         self.r = r
         self.g = g

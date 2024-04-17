@@ -827,7 +827,7 @@ class Material(DataStruct):
         for slot in mesh.material_slots:
             material = slot.material
             if material:
-                material_name = material.name.split(".")[0]
+                material_name = material.name #.split(".")[0]
                 self.id = material_name
                 if material_name in self.model.materials:
                     return self.model.materials[material_name]

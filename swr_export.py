@@ -69,7 +69,7 @@ def export_model(col, file_path, exports):
     if texture_export:
         textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
         for image in bpy.data.images:
-            id = int(image['id'])
+            id = int(image['id']) if 'id' in image else 0
             if not 'format' in image:
                 image['format'] = 513
             texture = Texture(id).unmake(image)
