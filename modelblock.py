@@ -242,10 +242,16 @@ class VisualsVertChunk(DataStruct):
             self.uv = [round(c*4096) for c in uv]
         if color:
             self.color = RGBA4Bytes().unmake(color)
+        if self.parent.parent.id == 'Royal_Raceway.065':
+            print(self.uv)
         return self
     def write(self, buffer, cursor):
-        self.co = [min(32767, max(-32768, c)) for c in self.co]
-        self.uv = [min(32767, max(-32768, c)) for c in self.uv]
+        co =  [min(32767, max(-32768, c)) for c in self.co]
+        self.co = co
+        uv =[min(32767, max(-32768, c)) for c in self.uv]
+        self.uv = uv
+        if self.parent.parent.id == 'Royal_Raceway.065':
+            print(uv)
         struct.pack_into(self.format_string, buffer, cursor, *self.co, *self.uv, *self.color.make())
         return cursor + self.size
     
@@ -284,6 +290,8 @@ class VisualsVertBuffer():
             for loop_index in poly.loop_indices:
                 vert_index = mesh.data.loops[loop_index].vertex_index
                 uv = None if not uv_data else uv_data[loop_index].uv
+                if self.parent.id == 'Royal_Raceway.065':
+                    print('unmaking', uv)
                 color = None if not color_data else color_data[loop_index].color
                 self.data[vert_index].unmake(mesh.matrix_world @ mesh.data.vertices[vert_index].co, uv, color)
                 
@@ -595,22 +603,37 @@ class MaterialTexture(DataStruct):
         return self.texture.make()
     
     def unmake(self, image):
+        if image.name == '448F972_c.png' or image.name == '31A2D889_c.png':
+            print('GOT IT', image.name)
+            image['format'] = 3
         if image is None:
             return self
         self.width, self.height = image.size
-        if 'id' in image:
+        if 'id' in image and False:
             self.tex_index = int(image['id'])
         else:
-            image['id'] = self.model.texture_index
-            image['format'] = 513
+            self.format = 513
             self.tex_index = self.model.texture_index
+            self.id = self.model.texture_index
             self.model.texture_index += 1
+            
         self.unk1 = min(self.width * 4, 65535)
         self.unk2 = min(self.height * 4, 65535)
-        self.format = int(image['format']) if 'format' in image else 512
+        self.format = int(image['format']) if 'format' in image else 513
         self.unk5 = min(65535, self.width * 512)
         self.unk6 = min(65535, self.height * 512)
         self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
+        
+        if image.name in self.model.written_textures:
+            self.tex_index = self.model.written_textures[image.name]
+            self.id = self.model.written_textures[image.name]
+        elif self.model.texture_export:
+            texture = Texture(self.id).unmake(image)
+            pixel_buffer = texture.pixels.write()
+            palette_buffer = texture.palette.write()
+            self.model.textureblock.inject([pixel_buffer, palette_buffer], self.id)
+            self.model.written_textures[image.name] = self.tex_index
+        
         return self
     
     def write(self, buffer, cursor):
@@ -1241,6 +1264,7 @@ class Mesh(DataStruct):
         return self
     
     def write(self, buffer, cursor):
+        print('writing mesh', self.id)
         #initialize addresses
         mat_addr = 0
         collision_tags_addr = 0
@@ -1912,7 +1936,7 @@ class Model():
         self.parent = None
         self.modelblock = None
         self.collection = None
-        self.texture_index = 894
+        self.texture_index = 800#1648
         self.ext = None
         self.id = id
         self.scale = 0.01
@@ -1964,12 +1988,14 @@ class Model():
 
         return collection
 
-    def unmake(self, collection):
+    def unmake(self, collection, texture_export, textureblock):
+        self.textureblock = textureblock
+        self.written_textures = {}
         self.ext = collection['ext']
         self.id = collection['ind']
         self.header.unmake(collection)
         self.nodes = []
-        
+        self.texture_export = texture_export
         #if 'parent' in collection: return
         
         viscol = []

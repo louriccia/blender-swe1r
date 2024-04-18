@@ -20,7 +20,9 @@ def export_model(col, file_path, exports):
         
     if 'MESH' in types and model_export:
         modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
-        model = Model(col['ind']).unmake(col)
+        textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
+        
+        model = Model(col['ind']).unmake(col, texture_export, textureblock)
         id = model.id
         if model is None:
             show_custom_popup(bpy.context, "Model Error", "There was an issue while exporting the model")
@@ -31,6 +33,10 @@ def export_model(col, file_path, exports):
         
         with open(file_path + 'out_modelblock.bin', 'wb') as file:
             file.write(modelblock.write())
+            
+        if texture_export:
+            with open(file_path + 'out_textureblock.bin', 'wb') as file:
+                file.write(textureblock.write())
             
         #debug write
         with open(file_path + 'model_' + str(model.id)+'.bin', 'wb') as file:
@@ -66,18 +72,25 @@ def export_model(col, file_path, exports):
         with open(file_path + 'spline_' + str(spline.id)+'.bin', 'wb') as file:
             file.write(spline_buffer)
     
-    if texture_export:
-        textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
-        for image in bpy.data.images:
-            id = int(image['id']) if 'id' in image else 0
-            if not 'format' in image:
-                image['format'] = 513
-            texture = Texture(id).unmake(image)
-            pixel_buffer = texture.pixels.write()
-            palette_buffer = texture.palette.write()
-            textureblock.inject([pixel_buffer, palette_buffer], id)
-        with open(file_path + 'out_textureblock.bin', 'wb') as file:
-            file.write(textureblock.write())
+    # if texture_export:
+    #     already = []
+    #     textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
+    #     for image in bpy.data.images:
+    #         if image.users == 0:
+    #             continue
+    #         already.append(image.name)
+    #         if 'id' in image:
+    #             id = int(image['id'])
+    #         else:
+    #             id = 0
+    #         if not 'format' in image:
+    #             image['format'] = 513
+    #         texture = Texture(id).unmake(image)
+    #         pixel_buffer = texture.pixels.write()
+    #         palette_buffer = texture.palette.write()
+    #         textureblock.inject([pixel_buffer, palette_buffer], id)
+    #     with open(file_path + 'out_textureblock.bin', 'wb') as file:
+    #         file.write(textureblock.write())
             
     show_custom_popup(bpy.context, "Exported!", f"Model {col['ind']} was successfully exported")
     

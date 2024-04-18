@@ -27,7 +27,7 @@ from .modelblock import DataStruct
 
 class Texture():
     def __init__(self, id, format = 513, width = 32, height = 32):
-        if(int(id) > 1647):
+        if(int(id) == 65535):
             raise ValueError(f"Unexpected texture index {id}")
         self.id = id
         self.format = format
@@ -145,7 +145,10 @@ class Palette():
         return [c.to_array() for c in self.data]
     
     def unmake(self, image):
-        threshold = 16 if int(image['format']) == 512 else 256
+        if 'format' not in image:
+            threshold = 256
+        else:
+            threshold = 16 if int(image['format']) == 512 else 256
         pixels = image.pixels
         
         #TODO replace with color quantization solution
@@ -225,7 +228,10 @@ class Pixels():
         return self.data
 
     def unmake(self, image):
-        self.texture.format = int(image['format'])
+        if 'format' not in image:
+            self.texture.format = 513
+        else:
+            self.texture.format = int(image['format'])
         format = self.texture.format
         palette = None
         if format in [512, 513]:

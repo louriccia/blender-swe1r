@@ -71,11 +71,14 @@ class SplinePoint(DataStruct):
         polyline.bezier_points[-1].handle_left =  tuple([p for p in self.handle1.to_array()])
         polyline.bezier_points[-1].handle_right =  tuple([p for p in self.handle2.to_array()])
     
-    def unmake(self, point):
-        self.position = FloatPosition().from_array([c for c in point.co])
+    def unmake(self, point, object):
+        co = object.matrix_world @ point.co
+        handle_left = object.matrix_world @ point.handle_left
+        handle_right = object.matrix_world @ point.handle_right
+        self.position = FloatPosition().from_array([c/.01 for c in co])
         self.rotation = FloatVector().from_array([0, 0, 1])
-        self.handle1 = FloatPosition().from_array([c for c in point.handle_left])
-        self.handle2 = FloatPosition().from_array([c for c in point.handle_right])
+        self.handle1 = FloatPosition().from_array([c/.01 for c in handle_left])
+        self.handle2 = FloatPosition().from_array([c/.01 for c in handle_right])
         return self
     
     def to_array(self):
@@ -249,7 +252,7 @@ class Spline(DataStruct):
         
         #add all points from main_path
         for i, point in enumerate(main_path.bezier_points):
-            p = SplinePoint().unmake(point)
+            p = SplinePoint().unmake(point, spline_object)
             p.id = point_count
             
             if i == 0 and loop:
@@ -289,7 +292,7 @@ class Spline(DataStruct):
             
             # loop through and add points of path
             for i, point in enumerate(points):
-                p = SplinePoint().unmake(point)
+                p = SplinePoint().unmake(point, spline_object)
                 p.id = point_count
                 
                 if i == 0: # start of path connects to existing point
@@ -323,6 +326,9 @@ class Spline(DataStruct):
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point
         # cannot have alt paths that start before and end after the finish line on main spline
+
+        for point in self.points:
+            print(point.to_array())
 
         self.point_count = len(self.points)
         self.segment_count = segment_count

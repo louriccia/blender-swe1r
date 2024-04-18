@@ -135,6 +135,8 @@ class ImportExportExamplePanel(bpy.types.Panel):
         box.label(text = 'Edit')
         
         box.operator("import.v_color", text="Set Up Vertex Colors")
+        box.operator("import.set_collidable", text="Make Collidable")
+        box.operator("import.set_visible", text="Make Visible")
 
         # Section 3: Export
         box = layout.box()
@@ -209,6 +211,26 @@ class VertexColorOperator(bpy.types.Operator):
             bpy.context.view_layer.objects.active = obj
             bpy.ops.geometry.color_attribute_add(name = "color", domain = "CORNER", data_type="BYTE_COLOR", color = [1.0, 1.0, 1.0, 1.0])
         return {'FINISHED'}
+    
+class CollidableOperator(bpy.types.Operator):
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "import.set_collidable"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            obj['type'] = 'COL'
+        return {'FINISHED'}
+    
+class VisibleOperator(bpy.types.Operator):
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "import.set_visible"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            obj['type'] = 'VIS'
+        return {'FINISHED'}
 
 def menu_func(self, context):
     self.layout.operator(ImportOperator.bl_idname)
@@ -240,6 +262,8 @@ def register():
     bpy.utils.register_class(ImportOperator)
     bpy.utils.register_class(ExportOperator)
     bpy.utils.register_class(VertexColorOperator)
+    bpy.utils.register_class(CollidableOperator)
+    bpy.utils.register_class(VisibleOperator)
     bpy.types.TOPBAR_MT_file.append(menu_func)
 
 def unregister():
@@ -247,6 +271,8 @@ def unregister():
     bpy.utils.unregister_class(ImportOperator)
     bpy.utils.unregister_class(ExportOperator)
     bpy.utils.unregister_class(VertexColorOperator)
+    bpy.utils.unregister_class(CollidableOperator)
+    bpy.utils.unregister_class(VisibleOperator)
     bpy.types.TOPBAR_MT_file.remove(menu_func)
     del bpy.types.Scene.import_folder
     del bpy.types.Scene.import_type
