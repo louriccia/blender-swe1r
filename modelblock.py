@@ -199,7 +199,8 @@ class SurfaceFlags(DataStruct):
     
     def unmake(self, obj):
         for attr in self.flags:
-            setattr(self, attr, obj[attr])
+            if attr in obj:
+                setattr(self, attr, obj[attr])
     
     def write(self, buffer, cursor):
         data = 0
@@ -258,11 +259,13 @@ class CollisionTags(DataStruct):
     
     def unmake(self, mesh):
         self.flags.unmake(mesh)
+        #TODO Triggers, fog, lighting
         
         return self
     
     def write(self, buffer, cursor):
-        struct.pack_into(self.format_string, buffer, cursor, *[self.unk, *self.fog.to_array(), *self.lights.to_array(), self.flags, self.unk2, self.unload, self.load])
+        print(*[self.unk, *self.fog.to_array(), *self.lights.to_array(), self.flags, self.unk2, self.unload, self.load, 0])
+        struct.pack_into(self.format_string, buffer, cursor, *[self.unk, *self.fog.to_array(), *self.lights.to_array(), 0, self.unk2, self.unload, self.load, 0])
         self.flags.write(buffer, cursor + 44)
         return cursor + self.size 
 
@@ -1282,7 +1285,7 @@ class Mesh(DataStruct):
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
                 
         if 'COL' in node['type']:
-            #self.collision_tags = CollisionTags(self, self.model).unmake(node)
+            self.collision_tags = CollisionTags(self, self.model).unmake(node)
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node)
             self.vert_strips = CollisionVertStrips(self, self.model).unmake(node)
             
