@@ -382,16 +382,12 @@ class VisualsVertChunk(DataStruct):
             self.uv = [round(c*4096) for c in uv]
         if color:
             self.color = RGBA4Bytes().unmake(color)
-        if self.parent.parent.id == 'Royal_Raceway.065':
-            print(self.uv)
         return self
     def write(self, buffer, cursor):
         co =  [min(32767, max(-32768, c)) for c in self.co]
         self.co = co
         uv =[min(32767, max(-32768, c)) for c in self.uv]
         self.uv = uv
-        if self.parent.parent.id == 'Royal_Raceway.065':
-            print(uv)
         struct.pack_into(self.format_string, buffer, cursor, *self.co, *self.uv, *self.color.make())
         return cursor + self.size
     
@@ -743,13 +739,10 @@ class MaterialTexture(DataStruct):
         return self.texture.make()
     
     def unmake(self, image):
-        if image.name == '448F972_c.png' or image.name == '31A2D889_c.png':
-            print('GOT IT', image.name)
-            image['format'] = 3
         if image is None:
             return self
         self.width, self.height = image.size
-        if 'id' in image and False:
+        if 'id' in image:
             self.tex_index = int(image['id'])
         else:
             self.format = 513
