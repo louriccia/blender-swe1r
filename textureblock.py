@@ -198,7 +198,7 @@ class Pixels():
                 cursor += 4
 
         elif self.texture.format == 512:
-            for i in range(round(pixel_count/2)):
+            for i in range(min(round(pixel_count/2), len(buffer))):
                 p = buffer[cursor]
                 pixel_0 = (p >> 4) & 0xF
                 pixel_1 = p & 0xF
