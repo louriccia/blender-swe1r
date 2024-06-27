@@ -25,6 +25,7 @@ import math
 from .general import *
 from .modelblock import DataStruct, FloatPosition, FloatVector
 from .popup import show_custom_popup
+from .spline_map import spline_map
 
 class SplinePoint(DataStruct):
     def __init__(self):
@@ -212,7 +213,11 @@ class Spline(DataStruct):
             return
         
         spline_object = spline_objects[0]
-        self.id = spline_object['id']
+        if 'id' in spline_object:
+            self.id = spline_object['id']
+        else:
+            self.id = spline_map[collection['ind']]
+            print('correct id', self.id)
         splines = spline_object.data.splines
         
         #find bezier splines

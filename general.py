@@ -224,13 +224,22 @@ class RGB3Bytes(DataStruct):
         self.r = r
         self.g = g
         self.b = b
-    def to_array(self):
-        return [self.r, self.g, self.b]
+    
+    def from_array(self, arr):
+        self.r, self.g, self.b = arr
+        return self
+
+    def make(self):
+        return [self.r/255, self.g/255, self.b/255]
+    
     def unmake(self, data):
         self.r = round(data[0]*255)
         self.g = round(data[1]*255)
         self.b = round(data[2]*255)
         return self
+    
+    def to_array(self):
+        return [self.r, self.g, self.b]
     
 class RGBA4Bytes(DataStruct):
     def __init__(self, r = 255, g = 255, b = 255, a = 255):

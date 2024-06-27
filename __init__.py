@@ -94,6 +94,7 @@ model_types = [('0', 'All', 'View all models'),
                             ('7', 'Trak', 'Tracks'),
                             ]
 models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
+classes = []
 
 def update_model_dropdown(self, context):
     model_type = model_types[int(context.scene.import_type)][1]
@@ -110,6 +111,9 @@ def update_model_dropdown(self, context):
         description="Select models to import",
     )
     save_settings(self, context)
+    
+    
+bpy.types.Object.target = bpy.props.PointerProperty(type=bpy.types.Object)
 
 class ImportExportExamplePanel(bpy.types.Panel):
     bl_label = "SWE1R Import/Export"
@@ -258,6 +262,8 @@ def register():
     bpy.types.Scene.export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('export_texture', True))
     bpy.types.Scene.export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('export_spline', True))
     
+    for cls in classes:
+        bpy.utils.register_class(cls)
     bpy.utils.register_class(ImportExportExamplePanel)
     bpy.utils.register_class(ImportOperator)
     bpy.utils.register_class(ExportOperator)
@@ -267,6 +273,8 @@ def register():
     bpy.types.TOPBAR_MT_file.append(menu_func)
 
 def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
     bpy.utils.unregister_class(ImportExportExamplePanel)
     bpy.utils.unregister_class(ImportOperator)
     bpy.utils.unregister_class(ExportOperator)

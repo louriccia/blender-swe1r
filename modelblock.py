@@ -26,104 +26,244 @@ from .general import *
 from .textureblock import Texture
 from .popup import show_custom_popup
 
-class Lights(Data):
+class Lights(DataStruct):
     def __init__(self):
+        super().__init__('>H8B6f')
         self.flag = 0
-        self.ambient = Color()
-        self.color = Color()
+        self.ambient = RGB3Bytes()
+        self.color = RGB3Bytes()
         self.unk1 = 0
         self.unk2 = 0
         self.pos = FloatPosition()
         self.rot = FloatVector()
+        
+    def read(self, buffer, cursor):
+        self.flag, ambient_r, ambient_g, ambient_b, color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, rx, ry, rz = struct.unpack_from(self.format_string, buffer, cursor)
+        self.ambient.from_array([ambient_r, ambient_g, ambient_b])
+        self.color.from_array([color_r, color_g, color_b])
+        self.pos.from_array([x, y, z])
+        self.rot.from_array([rx, ry, rz])
+        return self
+    
+    def make(self, obj):
+        obj['lights_ambient'] = self.ambient.to_array()
+        obj['lights_color'] = self.color.make()
+        obj['lights_unk1'] = self.unk1
+        obj['lights_unk2'] = self.unk2
+        obj['lights_pos'] = self.pos.to_array()
+        obj['lights_rot'] = self.rot.to_array()
+        obj.id_properties_ui('lights_pos').update(subtype='COORDINATES')
+        obj.id_properties_ui('lights_rot').update(subtype='COORDINATES')
+        obj.id_properties_ui('lights_ambient').update(subtype='COLOR')
+        obj.id_properties_ui('lights_color').update(subtype='COLOR')
+
+        
+    def unmake(self, obj):
+        self.ambient.from_array(obj['lights_ambient'])
+        self.color.from_array(obj['lights_color'])
+        self.unk1 = obj['lights_unk1']
+        self.unk2 = obj['lights_unk2']
+        self.pos.from_array(obj['lights_pos'])
+        self.rot.from_array(obj['lights_rot'])
     
     def to_array(self):
-        return [self.flag, *self.ambient.get(), *self.color.get(),self.unk1, self.unk2, *self.pos.get(), *self.rot.get()]
+        return [self.flag, *self.ambient.to_array(), *self.color.to_array(),self.unk1, self.unk2, *self.pos.to_array(), *self.rot.to_array()]
         
-    def set(self, flag, ambient_r, ambient_g, ambient_b, color_r, color_g, color_b,unk1, unk2, x, y, z, a, b, c):
-        self.flag = flag
-        self.ambient = Color().set([ambient_r, ambient_g, ambient_b])
-        self.color = Color().set([color_r, color_g, color_b])
-        self.unk1 = unk1
-        self.unk2 = unk2
-        self.pos = FloatPosition([x, y, z])
-        self.rot = FloatVector([a, b, c])
+    def from_array(self, arr):
+        self.flag, ambient_r, ambient_g, ambient_b,color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, a, b, c = arr
+        self.ambient.from_array([ambient_r, ambient_g, ambient_b])
+        self.color.from_array([color_r, color_g, color_b])
+        self.pos.from_array([x, y, z])
+        self.rot.from_array([a, b, c])
+        return self
 
-class Fog(Data):
+class Fog(DataStruct):
     def __init__(self):
+        super().__init__('>4B2H')
         self.flag = 0
-        self.color = Color()
+        self.color = RGB3Bytes()
         self.start = 0
         self.end = 0
     
-    def get(self):
-        return [self.flag, *self.color.get(), self.start, self.end]
+    def make(self, obj):
+        obj['fog_flag'] = self.flag
+        obj['fog_color'] = self.color.make()
+        obj['fog_start'] = self.start
+        obj['fog_end'] = self.end
+        obj.id_properties_ui('fog_color').update(subtype='COLOR')
+        obj.id_properties_ui('fog_start').update(subtype='DISTANCE')
         
-    def set(self, flag, r, g, b, start, end):
-        self.flag = flag
-        self.color = Color().set([r, g, b])
-        self.start = start
-        self.end = end
+    def unmake(self, obj):
+        self.flag = obj['fog_flag'] 
+        self.color = obj['fog_color'] 
+        self.start  = obj['fog_start'] 
+        self.end = obj['fog_end']
+    
+    def read(self, buffer, cursor):
+        self.flag, r, g, b, self.start, self.end = struct.unpack_from(self.format_string, buffer, cursor)
+        self.color.from_array([r, g, b])
+        return self
+        
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, self.flag, *self.color.to_array(), self.start, self.end)
+        return cursor + self.size
+    
+    def to_array(self):
+        return [self.flag, *self.color.to_array(), self.start, self.end]
+        
+    def from_array(self, arr):
+        self.flag, r, g, b, self.start, self.end = arr
+        self.color = RGB3Bytes().from_array([r, g, b])
+        return self
+
+class CollisionTrigger(DataStruct):
+    def __init__(self, parent, model):
+        super().__init__('>8f3i')
+        self.parent = parent
+        self.model = model
+        self.position = FloatPosition()
+        self.rotation = FloatVector()
+        self.width = 0
+        self.height = 0
+        self.target = 0
+        self.flag = 0
+        self.next = 0
+    
+    def to_array(self):
+        return [*self.position.to_array(), *self.rotation.to_array(), self.width, self.height, self.target, self.flag, self.next]
+    
+    def read(self, buffer, cursor):
+        x, y, z, rx, ry, rz, self.width, self.height, self.target, self.flag, self.next = struct.unpack_from(self.format_string, buffer, cursor)
+        self.position.from_array([x, y, z])
+        self.rotation.from_array([rx, ry, rz])
+        return self
+        
+    def make(self, parent, collection):
+        trigger_empty = bpy.data.objects.new("trigger_" + str(self.flag), None)
+        trigger_empty.empty_display_type = 'CUBE'
+        trigger_empty.location = self.position.data
+        trigger_empty.rotation_euler = [math.asin(self.rotation.data[2]), 0, math.atan2(self.rotation.data[1], self.rotation.data[0])]
+        trigger_empty.scale = [self.width/2, self.width/2, self.height/2]
+        trigger_empty['flag'] = self.flag
+        trigger_empty.target = bpy.data.objects['{:07d}'.format(self.target)]
+        
+        trigger_empty.parent = parent
+        collection.objects.link(trigger_empty)
+    
+    def unmake(self, node):
+        pass
+    
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, *self.position.to_array(), *self.rotation.to_array(), self.width, self.height, self.target, self.flag, 0)
+        return cursor + self.size
+
+class SurfaceEnum():
+    ZOn = (1 << 0)
+    ZOff = (1 << 1)
+    Fast = (1 << 2)
+    Slow = (1 << 3)
+    Swst = (1 << 4)
+    Slip = (1 << 5)
+    Dust = (1 << 6)
+    Snow = (1 << 7)
+    Wet = (1 << 8)
+    Ruff = (1 << 9)
+    Swmp = (1 << 10)
+    NSnw = (1 << 11)
+    Mirr = (1 << 12)
+    Lava = (1 << 13)
+    Fall = (1 << 14)
+    Soft = (1 << 15)
+    NRsp = (1 << 16)
+    Flat = (1 << 17)
+    Side = (1 << 29)
+
+class SurfaceFlags(DataStruct):
+    
+    
+    def __init__(self):
+        super().__init__('>i')
+        self.flags = ['ZOn', 'ZOff', 'Fast', 'Slow', 'Swst', 'Slip', 'Dust', 'Snow', 'Wet', 'Ruff', 'Swmp', 'NSnw', 'Mirr', 'Lava', 'Fall', 'Soft', 'NRsp', 'Flat', 'Side']
+        for attr in self.flags:
+            setattr(self, attr, False)
+
+    def read(self, buffer, cursor):
+        data = struct.unpack_from(self.format_string, buffer, cursor)
+        data = data[0]
+        for attr in self.flags:
+            setattr(self, attr, bool(getattr(SurfaceEnum, attr) & data))
+    
+    def make(self, obj):
+        for attr in self.flags:
+            obj[attr] = getattr(self, attr)
+    
+    def unmake(self, obj):
+        for attr in self.flags:
+            setattr(self, attr, obj[attr])
+    
+    def write(self, buffer, cursor):
+        data = 0
+        for attr in self.flags:
+            data |= (getattr(SurfaceEnum, attr) * int(getattr(self, attr)))
+        struct.pack_into(self.format_string, buffer, cursor, data)
+
+    def is_set(self, flag):
+        return bool(self.value & flag)
+
+    def set_flag(self, flag):
+        self.value |= flag
+
+    def clear_flag(self, flag):
+        self.value &= ~flag
 
 class CollisionTags(DataStruct):
     def __init__(self, parent, model):
         
-        super().__init__('>H4B3H8B6f2I2i')
+        super().__init__('>H4B3H8B6f2I3i')
         self.parent = parent
         self.model = model
         self.unk = 0
         self.fog = Fog()
         self.lights = Lights()
-        self.flags = 0
+        self.flags = SurfaceFlags()
         self.unk2 = 0
         self.unload = 0
         self.load = 0
+        self.triggers = []
 
     def read(self, buffer, cursor):
-        # Unpack binary data into object attributes
         data = struct.unpack_from(self.format_string, buffer, cursor)
         self.unk = data[0]
-        self.fog = Fog().set(*data[1:7])
-        self.lights = Lights().set(*data[7:22])
-        self.flags, self.unk2, self.unload, self.load = data[22:]
+        self.fog = Fog().from_array(data[1:7])
+        self.lights = Lights().from_array(data[7:22])
+        flags, self.unk2, self.unload, self.load = data[22:26]
+        self.flags.read(buffer, cursor + 44)
+        
+        #get triggers
+        trigger_pointer = data[-1]
+        while trigger_pointer:
+            trigger = CollisionTrigger(self, self.model).read(buffer, trigger_pointer)
+            self.triggers.append(trigger)
+            trigger_pointer = trigger.next
         return self
         
-    def make(self, obj):
-        # for key in mesh_node['collision']['data']:
-        #     obj[key] = mesh_node['collision']['data'][key]
+    def make(self, obj, collection):
+        self.flags.make(obj)
+        self.fog.make(obj)
+        self.lights.make(obj)
         
-        # obj.id_properties_ui('fog_color').update(subtype='COLOR')
-        # obj.id_properties_ui('lights_ambient_color').update(subtype='COLOR')
-        # obj.id_properties_ui('lights_color').update(subtype='COLOR')
-        pass
+        for trigger in self.triggers:
+            trigger.make(obj, collection)
+        
     
     def unmake(self, mesh):
-        if not 'unk' in mesh:
-            return None
-        self.unk = mesh['unk']
-        self.flags = mesh['flags']
-        self.unk2 = mesh['unk3']
-        self.unload = mesh['unload']
-        self.load = mesh['load']
-        # 'fog': {
-        #     'flag': mesh['fog_flag'],
-        #     'color': [round(c*255) for c in mesh['fog_color']],
-        #     'start': mesh['fog_start'],
-        #     'end': mesh['fog_stop']
-        # }
-        # 'lights': {
-        #     'flag': mesh['lights_flag'],
-        #     'ambient_color': [round(c*255) for c in mesh['lights_ambient_color']],
-        #     'color': [round(c*255) for c in mesh['lights_color']],
-        #     'unk1': mesh['unk1'],
-        #     'unk2': mesh['unk2'],
-        #     'pos': [p for p in mesh['lights_pos']],
-        #     'rot': [r for r in mesh['lights_rot']]
-        # }
+        self.flags.unmake(mesh)
+        
         return self
     
     def write(self, buffer, cursor):
-        # Pack object attributes into binary data
-        struct.pack_into(self.format_string, buffer, cursor, *[self.unk, *self.fog.get(), *self.lights.get(), self.flags, self.unk2, self.unload, self.load])
+        struct.pack_into(self.format_string, buffer, cursor, *[self.unk, *self.fog.to_array(), *self.lights.to_array(), self.flags, self.unk2, self.unload, self.load])
+        self.flags.write(buffer, cursor + 44)
         return cursor + self.size 
 
 class CollisionVertBuffer(DataStruct):
@@ -1036,7 +1176,7 @@ class Mesh(DataStruct):
             obj.parent = parent
 
             if(self.collision_tags is not None): 
-                self.collision_tags.make(obj)
+                self.collision_tags.make(obj, collection)
                 
         if self.has_visuals():
             
@@ -1149,7 +1289,7 @@ class Mesh(DataStruct):
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
                 
         if 'COL' in node['type']:
-            self.collision_tags = CollisionTags(self, self.model).unmake(node)
+            #self.collision_tags = CollisionTags(self, self.model).unmake(node)
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node)
             self.vert_strips = CollisionVertStrips(self, self.model).unmake(node)
             
@@ -1298,7 +1438,7 @@ class Mesh(DataStruct):
             collision_vert_buffer_addr = cursor
             cursor = self.collision_vert_buffer.write(buffer, cursor)
             collision_vert_count = len(self.collision_vert_buffer.data)
-            if cursor % 4 is not 0:
+            if cursor % 4 != 0:
                 cursor += cursor % 4
                 
         if self.material:
