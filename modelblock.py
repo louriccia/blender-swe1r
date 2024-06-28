@@ -118,7 +118,7 @@ class Fog(DataStruct):
 
 class CollisionTrigger(DataStruct):
     def __init__(self, parent, model):
-        super().__init__('>8f3i')
+        super().__init__('>8fi2hi')
         self.parent = parent
         self.model = model
         self.position = FloatPosition()
@@ -126,35 +126,61 @@ class CollisionTrigger(DataStruct):
         self.width = 0
         self.height = 0
         self.target = 0
+        self.id = 0
         self.flag = 0
         self.next = 0
     
     def to_array(self):
-        return [*self.position.to_array(), *self.rotation.to_array(), self.width, self.height, self.target, self.flag, self.next]
+        return [*self.position.to_array(), *self.rotation.to_array(), self.width, self.height, self.target, self.id, self.flag, self.next]
     
     def read(self, buffer, cursor):
-        x, y, z, rx, ry, rz, self.width, self.height, self.target, self.flag, self.next = struct.unpack_from(self.format_string, buffer, cursor)
+        x, y, z, rx, ry, rz, self.width, self.height, self.target, self.id, self.flag, self.next = struct.unpack_from(self.format_string, buffer, cursor)
         self.position.from_array([x, y, z])
         self.rotation.from_array([rx, ry, rz])
         return self
         
     def make(self, parent, collection):
-        trigger_empty = bpy.data.objects.new("trigger_" + str(self.flag), None)
+        trigger_empty = bpy.data.objects.new("trigger_" + str(self.id), None)
         trigger_empty.empty_display_type = 'CUBE'
         trigger_empty.location = self.position.data
         trigger_empty.rotation_euler = [math.asin(self.rotation.data[2]), 0, math.atan2(self.rotation.data[1], self.rotation.data[0])]
         trigger_empty.scale = [self.width/2, self.width/2, self.height/2]
+        trigger_empty['id'] = self.id
         trigger_empty['flag'] = self.flag
-        trigger_empty.target = bpy.data.objects['{:07d}'.format(self.target)]
+        
+        #TODO this needs to be able to select targets that aren't made yet
+        if self.target and '{:07d}'.format(self.target) in bpy.data.objects:
+            trigger_empty.target = bpy.data.objects['{:07d}'.format(self.target)]
         
         trigger_empty.parent = parent
         collection.objects.link(trigger_empty)
     
     def unmake(self, node):
-        pass
+        if node.type != 'EMPTY' or node.empty_display_type != 'CUBE':
+            return None
+        
+        if 'id' not in node:
+            return None
+        
+        self.id = node['id']
+        self.flag = node['flag']
+        self.position.from_array(node.matrix_world @ node.location)
+        self.rotation.from_array([ math.cos(node.rotation_euler[2]), math.sin(node.rotation_euler[2]), math.sin(node.rotation_euler[0])])
+        self.width = node.scale[0]*2
+        self.height = node.scale[2]*2
+        if node.target:
+            self.target = node.target
+            
+        return self
     
     def write(self, buffer, cursor):
-        struct.pack_into(self.format_string, buffer, cursor, *self.position.to_array(), *self.rotation.to_array(), self.width, self.height, self.target, self.flag, 0)
+        target =  0
+        if self.target and self.target.write_location:
+            target = self.target.write_location
+        struct.pack_into(self.format_string, buffer, cursor, *self.position.to_array(), *self.rotation.to_array(), self.width, self.height, target, self.id, self.flag, 0)
+        self.model.highlight(cursor + 32)
+        if self.target:
+            self.model.outside_ref(cursor + 32, self.target)
         return cursor + self.size
 
 class SurfaceEnum():
@@ -179,8 +205,6 @@ class SurfaceEnum():
     Side = (1 << 29)
 
 class SurfaceFlags(DataStruct):
-    
-    
     def __init__(self):
         super().__init__('>i')
         self.flags = ['ZOn', 'ZOff', 'Fast', 'Slow', 'Swst', 'Slip', 'Dust', 'Snow', 'Wet', 'Ruff', 'Swmp', 'NSnw', 'Mirr', 'Lava', 'Fall', 'Soft', 'NRsp', 'Flat', 'Side']
@@ -253,21 +277,33 @@ class CollisionTags(DataStruct):
         self.fog.make(obj)
         self.lights.make(obj)
         
+        
+        
         for trigger in self.triggers:
             trigger.make(obj, collection)
         
     
     def unmake(self, mesh):
         self.flags.unmake(mesh)
-        #TODO Triggers, fog, lighting
+        #TODO fog, lighting
+        
+        for child in mesh.children:
+            trigger = CollisionTrigger(self, self.model).unmake(child)
+            if trigger:
+                self.triggers.append(trigger)
         
         return self
     
     def write(self, buffer, cursor):
-        print(*[self.unk, *self.fog.to_array(), *self.lights.to_array(), self.flags, self.unk2, self.unload, self.load, 0])
         struct.pack_into(self.format_string, buffer, cursor, *[self.unk, *self.fog.to_array(), *self.lights.to_array(), 0, self.unk2, self.unload, self.load, 0])
         self.flags.write(buffer, cursor + 44)
-        return cursor + self.size 
+        cursor += self.size
+        for trigger in self.triggers:
+            #write pointer to next trigger
+            self.model.highlight(cursor - 4)
+            writeUInt32BE(buffer, cursor, cursor - 4)
+            cursor = trigger.write(buffer, cursor)
+        return cursor
 
 class CollisionVertBuffer(DataStruct):
     def __init__(self, parent, model, length = 0):
@@ -415,9 +451,13 @@ class VisualsVertBuffer():
         uv_data = None
         color_data = None
         
-        if mesh.data.uv_layers.active:
+        if mesh.data is None:
+            print(self.parent.id, 'has no mesh data')
+            return
+        
+        if mesh.data.uv_layers and mesh.data.uv_layers.active:
             uv_data = mesh.data.uv_layers.active.data
-        if mesh.data.vertex_colors.active:
+        if mesh.data.vertex_colors and mesh.data.vertex_colors.active:
             color_data = mesh.data.vertex_colors.active.data
         
         for vert in mesh.data.vertices:
@@ -429,8 +469,6 @@ class VisualsVertBuffer():
             for loop_index in poly.loop_indices:
                 vert_index = mesh.data.loops[loop_index].vertex_index
                 uv = None if not uv_data else uv_data[loop_index].uv
-                if self.parent.id == 'Royal_Raceway.065':
-                    print('unmaking', uv)
                 color = None if not color_data else color_data[loop_index].color
                 self.data[vert_index].unmake(mesh.matrix_world @ mesh.data.vertices[vert_index].co, uv, color)
                 
@@ -1102,6 +1140,9 @@ class Mesh(DataStruct):
     def has_collision(self):
         return self.collision_vert_buffer is not None and self.collision_vert_buffer.length >= 3
     
+    def has_trigger(self):
+        return self.collision_tags is not None and len(self.collision_tags.triggers)
+    
     def read(self, buffer, cursor):
         self.id = cursor
         mat_addr, collision_tags_addr, min_x, min_y, min_z, max_x, max_y, max_z, self.strip_count, self.strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count = struct.unpack_from(self.format_string, buffer, cursor)
@@ -1212,11 +1253,10 @@ class Mesh(DataStruct):
                     color_layer[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
     
     def unmake(self, node):
-        self.id = node.name
+        self.id = node['id']
+        print('unmaking mesh', self.id)
         if 'type' not in node:
             node['type'] = 'VISCOL'
-        
-        print(self.id, node['type'])    
         
         if 'VIS' in node['type']:
             self.material = Material(self, self.model).unmake(node)
@@ -1400,7 +1440,9 @@ class Mesh(DataStruct):
         return self
     
     def write(self, buffer, cursor):
-        print('writing mesh', self.id)
+        #print('writing mesh', self.id)
+        self.model.map_ref(cursor, self.id)
+        self.write_location = cursor
         #initialize addresses
         mat_addr = 0
         collision_tags_addr = 0
@@ -1575,6 +1617,7 @@ class Node(DataStruct):
             collection.objects.link(new_node)
 
         #set group tags
+        new_node['id'] = self.id
         new_node['node_type'] = self.node_type
         new_node['vis_flags'] = str(self.vis_flags)
         new_node['col_flags'] = str(self.col_flags)
@@ -1595,7 +1638,7 @@ class Node(DataStruct):
             
         return new_node
     def unmake(self, node):
-        self.id = node.name
+        self.id = node['id']
         self.node_type = node['node_type']
         self.vis_flags = int(node['vis_flags'])
         self.col_flags = int(node['col_flags'])
@@ -1618,6 +1661,9 @@ class Node(DataStruct):
         return self
     
     def write(self, buffer, cursor):
+        self.model.map_ref(cursor, self.id)
+        self.write_location = cursor
+        
         #write references to this node in the model header
         for i in self.header:
             struct.pack_into(f">{len(self.header)}I", buffer, 4 + 4*i, *[cursor]*len(self.header))
@@ -2066,8 +2112,40 @@ def find_topmost_parent(obj):
         obj = obj.parent
     return obj
 
-class Model():
-    
+def find_obj_in_hierarchy(obj):
+    objects = []
+    if obj.type == 'MESH':
+        objects.append(obj)
+    for child in obj.children:
+        if child.type == 'MESH':
+            objects.append(child)
+        if len(child.children):
+            objects.extend(find_obj_in_hierarchy(child))
+    return objects
+
+
+def assign_meshes_to_node_by_type(mesh_arr, root, model):
+    viscol = []
+    col = []
+    vis = []    
+    for mesh in mesh_arr:
+        if mesh.has_collision() and mesh.has_visuals():
+            viscol.append(mesh)
+        elif mesh.has_collision():
+            col.append(mesh)
+        elif mesh.has_visuals():
+            vis.append(mesh)
+
+    for arr in [viscol, vis, col]:
+        if len(arr):
+            node = MeshGroup12388(root, model, 12388)
+            for child in arr: 
+                child.parent = node
+                node.children.append(child)
+            node.calc_bounding()
+            root.children.append(node)
+
+class Model():    
     def __init__(self, id):
         self.parent = None
         self.modelblock = None
@@ -2132,51 +2210,48 @@ class Model():
         self.header.unmake(collection)
         self.nodes = []
         self.texture_export = texture_export
-        #if 'parent' in collection: return
         
-        viscol = []
-        vis = []
-        col = []
-        
+        trigger_objects = []
+        meshes = []
         root = Group20580(self, self, 20580)
         
         self.nodes.append(root)
         
+        #TODO detect triggers so that we can maintain their targets' structures
         for child_collection in collection.children:
             if child_collection.name == 'Track':
+                
+                trak_group = Group20580(root, self, 20580)
+                
+                #get everything to do with triggers
                 for obj in [obj for obj in child_collection.objects if obj.type == 'MESH']:
                     mesh = Mesh(None, self).unmake(obj)
-                    if mesh.has_collision() and mesh.has_visuals():
-                        viscol.append(mesh)
-                    elif mesh.has_collision():
-                        col.append(mesh)
-                    elif mesh.has_visuals():
-                        vis.append(mesh)
-                trak_group = Group20580(root, self, 20580)
-        
-                if len(viscol):
-                    node = MeshGroup12388(trak_group, self, 12388)
-                    for child in viscol: 
-                        child.parent = node
-                        node.children.append(child)
-                    node.calc_bounding()
-                    trak_group.children.append(node)
+                    if mesh.has_trigger():
+                        trigger_objects.append(obj)
+                        meshes.append(mesh)
+                        
+                        for trigger in mesh.collision_tags.triggers:
+                            if trigger.target:
+                                children = find_obj_in_hierarchy(trigger.target)
+                                if len(children):
+                                    #add bpy objects to list too be ignored
+                                    trigger_objects.extend(children)
+                                    
+                                    #unmake all objects
+                                    target_objects = [Mesh(None, self).unmake(child) for child in children]
+                                    target_node = Group20580(trak_group, self, 20580)
+                                    assign_meshes_to_node_by_type(target_objects, target_node, self)
+                                    trak_group.children.append(target_node)
+                                    trigger.target = target_node
+                                    
+                                else:
+                                    target_empty = Group53349(trak_group, self, 53349).unmake(trigger.target)
+                                    trak_group.children.append(target_empty)
+                                    trigger.target = target_empty
+                            
+                meshes.extend([Mesh(None,self).unmake(o) for o in child_collection.objects if (o.type == 'MESH' and o not in trigger_objects)])
                 
-                if len(vis):
-                    node = MeshGroup12388(trak_group, self, 12388)
-                    for child in vis: 
-                        child.parent = node
-                        node.children.append(child)
-                    node.calc_bounding()
-                    trak_group.children.append(node)
-                    
-                if len(col):
-                    node = MeshGroup12388(trak_group, self, 12388)
-                    for child in col: 
-                        child.parent = node
-                        node.children.append(child)
-                    node.calc_bounding()
-                    trak_group.children.append(node)
+                assign_meshes_to_node_by_type(meshes, trak_group, self)
         
                 trak_group.header = [0, 1]         
                 
@@ -2220,24 +2295,25 @@ class Model():
             cursor = anim.write(buffer, cursor)
 
         # write all outside references
-        refs = [ref for ref in self.ref_keeper if ref != '0']
-        for ref in self.ref_keeper:
-            for offset in self.ref_keeper[ref]:
-                writeUInt32BE(buffer, self.ref_map[str(ref)], offset)
+        # refs = [ref for ref in self.ref_keeper if ref != '0']
+        # for ref in refs:
+        #     for offset in self.ref_keeper[ref]:
+        #         writeUInt32BE(buffer, self.ref_map[ref], offset)
+                
         crop = math.ceil(cursor / (32 * 4)) * 4
         
         return [self.hl[:crop], buffer[:cursor]]
     
     def outside_ref(self, cursor, ref):
         # Used when writing modelblock to keep track of references to offsets outside of the given section
-        ref = str(ref)
+        #ref = str(ref)
         if ref not in self.ref_keeper:
             self.ref_keeper[ref] = []
         self.ref_keeper[ref].append(cursor)
         
     def map_ref(self, cursor, id):
         # Used when writing modelblock to map original ids of nodes to their new ids
-        id = str(id)
+        #id = str(id)
         if id not in self.ref_map:
             self.ref_map[id] = cursor
             
