@@ -136,11 +136,22 @@ class ImportExportExamplePanel(bpy.types.Panel):
 
         #Section 2: Edit
         box = layout.box()
-        box.label(text = 'Edit')
-        
-        box.operator("import.v_color", text="Set Up Vertex Colors")
+        box.label(text = 'Collision')
         box.operator("import.set_collidable", text="Make Collidable")
+        row = box.row()
+        row.scale_y = 1.5
+        row.prop(context.scene, "collision_visible", toggle=True, text = "Toggle Visible", icon = 'HIDE_OFF')
+        row.prop(context.scene, "collision_selectable", toggle =True, text = "Disable Selection", icon = 'RESTRICT_SELECT_OFF') 
+
+        #Visuals
+        box = layout.box()
+        box.label(text = 'Visuals')
+        box.operator("import.v_color", text="Set Up Vertex Colors")
         box.operator("import.set_visible", text="Make Visible")
+        row = box.row()
+        row.scale_y = 1.5
+        row.prop(context.scene, "visuals_visible", toggle=True, text = "Toggle Visible", icon = 'HIDE_OFF')
+        row.prop(context.scene, "visuals_selectable", toggle =True, text = "Disable Selection", icon = 'RESTRICT_SELECT_OFF') 
 
         # Section 3: Export
         box = layout.box()
@@ -215,17 +226,7 @@ class VertexColorOperator(bpy.types.Operator):
             bpy.context.view_layer.objects.active = obj
             bpy.ops.geometry.color_attribute_add(name = "color", domain = "CORNER", data_type="BYTE_COLOR", color = [1.0, 1.0, 1.0, 1.0])
         return {'FINISHED'}
-    
-class CollidableOperator(bpy.types.Operator):
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "import.set_collidable"
-    
-    def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            obj['type'] = 'COL'
-        return {'FINISHED'}
-    
+  
 class VisibleOperator(bpy.types.Operator):
     bl_label = "SWE1R Import/Export"
     bl_idname = "import.set_visible"
@@ -235,13 +236,57 @@ class VisibleOperator(bpy.types.Operator):
         for obj in selected_objects:
             obj['type'] = 'VIS'
         return {'FINISHED'}
+    
+class CollidableOperator(bpy.types.Operator):
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "import.set_collidable"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            obj['collidable'] = True
+        return {'FINISHED'}
+    
+def SplineVis(self, context):
+    for obj in bpy.context.scene.objects:
+        if obj.type == "CURVE":
+            obj.hide_viewport = not self.spline_visible
+
+def ColVis(self, context):
+    for obj in bpy.context.scene.objects:
+        if 'collidable' in obj and obj['collidable']:
+            obj.hide_viewport = not self.collision_visible
+            
+def ShoVis(self, context):
+    for obj in bpy.context.scene.objects:
+        if 'visible' in obj and obj['visible']:
+            obj.hide_viewport = not self.visuals_visible
+                
+def SelVis(self, context):
+    for obj in bpy.context.scene.objects:
+        if 'visible' in obj and obj['visible']:
+            obj.hide_select = not self.visuals_selectable
+
+def SelCol(self, context):
+    for obj in bpy.context.scene.objects:
+        if 'collidable' in obj and obj['collidable']:
+            obj.hide_select = not self.collision_selectable
+                
+def EmptyVis(self, context):
+    for obj in bpy.context.scene.objects:
+        if obj.type == "EMPTY" or obj.type == "LIGHT":
+            obj.hide_viewport = not self.emptyvis
+
 
 def menu_func(self, context):
     self.layout.operator(ImportOperator.bl_idname)
     self.layout.operator(ExportOperator.bl_idname)
 
 def register():
-
+    
+    for cls in classes:
+        bpy.utils.register_class(cls)
+        
     bpy.types.Scene.import_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=save_settings, default =get_setting('import_folder', ""), description="Select the lev01 folder (or any folder containing the .bin files)")
     bpy.types.Scene.import_type = bpy.props.EnumProperty(
         items=model_types,
@@ -261,9 +306,10 @@ def register():
     bpy.types.Scene.export_model = bpy.props.BoolProperty(name="Model", update=save_settings, default=get_setting('export_model', True))
     bpy.types.Scene.export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('export_texture', True))
     bpy.types.Scene.export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('export_spline', True))
-    
-    for cls in classes:
-        bpy.utils.register_class(cls)
+    bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'collision_visible', update =ColVis, default=True)
+    bpy.types.Scene.collision_selectable = bpy.props.BoolProperty(name = 'collision_selectable', update =SelCol, default=True)
+    bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'visuals_visible', update =ShoVis, default=True)
+    bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'visuals_selectable', update =SelVis, default=True)
     bpy.utils.register_class(ImportExportExamplePanel)
     bpy.utils.register_class(ImportOperator)
     bpy.utils.register_class(ExportOperator)
@@ -281,6 +327,7 @@ def unregister():
     bpy.utils.unregister_class(VertexColorOperator)
     bpy.utils.unregister_class(CollidableOperator)
     bpy.utils.unregister_class(VisibleOperator)
+    
     bpy.types.TOPBAR_MT_file.remove(menu_func)
     del bpy.types.Scene.import_folder
     del bpy.types.Scene.import_type

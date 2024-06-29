@@ -46,7 +46,7 @@ class Lights(DataStruct):
         return self
     
     def make(self, obj):
-        obj['lights_ambient'] = self.ambient.to_array()
+        obj['lights_ambient'] = self.ambient.make()
         obj['lights_color'] = self.color.make()
         obj['lights_unk1'] = self.unk1
         obj['lights_unk2'] = self.unk2
@@ -59,12 +59,18 @@ class Lights(DataStruct):
 
         
     def unmake(self, obj):
-        self.ambient.from_array(obj['lights_ambient'])
-        self.color.from_array(obj['lights_color'])
-        self.unk1 = obj['lights_unk1']
-        self.unk2 = obj['lights_unk2']
-        self.pos.from_array(obj['lights_pos'])
-        self.rot.from_array(obj['lights_rot'])
+        if 'lights_ambient' in obj:
+            self.ambient.unmake(obj['lights_ambient'])
+        if 'lights_color' in obj:
+            self.color.unmake(obj['lights_color'])
+        if 'lights_unk1' in obj:
+            self.unk1 = obj['lights_unk1']
+        if 'lights_unk2' in obj:
+            self.unk2 = obj['lights_unk2']
+        if 'lights_pos' in obj:
+            self.pos.from_array(obj['lights_pos'])
+        if 'lights_rot' in obj:
+            self.rot.from_array(obj['lights_rot'])
     
     def to_array(self):
         return [self.flag, *self.ambient.to_array(), *self.color.to_array(),self.unk1, self.unk2, *self.pos.to_array(), *self.rot.to_array()]
@@ -94,10 +100,14 @@ class Fog(DataStruct):
         obj.id_properties_ui('fog_start').update(subtype='DISTANCE')
         
     def unmake(self, obj):
-        self.flag = obj['fog_flag'] 
-        self.color = obj['fog_color'] 
-        self.start  = obj['fog_start'] 
-        self.end = obj['fog_end']
+        if 'fog_flag' in obj:
+            self.flag = obj['fog_flag'] 
+        if 'fog_color' in obj:
+            self.color.unmake(obj['fog_color'])
+        if 'fog_start' in obj:
+            self.start = obj['fog_start'] 
+        if 'fog_end' in obj:
+            self.end = obj['fog_end']
     
     def read(self, buffer, cursor):
         self.flag, r, g, b, self.start, self.end = struct.unpack_from(self.format_string, buffer, cursor)
@@ -147,7 +157,7 @@ class CollisionTrigger(DataStruct):
         trigger_empty.scale = [self.width/2, self.width/2, self.height/2]
         trigger_empty['id'] = self.id
         trigger_empty['flag'] = self.flag
-        
+        trigger_empty['target'] = self.target
         #TODO this needs to be able to select targets that aren't made yet
         if self.target and '{:07d}'.format(self.target) in bpy.data.objects:
             trigger_empty.target = bpy.data.objects['{:07d}'.format(self.target)]
@@ -162,15 +172,20 @@ class CollisionTrigger(DataStruct):
         if 'id' not in node:
             return None
         
+        location, rot, scale = node.matrix_world.decompose()
+        rotation = node.matrix_world.to_euler('XYZ')
+        
         self.id = node['id']
         self.flag = node['flag']
-        self.position.from_array(node.matrix_world @ node.location)
-        self.rotation.from_array([ math.cos(node.rotation_euler[2]), math.sin(node.rotation_euler[2]), math.sin(node.rotation_euler[0])])
-        self.width = node.scale[0]*2
-        self.height = node.scale[2]*2
+        self.position.from_array([x/self.model.scale for x in node.matrix_world.to_translation()])
+        self.rotation.from_array([ math.cos(rotation[2]), math.sin(rotation[2]), math.sin(rotation[0])])
+        self.width = scale[0]*2/self.model.scale
+        self.height = scale[2]*2/self.model.scale
         if node.target:
             self.target = node.target
             
+        self.model.triggers.append(self)
+        print(self.to_array(), location, rotation, scale)
         return self
     
     def write(self, buffer, cursor):
@@ -277,15 +292,14 @@ class CollisionTags(DataStruct):
         self.fog.make(obj)
         self.lights.make(obj)
         
-        
-        
         for trigger in self.triggers:
             trigger.make(obj, collection)
         
     
     def unmake(self, mesh):
         self.flags.unmake(mesh)
-        #TODO fog, lighting
+        self.fog.unmake(mesh)
+        self.lights.unmake(mesh)
         
         for child in mesh.children:
             trigger = CollisionTrigger(self, self.model).unmake(child)
@@ -1204,7 +1218,7 @@ class Mesh(DataStruct):
             mesh = bpy.data.meshes.new(mesh_name)
             obj = bpy.data.objects.new(mesh_name, mesh)
             
-            obj['type'] = 'COL'   
+            obj['collidable'] = True   
             obj['id'] = self.id
             obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
@@ -1224,7 +1238,7 @@ class Mesh(DataStruct):
             mesh_name = '{:07d}'.format(self.id) + "_" + "visuals"
             mesh = bpy.data.meshes.new(mesh_name)
             obj = bpy.data.objects.new(mesh_name, mesh)
-            obj['type'] = 'VIS'
+            obj['visible'] = True
             obj['id'] = self.id
             obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
@@ -1255,10 +1269,11 @@ class Mesh(DataStruct):
     def unmake(self, node):
         self.id = node['id']
         print('unmaking mesh', self.id)
-        if 'type' not in node:
-            node['type'] = 'VISCOL'
+        if 'visible' not in node and 'collidable' not in node:
+            node['visible'] = True
+            node['collidable'] = True
         
-        if 'VIS' in node['type']:
+        if 'visible' in node and node['visible']:
             self.material = Material(self, self.model).unmake(node)
             self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
             verts = self.visuals_vert_buffer.data
@@ -1324,7 +1339,7 @@ class Mesh(DataStruct):
             self.visuals_vert_buffer.data = new_verts
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
                 
-        if 'COL' in node['type']:
+        if 'collidable' in node and node['collidable']:
             self.collision_tags = CollisionTags(self, self.model).unmake(node)
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node)
             self.vert_strips = CollisionVertStrips(self, self.model).unmake(node)
@@ -2145,6 +2160,12 @@ def assign_meshes_to_node_by_type(mesh_arr, root, model):
             node.calc_bounding()
             root.children.append(node)
 
+def get_obj_by_id(id):
+    for obj in bpy.data.objects:
+        if 'id' in obj and obj.users > 0  and obj['id'] == id:
+            return obj
+    return None
+
 class Model():    
     def __init__(self, id):
         self.parent = None
@@ -2167,6 +2188,7 @@ class Model():
         self.materials = {}
         self.textures = {}
         self.nodes = []
+        self.triggers = []
 
     def read(self, buffer):
         if self.id is None:
@@ -2199,6 +2221,10 @@ class Model():
         self.header.make()
         for node in self.nodes:
             node.make(None, collection)
+
+        for trigger in self.triggers:
+            if trigger.target:
+                trigger.target = get_obj_by_id(trigger.target)
 
         return collection
 
@@ -2233,6 +2259,7 @@ class Model():
                         for trigger in mesh.collision_tags.triggers:
                             if trigger.target:
                                 children = find_obj_in_hierarchy(trigger.target)
+                                print(trigger.target, children)
                                 if len(children):
                                     #add bpy objects to list too be ignored
                                     trigger_objects.extend(children)

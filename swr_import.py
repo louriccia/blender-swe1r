@@ -70,5 +70,6 @@ def import_model(file_path, selector=None):
             spline_buffer = splineblock.fetch(spline_id)[0]
             spline = Spline(spline_id).read(spline_buffer)
             collection.objects.link(spline.make(model.scale))
+            
     print(f'Successfully unpacked {len(selector)} models')
     
