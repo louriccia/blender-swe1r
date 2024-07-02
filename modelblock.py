@@ -28,7 +28,7 @@ from .popup import show_custom_popup
 
 class Lights(DataStruct):
     def __init__(self):
-        super().__init__('>H8B6f')
+        super().__init__('>h8b6f')
         self.flag = 0
         self.ambient = RGB3Bytes()
         self.color = RGB3Bytes()
@@ -46,6 +46,7 @@ class Lights(DataStruct):
         return self
     
     def make(self, obj):
+        obj['lights_flag'] = self.flag
         obj['lights_ambient'] = self.ambient.make()
         obj['lights_color'] = self.color.make()
         obj['lights_unk1'] = self.unk1
@@ -59,6 +60,8 @@ class Lights(DataStruct):
 
         
     def unmake(self, obj):
+        if 'lights_flag' in obj:
+            self.flag = obj['lights_flag']
         if 'lights_ambient' in obj:
             self.ambient.unmake(obj['lights_ambient'])
         if 'lights_color' in obj:
@@ -71,6 +74,7 @@ class Lights(DataStruct):
             self.pos.from_array(obj['lights_pos'])
         if 'lights_rot' in obj:
             self.rot.from_array(obj['lights_rot'])
+        return self
     
     def to_array(self):
         return [self.flag, *self.ambient.to_array(), *self.color.to_array(),self.unk1, self.unk2, *self.pos.to_array(), *self.rot.to_array()]
@@ -108,6 +112,8 @@ class Fog(DataStruct):
             self.start = obj['fog_start'] 
         if 'fog_end' in obj:
             self.end = obj['fog_end']
+            
+        return self
     
     def read(self, buffer, cursor):
         self.flag, r, g, b, self.start, self.end = struct.unpack_from(self.format_string, buffer, cursor)
@@ -126,6 +132,46 @@ class Fog(DataStruct):
         self.color = RGB3Bytes().from_array([r, g, b])
         return self
 
+class TriggerFlagEnum():
+    Disabled = (1 << 0)
+    SpeedCheck150 = (1 << 1)
+    SkipLap1 = (1 << 2)
+    SkipLap2 = (1 << 3)
+    SkipLap3 = (1 << 4)
+    IgnoreAI = (1 << 5)
+    
+class TriggerFlag(DataStruct):
+    def __init__(self):
+        super().__init__('>h')
+        self.flags = ['Disabled', 'SpeedCheck150', 'SkipLap1', 'SkipLap2', 'SkipLap3', 'IgnoreAI']
+        self.data = 0
+        for attr in self.flags:
+            setattr(self, attr, False)
+
+    def read(self, buffer, cursor):
+        data = struct.unpack_from(self.format_string, buffer, cursor)
+        data = data[0]
+        for attr in self.flags:
+            setattr(self, attr, bool(getattr(TriggerFlagEnum, attr) & data))
+            
+        return self
+    
+    def make(self, obj):
+        for attr in self.flags:
+            obj[attr] = getattr(self, attr)
+    
+    def unmake(self, obj):
+        for attr in self.flags:
+            if attr in obj:
+                setattr(self, attr, obj[attr])
+        return self
+    
+    def write(self, buffer, cursor):
+        data = 0
+        for attr in self.flags:
+            data |= (getattr(TriggerFlagEnum, attr) * int(getattr(self, attr)))
+        struct.pack_into(self.format_string, buffer, cursor, data)
+
 class CollisionTrigger(DataStruct):
     def __init__(self, parent, model):
         super().__init__('>8fi2hi')
@@ -137,16 +183,17 @@ class CollisionTrigger(DataStruct):
         self.height = 0
         self.target = 0
         self.id = 0
-        self.flag = 0
+        self.flags = TriggerFlag()
         self.next = 0
     
     def to_array(self):
-        return [*self.position.to_array(), *self.rotation.to_array(), self.width, self.height, self.target, self.id, self.flag, self.next]
+        return [*self.position.to_array(), *self.rotation.to_array(), self.width, self.height, self.target, self.id, self.flags.data, self.next]
     
     def read(self, buffer, cursor):
-        x, y, z, rx, ry, rz, self.width, self.height, self.target, self.id, self.flag, self.next = struct.unpack_from(self.format_string, buffer, cursor)
+        x, y, z, rx, ry, rz, self.width, self.height, self.target, self.id, flags, self.next = struct.unpack_from(self.format_string, buffer, cursor)
         self.position.from_array([x, y, z])
         self.rotation.from_array([rx, ry, rz])
+        self.flags.read(buffer, cursor + 38)
         return self
         
     def make(self, parent, collection):
@@ -156,7 +203,8 @@ class CollisionTrigger(DataStruct):
         trigger_empty.rotation_euler = [math.asin(self.rotation.data[2]), 0, math.atan2(self.rotation.data[1], self.rotation.data[0])]
         trigger_empty.scale = [self.width/2, self.width/2, self.height/2]
         trigger_empty['id'] = self.id
-        trigger_empty['flag'] = self.flag
+        
+        self.flags.make(trigger_empty)
         trigger_empty['target'] = self.target
         #TODO this needs to be able to select targets that aren't made yet
         if self.target and '{:07d}'.format(self.target) in bpy.data.objects:
@@ -176,7 +224,7 @@ class CollisionTrigger(DataStruct):
         rotation = node.matrix_world.to_euler('XYZ')
         
         self.id = node['id']
-        self.flag = node['flag']
+        self.flags.unmake(node)
         self.position.from_array([x/self.model.scale for x in node.matrix_world.to_translation()])
         self.rotation.from_array([ math.cos(rotation[2]), math.sin(rotation[2]), math.sin(rotation[0])])
         self.width = scale[0]*2/self.model.scale
@@ -185,14 +233,14 @@ class CollisionTrigger(DataStruct):
             self.target = node.target
             
         self.model.triggers.append(self)
-        print(self.to_array(), location, rotation, scale)
         return self
     
     def write(self, buffer, cursor):
-        target =  0
+        target = 0
         if self.target and self.target.write_location:
             target = self.target.write_location
-        struct.pack_into(self.format_string, buffer, cursor, *self.position.to_array(), *self.rotation.to_array(), self.width, self.height, target, self.id, self.flag, 0)
+        struct.pack_into(self.format_string, buffer, cursor, *self.position.to_array(), *self.rotation.to_array(), self.width, self.height, target, self.id, 0, 0)
+        self.flags.write(buffer, cursor + 38)
         self.model.highlight(cursor + 32)
         if self.target:
             self.model.outside_ref(cursor + 32, self.target)
@@ -274,8 +322,8 @@ class CollisionTags(DataStruct):
     def read(self, buffer, cursor):
         data = struct.unpack_from(self.format_string, buffer, cursor)
         self.unk = data[0]
-        self.fog = Fog().from_array(data[1:7])
-        self.lights = Lights().from_array(data[7:22])
+        self.fog.from_array(data[1:7])
+        self.lights.from_array(data[7:22])
         flags, self.unk2, self.unload, self.load = data[22:26]
         self.flags.read(buffer, cursor + 44)
         
@@ -748,6 +796,7 @@ class MaterialTextureChunk(DataStruct):
         
     def read(self, buffer, cursor):
         self.unk0, self.unk1, self.unk2, self.unk3, self.unk4, self.unk5 = struct.unpack_from(self.format_string, buffer, cursor)
+        return self
         
     def unmake(self, texture):
         return self
@@ -755,6 +804,9 @@ class MaterialTextureChunk(DataStruct):
     def write(self, buffer, cursor):
         struct.pack_into(self.format_string, buffer, cursor, self.unk0, self.unk1, self.unk2, self.unk3, self.unk4, self.unk5)
         return cursor + self.size
+    
+    def to_array(self):
+        return [self.unk0, self.unk1, self.unk2, self.unk3, self.unk4, self.unk5]
     
 class MaterialTexture(DataStruct):
     def __init__(self, parent, model):
@@ -988,6 +1040,13 @@ class Material(DataStruct):
                 node_6 = material.node_tree.nodes.new("ShaderNodeCombineXYZ")
                 material.node_tree.links.new(node_4.outputs["UV"], node_5.inputs["Vector"])
                 material.node_tree.links.new(node_6.outputs["Vector"], node_1.inputs["Vector"])
+                
+                if(chunk_tag & 0x1):
+                    material['flip_x'] = True
+                if(chunk_tag & 0x10):
+                    material['flip_y'] = True
+                    
+                
                 if(chunk_tag & 0x11 == 0x11):
                     node_7 = material.node_tree.nodes.new("ShaderNodeMath")
                     node_7.operation = 'PINGPONG'
@@ -1043,6 +1102,8 @@ class Material(DataStruct):
                 if material_name in self.model.materials:
                     return self.model.materials[material_name]
                 
+                
+                
                 if material.use_backface_culling == False:
                     self.format &= 0b11110111
                 
@@ -1051,6 +1112,16 @@ class Material(DataStruct):
                 for node in material.node_tree.nodes:
                     if node.type == 'TEX_IMAGE':
                         self.texture = MaterialTexture(self, self.model).unmake(node.image)
+                        
+                        flip_x = 'flip_x' in material and material['flip_x']
+                        flip_y = 'flip_y' in material and material['flip_y']
+                        
+                        if flip_x or flip_y:
+                            if flip_x:
+                                self.texture.chunks[0].unk1 |= 0x01
+                            if flip_y:
+                                self.texture.chunks[0].unk1 |= 0x10
+                            
                 break
         self.model.materials[material_name] = self
         
@@ -1267,8 +1338,10 @@ class Mesh(DataStruct):
                     color_layer[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
     
     def unmake(self, node):
-        self.id = node['id']
-        print('unmaking mesh', self.id)
+        if 'id' in node:
+            self.id = node['id']
+        else:
+            self.id = node.name
         if 'visible' not in node and 'collidable' not in node:
             node['visible'] = True
             node['collidable'] = True
@@ -1653,12 +1726,23 @@ class Node(DataStruct):
             
         return new_node
     def unmake(self, node):
-        self.id = node['id']
-        self.node_type = node['node_type']
-        self.vis_flags = int(node['vis_flags'])
-        self.col_flags = int(node['col_flags'])
-        self.unk1 =  node['unk1']
-        self.unk2 = node['unk2']
+        if 'id' in node:
+            self.id = node['id']
+        else:
+            self.id = node.name
+            
+        if node.type == 'EMPTY':
+            self.node_type = 53349
+        
+        if 'vis_flags' in node:
+            self.vis_flags = int(node['vis_flags'])
+        if 'col_flags' in node:
+            self.col_flags = int(node['col_flags'])
+            
+        if 'unk1' in node:
+            self.unk1 =  node['unk1']
+        if 'unk2' in node:
+            self.unk2 = node['unk2']
         if 'header' in node:
             self.header = node['header']
         
@@ -1931,10 +2015,14 @@ class LStr(DataStruct):
         self.model.collection.objects.link(light_object)
         light_object.location = (self.data.data[0]*self.model.scale, self.data.data[1]*self.model.scale, self.data.data[2]*self.model.scale)
         
-    def unmake(self):
-        return self
+    def unmake(self, obj):
+        self.data.from_array([x/self.model.scale for x in obj.matrix_world.to_translation()])
+        return self    
+
     def write(self, buffer, cursor):
-        return cursor
+        struct.pack_into(self.format_string, buffer, cursor, *self.data.to_array())
+        writeString(buffer, "LStr", cursor)
+        return cursor + self.size
         
 class ModelData():
     def __init__(self, parent, model):
@@ -1942,6 +2030,7 @@ class ModelData():
         self.data = []
         self.model = model
     def read(self, buffer, cursor):
+        cursor += 4
         size = readUInt32BE(buffer, cursor)
         cursor += 4
         i = 0
@@ -1959,8 +2048,24 @@ class ModelData():
         for d in self.data:
             d.make()
     def unmake(self):
-        pass
+        #TODO only get objects from collection
+        for obj in bpy.data.objects:
+            if obj.type == 'LIGHT':
+                self.data.append(LStr(self, self.model).unmake(obj))
+        return self
     def write(self, buffer, cursor):
+        
+        if not len(self.data):
+            return cursor
+        
+        
+        cursor = writeString(buffer, "Data", cursor)
+        sizeAddress = cursor
+        cursor += 4
+        for thing in self.data:
+            cursor = thing.write(buffer, cursor)
+        size = int((cursor - (sizeAddress+4))/4)
+        writeUInt32BE(buffer, size, sizeAddress)
         
         return cursor
     
@@ -2026,6 +2131,7 @@ class AnimList():
         self.data = []
         self.model = model
     def read(self, buffer, cursor):
+        cursor += 4
         anim = readUInt32BE(buffer, cursor)
         while anim:
             self.data.append(Anim(self, self.model).read(buffer, anim))
@@ -2069,11 +2175,11 @@ class ModelHeader():
         while header_string != 'HEnd':
             if header_string == 'Data':
                 self.model.Data = ModelData(self, self.model)
-                cursor = self.model.Data.read(buffer, cursor + 4)
+                cursor = self.model.Data.read(buffer, cursor)
                 header_string = readString(buffer, cursor)
             elif header_string == 'Anim':
                 self.model.Anim = AnimList(self, self.model)
-                cursor = self.model.Anim.read(buffer, cursor + 4)
+                cursor = self.model.Anim.read(buffer, cursor)
                 header_string = readString(buffer, cursor)
             elif header_string == 'AltN':
                 cursor = read_AltN(buffer, cursor + 4, model)
@@ -2095,6 +2201,7 @@ class ModelHeader():
         self.offsets = collection['header']
         self.model.id = collection['ind']
         self.model.ext = collection['ext']
+        self.model.Data = ModelData(self, self.model).unmake()
     
     def write(self, buffer, cursor):
         cursor = writeString(buffer,  self.model.ext, cursor)
@@ -2105,9 +2212,15 @@ class ModelHeader():
 
         cursor = writeInt32BE(buffer, -1, cursor)
 
-        if self.model.Data:
-            pass
-            #cursor = write_data(buffer, cursor, model, hl)
+        cursor = self.model.Data.write(buffer, cursor)
+
+        cursor = writeString(buffer, "Butt", cursor)
+        cursor = writeUInt32BE(buffer, 69, cursor)
+        cursor = writeString(buffer, "Plnt", cursor)
+        cursor = writeUInt32BE(buffer, 2, cursor)
+        cursor = writeString(buffer, "Sond", cursor)
+        cursor = writeUInt32BE(buffer, 18, cursor)
+        cursor = writeFloatBE(buffer, 0.12, cursor)
 
         if self.model.Anim:
             self.model.ref_map['Anim'] = cursor + 4
@@ -2243,7 +2356,6 @@ class Model():
         
         self.nodes.append(root)
         
-        #TODO detect triggers so that we can maintain their targets' structures
         for child_collection in collection.children:
             if child_collection.name == 'Track':
                 
@@ -2259,7 +2371,6 @@ class Model():
                         for trigger in mesh.collision_tags.triggers:
                             if trigger.target:
                                 children = find_obj_in_hierarchy(trigger.target)
-                                print(trigger.target, children)
                                 if len(children):
                                     #add bpy objects to list too be ignored
                                     trigger_objects.extend(children)

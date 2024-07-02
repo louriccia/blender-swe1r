@@ -217,7 +217,6 @@ class Spline(DataStruct):
             self.id = spline_object['id']
         else:
             self.id = spline_map[collection['ind']]
-            print('correct id', self.id)
         splines = spline_object.data.splines
         
         #find bezier splines
@@ -331,9 +330,6 @@ class Spline(DataStruct):
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point
         # cannot have alt paths that start before and end after the finish line on main spline
-
-        for point in self.points:
-            print(point.to_array())
 
         self.point_count = len(self.points)
         self.segment_count = segment_count
