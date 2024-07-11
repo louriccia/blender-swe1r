@@ -20,9 +20,8 @@
 # /licenses>.
 
 import struct
-import math
 import bpy
-from .general import *
+from ..utils import euclidean_distance
 from .modelblock import DataStruct
 
 class Texture():
@@ -76,7 +75,9 @@ class Texture():
                     color = [p[0], p[1], p[2], p[3]]
                     
                 image_pixels.extend(color)
-        new_image.pixels = [p/255 for p in image_pixels]
+                
+        if len(image_pixels):
+            new_image.pixels = [p/255 for p in image_pixels]
         new_image['format'] = self.format
         new_image['id'] = self.id
 
@@ -170,8 +171,7 @@ class Palette():
         return buffer
     
     def closest(self, target):
-        def euclidean_distance(color1, color2):
-            return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
+        
         
         min_distance = float('inf')
         closest = None

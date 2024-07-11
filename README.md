@@ -41,6 +41,7 @@ This project is currently under active development. While it may be functional f
 When importing a track, it should come with a spline object. This spline is from `out_splineblock.bin` and is the entity that the game uses to define the player's lap progression, start and finish line, spawn/respawn points, map display, guide arrow behavior, Zero-G mode (ZOn), and AI pathing. 
 * The spline should only exist as a single spline object in Blender, in which there can be multiple paths.
 * The "main spline" is the path where the start/finish line and player spawns (point 0). All other paths are considered alternate paths that branch from and rejoin the main spline.
+* If the spline is not above any collidable and spawnable mesh (does not have the NRsp flag), the game will crash because there is nowhere for the player to spawn.
 
 #### Cyclic Tracks
 All tracks in the game are cyclic by default, meaning their last point connects back to their first point to create a loop.
@@ -59,6 +60,7 @@ Some tracks feature branching paths. Blender does not support branching splines,
 To create an alternate path, create a new spline within the same curve object. This is easily done by selecting a spline point (in edit mode) and pressing Shift + D to duplicate an existing point, then pressing E to extrude. When ending the path, keep in mind that the last point you place will be replaced by the closest existing point (if it isn't already joining 4 paths).  
 
 ##### Limitations
+* Splines must have 3-255 points.
 * Splines cannot split more than 2 times on any point.
 * Splines cannot join more than 4 times on any point.
 * Splines cannot have paths that start before and end after the finish line on main spline.

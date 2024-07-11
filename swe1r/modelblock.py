@@ -22,9 +22,11 @@
 import struct
 import bpy
 import math
-from .general import *
+import mathutils
+from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture
-from .popup import show_custom_popup
+from ..popup import show_custom_popup
+
 
 class Lights(DataStruct):
     def __init__(self):
@@ -91,6 +93,8 @@ class Fog(DataStruct):
     def __init__(self):
         super().__init__('>4B2H')
         self.flag = 0
+        #0001 = Update color
+        #0010 = Update distance
         self.color = RGB3Bytes()
         self.start = 0
         self.end = 0
@@ -142,34 +146,40 @@ class TriggerFlagEnum():
     
 class TriggerFlag(DataStruct):
     def __init__(self):
-        super().__init__('>h')
+        super().__init__('>H')
         self.flags = ['Disabled', 'SpeedCheck150', 'SkipLap1', 'SkipLap2', 'SkipLap3', 'IgnoreAI']
         self.data = 0
+        self.settings = 0
         for attr in self.flags:
             setattr(self, attr, False)
 
     def read(self, buffer, cursor):
         data = struct.unpack_from(self.format_string, buffer, cursor)
         data = data[0]
+        self.settings = data >> 6
         for attr in self.flags:
             setattr(self, attr, bool(getattr(TriggerFlagEnum, attr) & data))
             
         return self
     
     def make(self, obj):
+        obj['settings'] = self.settings
         for attr in self.flags:
             obj[attr] = getattr(self, attr)
     
     def unmake(self, obj):
+        if 'settings' in obj:
+            self.settings = obj['settings']
         for attr in self.flags:
             if attr in obj:
                 setattr(self, attr, obj[attr])
         return self
     
     def write(self, buffer, cursor):
-        data = 0
+        data = self.settings << 6
         for attr in self.flags:
             data |= (getattr(TriggerFlagEnum, attr) * int(getattr(self, attr)))
+        
         struct.pack_into(self.format_string, buffer, cursor, data)
 
 class CollisionTrigger(DataStruct):
@@ -179,8 +189,8 @@ class CollisionTrigger(DataStruct):
         self.model = model
         self.position = FloatPosition()
         self.rotation = FloatVector()
-        self.width = 0
-        self.height = 0
+        self.width = 0.01
+        self.height = 0.01
         self.target = 0
         self.id = 0
         self.flags = TriggerFlag()
@@ -196,7 +206,7 @@ class CollisionTrigger(DataStruct):
         self.flags.read(buffer, cursor + 38)
         return self
         
-    def make(self, parent, collection):
+    def make(self, parent = None, collection = None):
         trigger_empty = bpy.data.objects.new("trigger_" + str(self.id), None)
         trigger_empty.empty_display_type = 'CUBE'
         trigger_empty.location = self.position.data
@@ -210,8 +220,12 @@ class CollisionTrigger(DataStruct):
         if self.target and '{:07d}'.format(self.target) in bpy.data.objects:
             trigger_empty.target = bpy.data.objects['{:07d}'.format(self.target)]
         
-        trigger_empty.parent = parent
-        collection.objects.link(trigger_empty)
+        if parent is not None:
+            trigger_empty.parent = parent
+        if collection is not None:
+            collection.objects.link(trigger_empty)
+            
+        return trigger_empty
     
     def unmake(self, node):
         if node.type != 'EMPTY' or node.empty_display_type != 'CUBE':
@@ -237,7 +251,7 @@ class CollisionTrigger(DataStruct):
     
     def write(self, buffer, cursor):
         target = 0
-        if self.target and self.target.write_location:
+        if self.target and hasattr(self.target, 'write_location'):
             target = self.target.write_location
         struct.pack_into(self.format_string, buffer, cursor, *self.position.to_array(), *self.rotation.to_array(), self.width, self.height, target, self.id, 0, 0)
         self.flags.write(buffer, cursor + 38)
@@ -265,12 +279,64 @@ class SurfaceEnum():
     Soft = (1 << 15)
     NRsp = (1 << 16)
     Flat = (1 << 17)
+    Surface18 = (1 << 18)
+    Surface19 = (1 << 19)
+    Surface20 = (1 << 20)
+    Surface21 = (1 << 21)
+    Surface22 = (1 << 22)
+    Surface23 = (1 << 23)
+    Surface24 = (1 << 24)
+    Surface25 = (1 << 25)
+    Surface26 = (1 << 26)
+    Surface27 = (1 << 27)
+    Surface28 = (1 << 28)
     Side = (1 << 29)
+    Surface30 = (1 << 30)
+    Surface31 = (1 << 31)
+    
+class SpecialSurfaceEnum():
+    Unk0 = (1 << 0)
+    Unk1 = (1 << 1) #enable skybox fog
+    Unk2 = (1 << 2) #disable skybox fog
+    Unk3 = (1 << 3)
+    Unk4 = (1 << 4)
+    Unk5 = (1 << 5) #magnet mode
+
+class SpecialSurfaceFlags(DataStruct):
+    def __init__(self):
+        super().__init__('>H')
+        self.flags = ['Unk0', 'Unk1', 'Unk2', 'Unk3', 'Unk4', 'Unk5']
+        for attr in self.flags:
+            setattr(self, attr, False)
+            
+    def read(self, buffer, cursor):
+        data = struct.unpack_from(self.format_string, buffer, cursor)
+        data = data[0]
+        for attr in self.flags:
+            setattr(self, attr, bool(getattr(SpecialSurfaceEnum, attr) & data))
+            
+    def make(self, obj):
+        for attr in self.flags:
+            obj[attr] = getattr(self, attr)
+            
+    def unmake(self, obj):
+        for attr in self.flags:
+            if attr in obj:
+                setattr(self, attr, obj[attr])
+        return self
+    
+    def write(self, buffer, cursor):
+        data = 0
+        for attr in self.flags:
+            if getattr(self, attr):
+                data |= (getattr(SpecialSurfaceEnum, attr) * int(getattr(self, attr)))
+        struct.pack_into(self.format_string, buffer, cursor, data)
+        return cursor + self.size
 
 class SurfaceFlags(DataStruct):
     def __init__(self):
-        super().__init__('>i')
-        self.flags = ['ZOn', 'ZOff', 'Fast', 'Slow', 'Swst', 'Slip', 'Dust', 'Snow', 'Wet', 'Ruff', 'Swmp', 'NSnw', 'Mirr', 'Lava', 'Fall', 'Soft', 'NRsp', 'Flat', 'Side']
+        super().__init__('>I')
+        self.flags = ['ZOn', 'ZOff', 'Fast', 'Slow', 'Swst', 'Slip', 'Dust', 'Snow', 'Wet', 'Ruff', 'Swmp', 'NSnw', 'Mirr', 'Lava', 'Fall', 'Soft', 'NRsp', 'Flat', 'Side', 'Surface18', 'Surface19', 'Surface20', 'Surface21', 'Surface22', 'Surface23', 'Surface24', 'Surface25', 'Surface26', 'Surface27', 'Surface28',  'Surface30', 'Surface31']
         for attr in self.flags:
             setattr(self, attr, False)
 
@@ -307,13 +373,14 @@ class SurfaceFlags(DataStruct):
 class CollisionTags(DataStruct):
     def __init__(self, parent, model):
         
-        super().__init__('>H4B3H8B6f2I3i')
+        super().__init__('>H4B3H8B6fI2H3I')
         self.parent = parent
         self.model = model
-        self.unk = 0
+        self.unk = SpecialSurfaceFlags()
         self.fog = Fog()
         self.lights = Lights()
         self.flags = SurfaceFlags()
+        self.unk1 = 0
         self.unk2 = 0
         self.unload = 0
         self.load = 0
@@ -321,10 +388,10 @@ class CollisionTags(DataStruct):
 
     def read(self, buffer, cursor):
         data = struct.unpack_from(self.format_string, buffer, cursor)
-        self.unk = data[0]
+        self.unk.read(buffer, cursor)
         self.fog.from_array(data[1:7])
         self.lights.from_array(data[7:22])
-        flags, self.unk2, self.unload, self.load = data[22:26]
+        flags, self.unk1, self.unk2, self.unload, self.load = data[22:27]
         self.flags.read(buffer, cursor + 44)
         
         #get triggers
@@ -335,16 +402,19 @@ class CollisionTags(DataStruct):
             trigger_pointer = trigger.next
         return self
         
-    def make(self, obj, collection):
+    def make(self, obj, collection = None):
+        self.unk.make(obj)
         self.flags.make(obj)
         self.fog.make(obj)
         self.lights.make(obj)
+        obj['collision_data'] = True
         
         for trigger in self.triggers:
             trigger.make(obj, collection)
         
     
     def unmake(self, mesh):
+        self.unk.unmake(mesh)
         self.flags.unmake(mesh)
         self.fog.unmake(mesh)
         self.lights.unmake(mesh)
@@ -357,7 +427,8 @@ class CollisionTags(DataStruct):
         return self
     
     def write(self, buffer, cursor):
-        struct.pack_into(self.format_string, buffer, cursor, *[self.unk, *self.fog.to_array(), *self.lights.to_array(), 0, self.unk2, self.unload, self.load, 0])
+        struct.pack_into(self.format_string, buffer, cursor, *[0, *self.fog.to_array(), *self.lights.to_array(), 0, self.unk1, self.unk2, self.unload, self.load, 0])
+        self.unk.write(buffer, cursor)
         self.flags.write(buffer, cursor + 44)
         cursor += self.size
         for trigger in self.triggers:
@@ -827,6 +898,14 @@ class MaterialTexture(DataStruct):
         self.tex_index = 0
         
     def read(self, buffer, cursor):
+        
+        if cursor == 0:
+            return None
+        
+        if cursor in self.model.textures:
+            return self.model.textures[cursor]
+        
+        
         unk_pointers = []
         self.id = cursor
         self.unk0, unk1, unk3, self.format, self.unk4, self.width, self.height, unk5, unk6, self.unk7, self.unk8, *unk_pointers, self.unk9, self.tex_index = struct.unpack_from(self.format_string, buffer, cursor)
@@ -835,6 +914,10 @@ class MaterialTexture(DataStruct):
                 chunk = MaterialTextureChunk(self, self.model)
                 chunk.read(buffer, pointer)
                 self.chunks.append(chunk)
+                
+        self.model.textures[cursor] = self
+        
+        return self.model.textures[cursor]
             
     def make(self):
         if self.tex_index == 65535:
@@ -980,14 +1063,9 @@ class Material(DataStruct):
     def read(self, buffer, cursor):
         self.id = cursor
         self.format, texture_addr, shader_addr = struct.unpack_from(self.format_string, buffer, cursor)
-        if texture_addr:
-            if texture_addr in self.model.textures:
-                self.texture = self.model.textures[texture_addr]
-            else:
-                self.model.textures[texture_addr] = MaterialTexture(self, self.model)
-                self.model.textures[texture_addr].read(buffer, texture_addr)
-                self.texture = self.model.textures[texture_addr]
             
+        self.texture = MaterialTexture(self, self.model).read(buffer, texture_addr)
+        
         # there should always be a shader_addr
         assert shader_addr > 0, "Material should have shader"
         self.shader.read(buffer, shader_addr)
@@ -1345,6 +1423,8 @@ class Mesh(DataStruct):
         if 'visible' not in node and 'collidable' not in node:
             node['visible'] = True
             node['collidable'] = True
+            
+        get_animations(node, self.model, self)
         
         if 'visible' in node and node['visible']:
             self.material = Material(self, self.model).unmake(node)
@@ -1413,7 +1493,8 @@ class Mesh(DataStruct):
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
                 
         if 'collidable' in node and node['collidable']:
-            self.collision_tags = CollisionTags(self, self.model).unmake(node)
+            if 'collision_data' in node and node['collision_data']:
+                self.collision_tags = CollisionTags(self, self.model).unmake(node)
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node)
             self.vert_strips = CollisionVertStrips(self, self.model).unmake(node)
             
@@ -1725,7 +1806,7 @@ class Node(DataStruct):
             new_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
             
         return new_node
-    def unmake(self, node):
+    def unmake(self, node, unmake_children = False):
         if 'id' in node:
             self.id = node['id']
         else:
@@ -1739,6 +1820,8 @@ class Node(DataStruct):
         if 'col_flags' in node:
             self.col_flags = int(node['col_flags'])
             
+        get_animations(node, self.model, self)
+            
         if 'unk1' in node:
             self.unk1 =  node['unk1']
         if 'unk2' in node:
@@ -1748,6 +1831,9 @@ class Node(DataStruct):
         
         if self.model.ext == 'Trak' and 2 in self.header:
             self.skybox = True
+        
+        if not unmake_children:
+            return self
         
         if self.node_type == 12388:
             for child in node.children:
@@ -1886,8 +1972,8 @@ class Group53349(Node):
         
         empty['bonus'] = self.bonus.to_array()
         return empty
-    def unmake(self, node):
-        super().unmake(node)
+    def unmake(self, node, make_children = False):
+        super().unmake(node, False)
         matrix = node.matrix_world
         #need to transpose the matrix
         matrix = list(map(list, zip(*matrix)))
@@ -2069,61 +2155,294 @@ class ModelData():
         
         return cursor
     
+
+class LocationPose(DataStruct):
+    def __init__(self, parent, model):
+        super().__init__('>3f')
+        
+        self.parent = parent
+        self.model = model
+        self.data = FloatPosition()
+        
+    def read(self, buffer, cursor):
+        x, y, z = struct.unpack_from(self.format_string, buffer, cursor)
+        self.data.from_array([x, y, z])
+        return self
+    
+    def make(self, target, time):
+        target.location = [x*self.model.scale for x in self.data.to_array()]
+        target.keyframe_insert(data_path="location", frame = round(time * self.model.fps))
+    
+    def unmake(self, pose):
+        self.data.from_array([x/self.model.scale for x in pose])
+        return self
+    
+    def write(self, buffer, cursor):
+        struct.pack_into(self.format_string, buffer, cursor, *self.data.to_array())
+        return cursor + self.size
+    
+    def to_array(self):
+        return self.data.to_array()
+    
+class RotationPose(DataStruct):
+    def __init__(self, parent, model):
+        super().__init__('>4f')
+        
+        self.parent = parent
+        self.model = model
+        self.data = []
+        self.previous = None
+        self.R = None
+        
+    def read(self, buffer, cursor):
+        a, b, c, d = struct.unpack_from(self.format_string, buffer, cursor)
+        self.data = [a, b, c, d]
+        return self
+    
+    def make(self, target, time):
+        axis = self.data[:3]
+        angle = self.data[3]*math.pi/180
+        R = mathutils.Matrix.Rotation(angle, 4, axis)
+        R = R.to_quaternion()
+        self.R = R
+        
+        if self.previous is not None and self.previous.R is not None:
+            R.make_compatible(self.previous)
+            
+        target.rotation_quaternion = R
+        target.keyframe_insert(data_path="rotation_quaternion", frame = round(time * self.model.fps))
+    
+    def unmake(self, obj):
+        pass
+        return self
+    
+    def write(self, buffer, cursor):
+        pass
+    
+class UVPose(DataStruct):
+    def __init__(self, parent, model):
+        super().__init__('>f')
+        
+        self.parent = parent
+        self.model = model
+        self.data = []
+        
+    def read(self, buffer, cursor):
+        self.data = struct.unpack_from(self.format_string, buffer, cursor)
+        return self
+    
+    def make(self, target):
+        pass
+    
+    def unmake(self, obj):
+        pass
+        return self
+    
+    def write(self, buffer, cursor):
+        pass
+    
+class TexturePose(DataStruct):
+    def __init__(self, parent, model):
+        super().__init__('>I')
+        
+        self.parent = parent
+        self.model = model
+        
+    def read(self, buffer, cursor):
+        pass
+    
+    def make(self, target):
+        pass
+    
+    def unmake(self, obj):
+        pass
+        return self
+    
+    def write(self, buffer, cursor):
+        pass
+    
+    
+def get_animations(obj, model, entity):
+    if not obj.animation_data:
+        return None
+    
+    if not obj.animation_data.action:
+        return None
+    
+    #get all unique keyframes
+    keyframe_times = {}
+    keyframe_poses = {}
+    for fcurve in obj.animation_data.action.fcurves:
+        array_index = fcurve.array_index
+        data_path = fcurve.data_path
+        
+        if data_path not in  keyframe_times:
+            keyframe_times[data_path] = []
+        
+        if data_path not in  keyframe_poses:
+            keyframe_poses[data_path] = {}
+            
+        for keyframe in fcurve.keyframe_points:
+            frame, value = keyframe.co
+            if frame not in keyframe_times[data_path]: 
+                keyframe_times[data_path].append(frame)
+                if data_path == 'location':
+                    keyframe_poses[data_path][frame] = [None, None, None]
+                elif data_path == 'rotation_quaternion':
+                    keyframe_poses[data_path][frame] = [None, None, None, None]
+                
+    # for each keyframe, evaluate values
+    for fcurve in obj.animation_data.action.fcurves:
+        array_index = fcurve.array_index
+        data_path = fcurve.data_path
+        for keyframe in keyframe_times[data_path]:
+            keyframe_poses[data_path][keyframe][array_index] = fcurve.evaluate(keyframe)
+                
+    for path in keyframe_poses:
+        times = keyframe_times[path]
+        poses = keyframe_poses[path].values()
+        if path == 'location':
+            model.animations.append(Anim(entity, model).unmake(times, poses, path))
+            
+        
+    
 class Anim(DataStruct):
     def __init__(self, parent, model):
         super().__init__('>244x3f2HI5f4I')
         
         self.parent = parent
         self.model = model
-        self.float1 = None
-        self.float2 = None
-        self.float3 = None
-        self.flag1 = None
-        self.flag2 = None
+        self.float1 = 0.0 # floats 1, 2, 3, 5 always match
+        self.float2 = 0.0
+        self.float3 = 0.0
+        self.flag1 = 4352 # always 4352
+        self.flag2 = 0
         self.num_keyframes = 0
-        self.float4 = None
-        self.float5 = None
-        self.float6 = None
-        self.float7 = None
-        self.float8 = None
+        self.float4 = 0.0
+        self.float5 = 0.0
+        self.float6 = 1.0 # always 1
+        self.float7 = 0.0 # always 0
+        self.float8 = 0.0 # always 0
+        self.keyframes = []
         self.keyframe_times = []
         self.keyframe_poses = []
-        self.target = None
-        self.unk32 = None
+        self.target = 0
+        self.unk32 = 1 #1, 4, 5, 6, 34, 52, 58
+        
     def read(self, buffer, cursor):
-        self.float1, self.float2, self.float3, self.flag1, self.flag2, self.num_keyframes, self.float4, self.fllat5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target, self.unk2 = struct.unpack_from(self.format_string, buffer, cursor)
+        self.float1, self.float2, self.float3, self.flag1, self.flag2, self.num_keyframes, self.float4, self.float5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target, self.unk2 = struct.unpack_from(self.format_string, buffer, cursor)
         if self.flag2 in [2, 18]:
             self.target = readUInt32BE(buffer, self.target)
 
+        if not keyframe_poses_addr or not keyframe_times_addr:
+                return self
+
+        cursor = keyframe_poses_addr
+        #get keyframes
         for f in range(self.num_keyframes):
-            if keyframe_times_addr:
-                self.keyframe_times.append(readFloatBE(buffer, keyframe_times_addr + f * 4))
+            self.keyframe_times.append(readFloatBE(buffer, keyframe_times_addr + f * 4))
 
-            if keyframe_poses_addr:
-                if self.flag2 in [8, 24, 40, 56, 4152]:  # rotation (4)
-                    self.keyframe_poses.append([
-                        readFloatBE(buffer, keyframe_poses_addr + f * 16),
-                        readFloatBE(buffer, keyframe_poses_addr + f * 16 + 4),
-                        readFloatBE(buffer, keyframe_poses_addr + f * 16 + 8),
-                        readFloatBE(buffer, keyframe_poses_addr + f * 16 + 12)
-                    ])
-                elif self.flag2 in [25, 41, 57, 4153]:  # position (3)
-                    self.keyframe_poses.append([
-                        readFloatBE(buffer, keyframe_poses_addr + f * 12),
-                        readFloatBE(buffer, keyframe_poses_addr + f * 12 + 4),
-                        readFloatBE(buffer, keyframe_poses_addr + f * 12 + 8)
-                    ])
-                elif self.flag2 in [27, 28]:  # uv_x/uv_y (1)
-                    self.keyframe_poses.append([
-                        readFloatBE(buffer, keyframe_poses_addr + f * 4)
-                    ])
-                elif self.flag2 in [2, 18]:  # texture
-                    tex = readUInt32BE(buffer,keyframe_poses_addr + f * 4)
+            if self.flag2 in [8, 24, 40, 56, 4152]:  # rotation (4)
+                pose = RotationPose(self, self.model).read(buffer, cursor)
+                self.keyframe_poses.append(pose)
+                cursor += pose.size
+            elif self.flag2 in [25, 41, 57, 4153]:  # position (3)
+                pose = LocationPose(self, self.model).read(buffer, cursor)
+                self.keyframe_poses.append(pose)
+                cursor += pose.size
+            elif self.flag2 in [27, 28]:  # uv_x/uv_y (1)
+                self.keyframe_poses.append([
+                    readFloatBE(buffer, keyframe_poses_addr + f * 4)
+                ])
+            elif self.flag2 in [2, 18]:  # texture
+                tex = readUInt32BE(buffer,keyframe_poses_addr + f * 4)
 
-                    if tex < cursor:
-                        self.keyframe_poses.append({'repeat': tex})
-                    else:
-                        self.keyframe_poses.append(read_mat_texture(buffer=buffer, cursor=tex, model=model))
+                if tex < cursor:
+                    self.keyframe_poses.append({'repeat': tex})
+                else:
+                    self.keyframe_poses.append(read_mat_texture(buffer=buffer, cursor=tex, model=model))
+        return self
+                    
+    def make(self):
+        #assume we have an object or material to apply animations to
+        
+        target = get_obj_by_id(self.target)
+        
+        if target is None:
+            return
+        
+        target.rotation_mode = 'QUATERNION'
+        
+        for i, time in enumerate(self.keyframe_times):
+            self.keyframe_poses[i].make(target, time)
+            
+        #make linear
+        if target.animation_data is not None and target.animation_data.action is not None:
+            for fcurve in target.animation_data.action.fcurves:
+                for keyframe in fcurve.keyframe_points:
+                    keyframe.interpolation = 'LINEAR'
+    
+        #texture anim
+        # if 'anim' in header:
+        #     if offset in header['anim']:
+        #         anim = header['anim'][offset]
+        #         if '2' in anim or '18' in anim:
+        #             if '2' in anim:
+        #                 child = '2'
+        #             if '18' in anim:
+        #                 child = '18'
+        #             bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
+        #             image_node.image = bpy.data.images.get('0.png')
+        #             bpy.data.images["0.png"].source = 'SEQUENCE'
+        #             node_1.image_user.use_auto_refresh = True
+        #             node_1.image_user.frame_duration = 1
+        #             for f in range(anim[child]['num_keyframes']):
+        #                 node_1.image_user.frame_offset = anim[child]['keyframe_poses'][f] - 1
+        #                 node_1.image_user.keyframe_insert(data_path="frame_offset", frame = round(anim[child]['keyframe_times'][f] * 60))
+        #             if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
+        #                 for fcurves_f in material.node_tree.animation_data.action.fcurves:
+        #                     #new_modifier = fcurves_f.modifiers.new(type='CYCLES')
+        #                     for k in fcurves_f.keyframe_points:
+        #                         k.interpolation = 'CONSTANT'
+    
+    def unmake(self, times, poses, path):
+        self.target = self.parent
+        
+        self.keyframe_times = [x/self.model.fps for x in times]
+        anim_length = self.keyframe_times[-1]
+        
+        self.float1 = anim_length
+        self.float2 = anim_length
+        self.float3 = anim_length
+        self.float4 = anim_length
+        self.float5 = anim_length
+        
+        if path == 'location':
+            self.flag2 = 57
+            self.keyframe_poses = [LocationPose(self, self.model).unmake(pose) for pose in poses]
+            
+        return self
+    
+    def write(self, buffer, cursor):
+        anim_addr = cursor
+        cursor += self.size
+        
+        self.model.highlight(cursor - 8)
+        self.model.highlight(cursor - 12)
+        self.model.highlight(cursor - 16)
+        
+        keyframe_times_addr = cursor
+        for time in self.keyframe_times:
+            cursor = writeFloatBE(buffer, time, cursor)
+        
+        keyframe_poses_addr = cursor
+        for pose in self.keyframe_poses:
+            cursor = pose.write(buffer, cursor)
+        
+        struct.pack_into(self.format_string, buffer, anim_addr, self.float1, self.float2, self.float3, self.flag1, self.flag2, len(self.keyframe_times), self.float4, self.float5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target.write_location, self.unk32)
+        return cursor
+    def to_array(self):
+        return [self.float1, self.float2, self.float3, self.flag1, self.flag2, self.num_keyframes, self.float4, self.float5, self.float6, self.float7, self.float8, self.keyframe_times, *[pose.to_array() for pose in self.keyframe_poses], self.target, self.unk32]
     
 class AnimList():
     def __init__(self, parent, model):
@@ -2139,11 +2458,20 @@ class AnimList():
             anim = readUInt32BE(buffer, cursor)
         return cursor + 4
     def make(self):
-        pass
+        for anim in self.data:
+            anim.make()
     def unmake(self):
-        pass
+        for anim in self.model.animations:
+            self.data.append(anim)
+        return self    
+    
     def write(self, buffer, cursor):
+        
+        if not len(self.data):
+            return cursor
+        
         cursor = writeString(buffer, "Anim", cursor)
+        self.model.anim_list = cursor
         for anim in self.data:
             self.model.highlight(cursor)
             cursor += 4
@@ -2195,6 +2523,10 @@ class ModelHeader():
         
         if self.model.Data:
             self.model.Data.make()
+        
+        if self.model.Anim:
+            self.model.Anim.make()    
+        
         return
     
     def unmake(self, collection):
@@ -2202,6 +2534,7 @@ class ModelHeader():
         self.model.id = collection['ind']
         self.model.ext = collection['ext']
         self.model.Data = ModelData(self, self.model).unmake()
+        self.model.Anim = AnimList(self, self.model).unmake()
     
     def write(self, buffer, cursor):
         cursor = writeString(buffer,  self.model.ext, cursor)
@@ -2214,20 +2547,11 @@ class ModelHeader():
 
         cursor = self.model.Data.write(buffer, cursor)
 
-        cursor = writeString(buffer, "Butt", cursor)
-        cursor = writeUInt32BE(buffer, 69, cursor)
-        cursor = writeString(buffer, "Plnt", cursor)
-        cursor = writeUInt32BE(buffer, 2, cursor)
-        cursor = writeString(buffer, "Sond", cursor)
-        cursor = writeUInt32BE(buffer, 18, cursor)
-        cursor = writeFloatBE(buffer, 0.12, cursor)
-
         if self.model.Anim:
-            self.model.ref_map['Anim'] = cursor + 4
-            #cursor = write_anim(buffer, cursor, model, hl)
+            cursor = self.model.Anim.write(buffer, cursor)
 
         if self.model.AltN:
-            self.model.ref_map['AltN'] = cursor + 4
+            cursor = self.model.ref_map['AltN'] = cursor + 4
             #cursor = write_altn(buffer, cursor, model, hl)
 
         cursor = writeString(buffer, 'HEnd', cursor)
@@ -2275,7 +2599,7 @@ def assign_meshes_to_node_by_type(mesh_arr, root, model):
 
 def get_obj_by_id(id):
     for obj in bpy.data.objects:
-        if 'id' in obj and obj.users > 0  and obj['id'] == id:
+        if 'id' in obj and int(obj['id']) == int(id):
             return obj
     return None
 
@@ -2288,6 +2612,7 @@ class Model():
         self.ext = None
         self.id = id
         self.scale = 0.01
+        self.fps = 60
         
         self.ref_map = {} # where we'll map node ids to their written locations
         self.ref_keeper = {} # where we'll remember locations of node refs to go back and update with the ref_map at the end
@@ -2298,6 +2623,7 @@ class Model():
         self.AltN = []
         self.Anim = []
         
+        self.animations = []
         self.materials = {}
         self.textures = {}
         self.nodes = []
@@ -2331,13 +2657,15 @@ class Model():
         bpy.context.scene.collection.children.link(collection)
         self.collection = collection
         
-        self.header.make()
         for node in self.nodes:
             node.make(None, collection)
 
         for trigger in self.triggers:
             if trigger.target:
                 trigger.target = get_obj_by_id(trigger.target)
+                
+        #header should be made last for the animations
+        self.header.make()
 
         return collection
 
@@ -2346,11 +2674,11 @@ class Model():
         self.written_textures = {}
         self.ext = collection['ext']
         self.id = collection['ind']
-        self.header.unmake(collection)
         self.nodes = []
         self.texture_export = texture_export
         
         trigger_objects = []
+        anim_objects = []
         meshes = []
         root = Group20580(self, self, 20580)
         
@@ -2359,41 +2687,64 @@ class Model():
         for child_collection in collection.children:
             if child_collection.name == 'Track':
                 
-                trak_group = Group20580(root, self, 20580)
+                #define a node that acts as the root for the entire model
+                root_node = Group20580(root, self, 20580)
                 
-                #get everything to do with triggers
-                for obj in [obj for obj in child_collection.objects if obj.type == 'MESH']:
-                    mesh = Mesh(None, self).unmake(obj)
-                    if mesh.has_trigger():
-                        trigger_objects.append(obj)
-                        meshes.append(mesh)
+                # topmost = []
+                # for obj in child_collection.objects:
+                #     top = find_topmost_parent(obj)
+                #     if top not in topmost:
+                #         topmost.append(top)
+                
+                # print(topmost)
+                
+                for obj in child_collection.objects:
+                    #collect animations from emtpies
+                    if obj.type == 'EMPTY' and obj.animation_data:
+                        anim_objects.append(obj)
+                        anim_target = Group53349(root_node, self, 53349).unmake(obj, False)
+                        children = find_obj_in_hierarchy(obj)
+                        if len(children):
+                            anim_objects.extend(children)
+                            anims = [Mesh(None, self).unmake(child) for child in children]
+                            target_node = Group20580(anim_target, self, 20580)
+                            assign_meshes_to_node_by_type(anims, target_node, self)
+                            anim_target.children.append(target_node)
+                        root_node.children.append(anim_target)
                         
-                        for trigger in mesh.collision_tags.triggers:
-                            if trigger.target:
-                                children = find_obj_in_hierarchy(trigger.target)
-                                if len(children):
-                                    #add bpy objects to list too be ignored
-                                    trigger_objects.extend(children)
-                                    
-                                    #unmake all objects
-                                    target_objects = [Mesh(None, self).unmake(child) for child in children]
-                                    target_node = Group20580(trak_group, self, 20580)
-                                    assign_meshes_to_node_by_type(target_objects, target_node, self)
-                                    trak_group.children.append(target_node)
-                                    trigger.target = target_node
-                                    
-                                else:
-                                    target_empty = Group53349(trak_group, self, 53349).unmake(trigger.target)
-                                    trak_group.children.append(target_empty)
-                                    trigger.target = target_empty
+                    #get everything to do with triggers
+                    if obj.type == 'MESH':
+                        mesh = Mesh(None, self).unmake(obj)
+                        if mesh.has_trigger():
+                            trigger_objects.append(obj)
+                            meshes.append(mesh)
                             
-                meshes.extend([Mesh(None,self).unmake(o) for o in child_collection.objects if (o.type == 'MESH' and o not in trigger_objects)])
+                            for trigger in mesh.collision_tags.triggers:
+                                if trigger.target:
+                                    children = find_obj_in_hierarchy(trigger.target)
+                                    if len(children):
+                                        #add bpy objects to list to be ignored
+                                        trigger_objects.extend(children)
+                                        
+                                        #unmake all objects
+                                        target_objects = [Mesh(None, self).unmake(child) for child in children]
+                                        target_node = Group20580(root_node, self, 20580)
+                                        assign_meshes_to_node_by_type(target_objects, target_node, self)
+                                        root_node.children.append(target_node)
+                                        trigger.target = target_node
+                                        
+                                    else:
+                                        target_empty = Group53349(root_node, self, 53349).unmake(trigger.target)
+                                        root_node.children.append(target_empty)
+                                        trigger.target = target_empty
+                            
+                meshes.extend([Mesh(None,self).unmake(o) for o in child_collection.objects if (o.type == 'MESH' and o not in trigger_objects and o not in anim_objects)])
                 
-                assign_meshes_to_node_by_type(meshes, trak_group, self)
+                assign_meshes_to_node_by_type(meshes, root_node, self)
         
-                trak_group.header = [0, 1]         
-                
-                root.children.append(trak_group)
+        
+                root_node.header = [0, 1]         
+                root.children.append(root_node)
                 
             if child_collection.name == 'Skybox':
                 sky_group = Group20580(root, self, 20580)
@@ -2414,6 +2765,7 @@ class Model():
                 sky_group.children.append(sky_empty)
                 root.children.append(sky_group)
         
+        self.header.unmake(collection)
             
         return self
 
@@ -2429,7 +2781,8 @@ class Model():
             cursor = node.write(buffer, cursor)
             
         # write all animations
-        for anim in self.Anim:
+        for i, anim in enumerate(self.Anim.data):
+            writeUInt32BE(buffer, cursor, self.anim_list + i*4)
             cursor = anim.write(buffer, cursor)
 
         # write all outside references

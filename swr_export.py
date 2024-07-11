@@ -1,10 +1,10 @@
 import bpy
 from .popup import show_custom_popup
-from .modelblock import Model
-from .splineblock import Spline
-from .textureblock import Texture
-from .block import Block
-from .general import *
+from .swe1r.modelblock import Model
+from .swe1r.splineblock import Spline
+from .swe1r.textureblock import Texture
+from .swe1r.block import Block
+from .swe1r.general import *
     
 scale = 100
 

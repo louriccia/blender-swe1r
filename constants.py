@@ -1,0 +1,1 @@
+URL_DISCORD = "https://discord.gg/star-wars-episode-i-racer"

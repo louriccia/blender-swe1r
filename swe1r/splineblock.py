@@ -24,7 +24,7 @@ import bpy
 import math
 from .general import *
 from .modelblock import DataStruct, FloatPosition, FloatVector
-from .popup import show_custom_popup
+from ..popup import show_custom_popup
 from .spline_map import spline_map
 
 class SplinePoint(DataStruct):
@@ -326,6 +326,9 @@ class Spline(DataStruct):
                 splits += 1
             if i == len(self.points) - 1 and not loop:
                 point.unk_set[0] = 0
+            
+        for point in self.points:
+            print(point.to_array())
             
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point

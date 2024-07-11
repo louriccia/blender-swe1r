@@ -20,10 +20,10 @@
 # /licenses>.
 
 import bpy
-from .modelblock import Model
-from .splineblock import Spline
-from .spline_map import spline_map
-from .block import Block
+from .swe1r.modelblock import Model
+from .swe1r.splineblock import Spline
+from .swe1r.spline_map import spline_map
+from .swe1r.block import Block
 
 # for material in bpy.data.materials:
 #     material.user_clear()

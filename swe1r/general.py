@@ -1,4 +1,5 @@
 import struct
+from ..utils import clamp
 
 def readUInt8(buffer, cursor):
     return int.from_bytes(buffer[cursor: cursor+1], byteorder='big')
@@ -28,7 +29,6 @@ def readVec3(buffer, cursor):
     return struct.unpack_from('>fff', buffer, cursor)
 
 def writeBulk(buffer, cursor, format_string, arr):
-    print(arr)
     struct.pack_into(format_string, buffer, cursor, *arr)
     return cursor + struct.calcsize(format_string)
 
@@ -219,7 +219,7 @@ class Color(Data):
         return self.data
     
 class RGB3Bytes(DataStruct):
-    def __init__(self, r = 0, g = 0, b = 0):
+    def __init__(self, r = 255, g = 255, b = 255):
         super().__init__('>3B')
         self.r = r
         self.g = g
@@ -233,9 +233,7 @@ class RGB3Bytes(DataStruct):
         return [self.r/255, self.g/255, self.b/255]
     
     def unmake(self, data):
-        self.r = round(data[0]*255)
-        self.g = round(data[1]*255)
-        self.b = round(data[2]*255)
+        self.r, self.g, self.b = [round(clamp(d*255, 0, 255)) for d in data]
         return self
     
     def to_array(self):
