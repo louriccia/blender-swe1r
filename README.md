@@ -73,14 +73,33 @@ To create an alternate path, create a new spline within the same curve object. T
 'Set First Points' - can set the selected point as the first point in the spline and make it the start/finish line.
 'Switch Direction' - reverses the spline
 
+## Vertex Colors
+* Rounded look vs sharp look
+* vertex density
+* Cleanup
+* 
+
 ## Known Issues
 
-- Nothing actually works yet
+- Podd / MAlt import/export is not supported
 
 ## License
 
 This project is licensed under the GNU GENERAL PUBLIC LICENSE - see the [LICENSE.md]([link-to-license-file](https://github.com/louriccia/blender_swe1r/blob/main/LICENSE)) file for details.
 
-Support the project by sending some truguts</br>
+## Thanks
+The following people have contributed to this project through feedback and insight. They're awesome!
+* aphex0161
+* Galeforce
+* Leadphalanx
+* tilman
+* Tim707
+
+## Related Projects
+* [swe1r-assets](https://github.com/akopetsch/swe1r-assets) - A C#/.NET library for handling game assets of Star Wars Episode I: Racer
+* [swe1r-assets-unity](https://github.com/akopetsch/swe1r-assets-unity) - A Unity package (WIP, currently just a sample project) that allows you to import, modify and re-export assets of the game Star Wars Episode I: Racer.
+* [annodue](https://github.com/everalert/annodue) - A universal extension platform for STAR WARS Episode I Racer oriented toward speedrunning.
+
+Support development by sending me some truguts</br>
 
 [![ko-fi](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/lightningpirate)

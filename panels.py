@@ -4,6 +4,7 @@ from .swr_export import *
 from .popup import *
 import bpy
 from .swe1r.model_list import model_list
+from .swe1r.modelblock import SurfaceEnum
 from .operators import *
 from .constants import *
 
@@ -92,6 +93,8 @@ class ExportPanel(bpy.types.Panel):
         row.prop(context.scene, "export_texture", text="Texture", icon='MATERIAL', toggle=True, icon_only=True)
         row.prop(context.scene, "export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
         row = layout.row()
+        row.prop(context.scene, "export_spawn", text="Spawn at cursor", icon='CURSOR')
+        row = layout.row()
         row.scale_y = 1.5
         row.operator("view3d.export_operator", text="Export")
         
@@ -142,6 +145,7 @@ class SelectedPanel(bpy.types.Panel):
 
         spline = False
         mesh = False
+        light = False
         collidable = True
         collidable_data = True
         visible = True
@@ -156,43 +160,193 @@ class SelectedPanel(bpy.types.Panel):
                 mesh = True
             if obj.type == 'CURVE':
                 spline = obj.data.splines.active
+            if obj.type == 'LIGHT':
+                light = obj.data
                 
         if mesh:
 
             if not visible:
                 row = layout.row()
                 row.operator("view3d.set_visible", text= "Add visuals", icon = 'ADD')
+                row.scale_y = 1.5
             else:
-                box = layout.box()
-                row = box.row(align=True)
-                row.label(text = 'Visuals')
-                row.operator("view3d.set_nonvisible", text = "", icon = "TRASH")
+                parent_box = layout.box()
+                col = parent_box.column(align=True)
+                
+                row = col.row(align=True)
+                row.scale_y = 1.5
+                row.label(text = 'Visuals', icon = 'MATERIAL_DATA')
+                row.operator("view3d.v_color", text="Reset", emboss = False)
+                row.operator("view3d.set_nonvisible", text = "", icon = "TRASH", emboss = False)
+                
+                
+                box = parent_box.box()
                 row = box.row()
-                row.operator("view3d.v_color", text="Set/Reset Vertex Colors")
+                row.label(text = "Lighting", icon = "LIGHT_SUN")
+                icon = "DOWNARROW_HLT" if context.scene.lights_expanded else "RIGHTARROW"
+                row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                row.prop(context.scene, "lights_expanded", icon = icon, text = "", emboss = False)
+                
+                if context.scene.lights_expanded:
+                    row = box.row()
+                    row.prop(context.scene, 'light_falloff', text = 'Falloff', slider = True)
+                    row = box.row()
+                    row.label(text = 'Ambient Light')
+                    row.prop(context.scene, 'ambient_light', text = '')
+                    row = box.row()
+                    row.scale_y = 1.5
+                    row.operator("view3d.bake_vcolors", text = "Bake")
+                
+                box = parent_box.box()
+                row = box.row()
+                row.label(text = "Texture", icon = "TEXTURE")
+                icon = "DOWNARROW_HLT" if context.scene.textures_expanded else "RIGHTARROW"
+                row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                row.prop(context.scene, "textures_expanded", icon = icon, text = "", emboss = False)
+                
+                if context.scene.textures_expanded:
+                    row = box.row()
+                    row.label(text = 'Scroll animation')
+                    row= box.row()
+                    row.label(text = 'Flip X/Y')
             
             if not collidable:
                 row = layout.row()
                 row.operator("view3d.set_collidable", text= "Add collision", icon = 'ADD')
+                row.scale_y = 1.5
             else:
-                box = layout.box()
-                row = box.row(align=True)
-                row.label(text = 'Collision')
-                row.operator("view3d.set_noncollidable", text = "", icon = "TRASH")
-                row = box.row()
+
+                parent_box = layout.box()
+                row = parent_box.row(align=True)
+                row.scale_y = 1.5
+                row.label(text = 'Collision', icon = 'MOD_PHYSICS')
+                row.operator("view3d.reset_collision_data", text = "Reset", emboss = False)
+                row.operator("view3d.set_noncollidable", text = "", icon = "TRASH", emboss = False)
+                
                 if not collidable_data:
+                    row = parent_box.row()
                     row.operator("view3d.add_collision_data", text= "Add surface tags, fog, etc.", icon = "ADD")
                 elif collidable:
-                    row.operator("view3d.reset_collision_data", text = "Reset")
+                    
+                    box = parent_box.box()
                     row = box.row()
+                    row.label(text = "Terrain Flags", icon = "AUTO")
+                    icon = "DOWNARROW_HLT" if context.scene.flags_expanded else "RIGHTARROW"
+                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                    row.prop(context.scene, "flags_expanded", icon = icon, text = "", emboss = False)
+                    
+                    if context.scene.flags_expanded:
+                        # surfaces = [f for f in dir(SurfaceEnum) if not f.startswith("__") and not f.startswith("Surface")]
+                        # flag_count = len(surfaces)
+                        # row = box.row()
+                        # for i in range(2):
+                        #     col = row.column()
+                        #     for j in range(int(i*flag_count/2), (i+1)*int(flag_count/2)):
+                        #         col.prop(context.active_object, surfaces[j])
+                        # row = box.row()
+                        
+                        gameplay = ["Fast", "Slow", "Swst", "Slip", "Lava", "ZOn", "ZOff", "Fall"]
+                        effects = ["Dust", "Wet", "Swmp", "Snow", "NSnw", "Mirr", "Side"]
+                        feedback = ["Ruff", "Soft", "Flat"]
+                        
+                        row = box.row()
+                        col = row.column()
+                        for flag in gameplay:
+                            col.prop(context.active_object, flag)
+                        
+                        r = col.row()
+                        r.label(text = "")
+                        r.scale_y = 0.5
+                        r = col.row()
+                        r.prop(context.active_object, "magnet", text = '', icon = 'SNAP_ON')
+                            
+                        col = row.column()
+                        for flag in effects:
+                            col.prop(context.active_object, flag)
+                            
+                        r = col.row()
+                        r.label(text = "")
+                        r.scale_y = 0.5
+                        for flag in feedback:
+                            col.prop(context.active_object, flag)
+                        
+                        
+                        
+                    
+                    box = parent_box.box()
+                    row = box.row()
+                    row.label(text = "Fog", icon = "FORCE_FORCE")
+                    icon = "DOWNARROW_HLT" if context.scene.fog_expanded else "RIGHTARROW"
+                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                    row.prop(context.scene, "fog_expanded", icon = icon, text = "", emboss = False)
+                    
+                    if context.scene.fog_expanded:
+                        row = box.row()
+                        col = row.column()
+                        col.prop(context.active_object, 'fog_color_update', text = 'Set color')
+                        col = row.column()
+                        col.prop(context.active_object, 'fog_color', text = '')
+                        col.enabled = context.active_object.fog_color_update
+                        row.enabled = not context.active_object.fog_clear
+                        row = box.row()
+                        col = row.column()
+                        col.prop(context.active_object, 'fog_range_update', text = 'Set range')
+                        col = row.column()
+                        col.prop(context.active_object, 'fog_min', text = 'Min', slider = True)
+                        col.prop(context.active_object, 'fog_max', text = 'Max', slider = True)
+                        col.enabled = context.active_object.fog_range_update
+                        row.enabled = not context.active_object.fog_clear
+                        row = box.row()
+                        row.prop(context.active_object, 'fog_clear', text = 'Clear Fog', icon = 'SHADERFX')
+                        row = box.row()
+                        row.prop(context.active_object, 'skybox_show', text = 'Show Skybox', icon = 'HIDE_OFF')
+                        row.prop(context.active_object, 'skybox_hide', text = 'Hide Skybox', icon = 'HIDE_ON')
+                        
+                    
+                    box = parent_box.box()
+                    row = box.row()
+                    row.label(text = "Lighting", icon = "LIGHT_SUN")
+                    icon = "DOWNARROW_HLT" if context.scene.lighting_expanded else "RIGHTARROW"
+                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                    row.prop(context.scene, "lighting_expanded", icon = icon, text = "", emboss = False)
+                    
+                    if context.scene.lighting_expanded:
+                        row = box.row()
+                        row.prop(context.active_object, 'lighting_light', text = '')
+                        row = box.row()
+                        row.prop(context.active_object, 'lighting_color', text = 'Ambient Color')
+                        row = box.row()
+                        row.prop(context.active_object, 'lighting_flicker', text = 'Flicker', toggle = True)
+                        row.prop(context.active_object, 'lighting_invert', text = 'Invert', toggle = True)
+                        row.prop(context.active_object, 'lighting_persistent', text = 'Persist', toggle = True)
+                    
+                    box = parent_box.box()
+                    row = box.row()
+                    row.label(text = "Load Trigger", icon = "MOD_BUILD")
+                    icon = "DOWNARROW_HLT" if context.scene.trigger_expanded else "RIGHTARROW"
+                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                    row.prop(context.scene, "trigger_expanded", icon = icon, text = "", emboss = False)
+                    
+                    if context.scene.trigger_expanded:
+                        row = box.row()
+                        row.prop(context.active_object, 'load_trigger', text = '', icon = 'RENDERLAYERS')
+                    
+                    row = parent_box.row()
                     row.operator("view3d.add_trigger", text = "Add trigger", icon = 'ADD')
                 
         elif spline:
             is_cyclic = spline.use_cyclic_u
             layout.operator("view3d.invert_spline", text = "Invert", icon='ARROW_LEFTRIGHT')
             layout.operator("view3d.reconstruct_spline", text = "Set spawn point", icon='TRACKING')
-            label = "Cyclic" if is_cyclic else "Non-cyclic"
-            layout.operator("view3d.toggle_cyclic", text=label)
+            icon = "CHECKBOX_HLT" if is_cyclic else "CHECKBOX_DEHLT"
+            row = layout.row()
+            row.label(text = 'Cyclic')
+            row.operator("view3d.toggle_cyclic", emboss = False, icon = icon, text = "")
             
+        elif light:
+            layout.prop(light, "color", text = "Color")
+            layout.prop(light, 'LStr', text = 'Light Streak')
+    
         
 
 def register():

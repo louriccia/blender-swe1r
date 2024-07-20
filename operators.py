@@ -92,15 +92,8 @@ class VertexColorOperator(bpy.types.Operator):
     def execute(self, context):
         selected_objects = context.selected_objects
         for obj in selected_objects:
-            
-            if obj.data.vertex_colors.active:
-                color_layer = obj.data.vertex_colors.active
-                for poly in obj.data.polygons:
-                    for loop_index in poly.loop_indices:
-                        color_layer.data[loop_index].color = [1.0, 1.0, 1.0, 1.0]
-            
-            # bpy.context.view_layer.objects.active = obj
-            # bpy.ops.geometry.color_attribute_add(name = "color", domain = "CORNER", data_type="BYTE_COLOR", color = [1.0, 1.0, 1.0, 1.0])
+            reset_vertex_colors(obj)
+
         return {'FINISHED'}
   
 class VisibleOperator(bpy.types.Operator):
@@ -111,6 +104,7 @@ class VisibleOperator(bpy.types.Operator):
         selected_objects = context.selected_objects
         for obj in selected_objects:
             obj['visible'] = True
+            reset_vertex_colors(obj)
         return {'FINISHED'}
     
 class NonVisibleOperator(bpy.types.Operator):
@@ -310,6 +304,31 @@ class OpenUrl(bpy.types.Operator):
         open_url(self.url)
         return {"FINISHED"}
     
+class BakeVColors(bpy.types.Operator):
+    bl_idname = "view3d.bake_vcolors"
+    bl_label = "Bake Vertex Colors"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            # Calculate the total light for each vertex of the selected object
+            total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
+               
+            reset_vertex_colors(obj)
+            
+            color_layer = obj.data.vertex_colors.active.data   
+                
+            # Print the results
+            for vertex_index, total_light in total_lights.items():
+                print(f"Total light at vertex {vertex_index}: {total_light}")
+                
+            for poly in obj.data.polygons:
+                for p in range(len(poly.vertices)):
+                    color = total_lights[poly.vertices[p]]
+                    color_layer[poly.loop_indices[p]].color = [*color, 1.0]
+                
+        return {"FINISHED"}
+    
 def register():
     bpy.utils.register_class(ImportOperator)
     bpy.utils.register_class(ExportOperator)
@@ -327,6 +346,7 @@ def register():
     bpy.utils.register_class(SplineCyclic)
     bpy.utils.register_class(ReconstructSpline)
     bpy.utils.register_class(OpenUrl)
+    bpy.utils.register_class(BakeVColors)
     
 def unregister():
     bpy.utils.unregister_class(ImportOperator)
@@ -345,3 +365,4 @@ def unregister():
     bpy.utils.unregister_class(SplineCyclic)
     bpy.utils.unregister_class(ReconstructSpline)
     bpy.utils.unregister_class(OpenUrl)
+    bpy.utils.unregister_class(BakeVColors)

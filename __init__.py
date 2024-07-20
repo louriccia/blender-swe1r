@@ -73,26 +73,51 @@ def register():
     bpy.types.Scene.export_model = bpy.props.BoolProperty(name="Model", update=utils.save_settings, default=utils.get_setting('export_model', True))
     bpy.types.Scene.export_texture = bpy.props.BoolProperty(name="Texture", update=utils.save_settings, default=utils.get_setting('export_texture', True))
     bpy.types.Scene.export_spline = bpy.props.BoolProperty(name="Spline", update=utils.save_settings, default=utils.get_setting('export_spline', True))
+    bpy.types.Scene.export_spawn = bpy.props.BoolProperty(name="Spawn", update=utils.save_settings, default=utils.get_setting('export_spawn', True))
     bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'collision_visible', update =utils.ColVis, default=True)
     bpy.types.Scene.collision_selectable = bpy.props.BoolProperty(name = 'collision_selectable', update =utils.SelCol, default=True)
     bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'visuals_visible', update =utils.ShoVis, default=True)
     bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'visuals_selectable', update =utils.SelVis, default=True)
     bpy.types.Scene.spline_cyclic = bpy.props.BoolProperty(name = 'cyclic', update =utils.save_settings, default=utils.get_setting('spline_cyclic', True))
     
-    # bpy.types.Scene.fog_flag = bpy.props.EnumProperty(items=constants.fog_flag_items, name="Fog Flag", description="Fog flag", default=utils.get_setting('fog_flag', 0), update=utils.save_settings)
-    # bpy.types.Scene.fog_color = bpy.props.FloatVectorProperty(name="Fog Color", subtype='COLOR', size=3, default=(0.5, 0.5, 0.5), min=0, max=1, description="Fog color")
-    # bpy.types.Scene.fog_start = bpy.props.IntProperty(name="Fog Start", default=utils.get_setting('fog_start', 100), min=0, max=10000, description="Fog start")
-    # bpy.types.Scene.fog_end = bpy.props.IntProperty(name="Fog End", default=utils.get_setting('fog_end', 1000), min=0, max=10000, description="Fog end")
+    bpy.types.Scene.light_falloff = bpy.props.FloatProperty(name = 'falloff', min=0.0, max=10.0, update =utils.save_settings, default=utils.get_setting('light_falloff', 1.0))
+    bpy.types.Scene.ambient_light = bpy.props.FloatVectorProperty(name = 'ambient light', subtype='COLOR', min=0.0, max=1.0, description="Pick an ambient color", update =utils.save_settings, default=utils.get_setting('ambient_light', (0.0, 0.0, 0.0)))
+    bpy.types.Scene.ambient_light_intensity = bpy.props.FloatProperty(name = 'ambient_light_intensity', min=0.0, max=1.0, update =utils.save_settings, default=utils.get_setting('ambient_light_intensity', 0.1))
     
-    # bpy.types.Scene.lights_flag = bpy.props.EnumProperty(items=constants.lights_flag_items, name="Lights Flag", description="Lights flag", default=utils.get_setting('lights_flag', 0), update=utils.save_settings)
-    # bpy.types.Scene.lights_ambient = bpy.props.FloatVectorProperty(name="Ambient", subtype='COLOR', size=3, default=(0.5, 0.5, 0.5), min=0, max=1, description="Ambient color")
-    # bpy.types.Scene.lights_color = bpy.props.FloatVectorProperty(name="Color", subtype='COLOR', size=3, default=(0.5, 0.5, 0.5), min=0, max=1, description="Color")
-    # bpy.types.Scene.lights_unk1 = bpy.props.IntProperty(name="Unk1", default=utils.get_setting('lights_unk1', 0), min=0, max=255, description="Unk1")
-    # bpy.types.Scene.lights_unk2 = bpy.props.IntProperty(name="Unk2", default=utils.get_setting('lights_unk2', 0), min=0, max=255, description="Unk2")
-    # bpy.types.Scene.lights_position = bpy.props.FloatVectorProperty(name="Position", subtype='TRANSLATION', size=3, default=(0, 0, 0), min=-10000, max=10000, description="Position")
-    # bpy.types.Scene.lights_direction = bpy.props.FloatVectorProperty(name="Direction", subtype='TRANSLATION', size=3, default=(0, 0, 0), min=-10000, max=10000, description="Direction")
+    bpy.types.Scene.flags_expanded = bpy.props.BoolProperty(name = 'flags_expanded', default=False)
+    bpy.types.Scene.fog_expanded = bpy.props.BoolProperty(name = 'fog_expanded', default=False)
+    bpy.types.Scene.lighting_expanded = bpy.props.BoolProperty(name = 'lighting_expanded', default=False)
+    bpy.types.Scene.trigger_expanded = bpy.props.BoolProperty(name = 'trigger_expanded', default=False)
+    bpy.types.Scene.lights_expanded = bpy.props.BoolProperty(name = 'lights_expanded', default=False)
+    bpy.types.Scene.textures_expanded = bpy.props.BoolProperty(name = 'texture_expanded', default=False)
     
+    for flag in dir(swe1r.modelblock.SurfaceEnum):
+        if not flag.startswith("__"):
+            setattr(bpy.types.Object, flag, bpy.props.BoolProperty(name = flag, default=False, update = utils.create_update_function(flag)))
+            
+    bpy.types.Object.magnet = bpy.props.BoolProperty(name ='magnet', default=False, update = utils.create_update_function("magnet"))
     
+    bpy.types.Object.lighting_light = bpy.props.PointerProperty(type=bpy.types.Light, name="lighting_light", update = utils.create_update_function("lighting_light"))
+    bpy.types.Object.lighting_color = bpy.props.FloatVectorProperty(name="lighting_color", subtype='COLOR', size=3, default=(0.0, 0.0, 0.0), min=0, max=1, description="Ambient Color", update = utils.create_update_function("lighting_color"))
+    bpy.types.Object.lighting_invert = bpy.props.BoolProperty(name = 'lighting_invert', default=False, update = utils.create_update_function("lighting_invert"))
+    bpy.types.Object.lighting_flicker = bpy.props.BoolProperty(name = 'lighting_flicker', default=False, update = utils.create_update_function("lighting_flicker"))
+    bpy.types.Object.lighting_persistent = bpy.props.BoolProperty(name = 'lighting_persistent', default=False, update = utils.create_update_function("lighting_persistent"))
+    
+    bpy.types.Object.fog_color_update = bpy.props.BoolProperty(name = 'fog_color_update', default=False, update = utils.create_update_function("fog_color_update"))
+    bpy.types.Object.fog_color = bpy.props.FloatVectorProperty(name="fog_color", subtype='COLOR', size=3, default=(0.0, 0.0, 0.0), min=0, max=1, description="Fog color", update = utils.create_update_function("fog_color"))
+    bpy.types.Object.fog_range_update = bpy.props.BoolProperty(name = 'fog_range_update', default=False, update = utils.create_update_function("fog_range_update"))
+    bpy.types.Object.fog_min = bpy.props.IntProperty(name="fog_min", default=1000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog min", subtype = 'DISTANCE', update = utils.create_update_function("fog_min"))
+    bpy.types.Object.fog_max = bpy.props.IntProperty(name="fog_max", default=5000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog min", subtype = 'DISTANCE', update = utils.create_update_function("fog_max"))
+    bpy.types.Object.fog_clear = bpy.props.BoolProperty(name = 'fog_clear', default=False, update = utils.create_update_function("fog_clear"))
+    bpy.types.Object.skybox_show = bpy.props.BoolProperty(name ='skybox_show', default=False, update = utils.create_update_function("skybox_show"))
+    bpy.types.Object.skybox_hide = bpy.props.BoolProperty(name ='skybox_hide', default=False, update = utils.create_update_function("skybox_hide"))
+    
+    bpy.types.Object.load_trigger = bpy.props.EnumProperty(
+        name="View Layer",
+        items= utils.populate_enum
+    )
+    
+    bpy.types.Light.LStr = bpy.props.BoolProperty(name = 'Light Streak', default=False, update = utils.create_update_function("LStr"))
     
     operators.register()
     panels.register()

@@ -214,6 +214,8 @@ class CollisionTrigger(DataStruct):
         trigger_empty.scale = [self.width/2, self.width/2, self.height/2]
         trigger_empty['id'] = self.id
         
+        gizmo = bpy.data.Gizmos.new('GIZMO_GT_TRIGGER')
+        
         self.flags.make(trigger_empty)
         trigger_empty['target'] = self.target
         #TODO this needs to be able to select targets that aren't made yet
@@ -2136,7 +2138,7 @@ class ModelData():
     def unmake(self):
         #TODO only get objects from collection
         for obj in bpy.data.objects:
-            if obj.type == 'LIGHT':
+            if obj.type == 'LIGHT' and obj.data.type == 'POINT':
                 self.data.append(LStr(self, self.model).unmake(obj))
         return self
     def write(self, buffer, cursor):
