@@ -26,12 +26,17 @@ import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture
 from ..popup import show_custom_popup
+from ..utils import find_existing_light
 
 
 class Lights(DataStruct):
-    def __init__(self):
+    def __init__(self, model):
         super().__init__('>h8b6f')
+        self.model = model
         self.flag = 0
+        # 00100 = invert affected?
+        # 01000 = flicker?
+        # 10000 = persistent lighting
         self.ambient = RGB3Bytes()
         self.color = RGB3Bytes()
         self.unk1 = 0
@@ -48,34 +53,49 @@ class Lights(DataStruct):
         return self
     
     def make(self, obj):
-        obj['lights_flag'] = self.flag
-        obj['lights_ambient'] = self.ambient.make()
-        obj['lights_color'] = self.color.make()
-        obj['lights_unk1'] = self.unk1
-        obj['lights_unk2'] = self.unk2
-        obj['lights_pos'] = self.pos.to_array()
-        obj['lights_rot'] = self.rot.to_array()
-        obj.id_properties_ui('lights_pos').update(subtype='COORDINATES')
-        obj.id_properties_ui('lights_rot').update(subtype='COORDINATES')
-        obj.id_properties_ui('lights_ambient').update(subtype='COLOR')
-        obj.id_properties_ui('lights_color').update(subtype='COLOR')
+        
+        if self.flag & 0x3 > 0:
+            existing_light = find_existing_light(mathutils.Color(self.color.make()), mathutils.Vector([a * self.model.scale for a in self.pos.make()]),  mathutils.Euler(self.rot.make()))
+            if existing_light is None:
+                # Create a new light if no existing light is found
+                
+                new_light = bpy.data.lights.new(type='POINT', name='pod_lighting')
+                new_light.color = self.color.make()
+                obj.lighting_light = new_light
+                
+                light_object = bpy.data.objects.new(name="pod_lighting", object_data=new_light)
+                self.model.collection.objects.link(light_object)
 
+                # Set the location and rotation
+                light_object.location = [a * self.model.scale for a in self.pos.make()]
+                light_object.rotation_euler = self.rot.make()
+            else: 
+                obj.lighting_light = existing_light.data
+        obj.lighting_color = self.ambient.make()
+        obj.lighting_invert = self.flag & 0x4 > 0
+        obj.lighting_flicker = self.flag & 0x8 > 0
+        obj.lighting_persistent = self.flag & 0x10 > 0
         
     def unmake(self, obj):
-        if 'lights_flag' in obj:
-            self.flag = obj['lights_flag']
-        if 'lights_ambient' in obj:
-            self.ambient.unmake(obj['lights_ambient'])
-        if 'lights_color' in obj:
-            self.color.unmake(obj['lights_color'])
-        if 'lights_unk1' in obj:
-            self.unk1 = obj['lights_unk1']
-        if 'lights_unk2' in obj:
-            self.unk2 = obj['lights_unk2']
-        if 'lights_pos' in obj:
-            self.pos.from_array(obj['lights_pos'])
-        if 'lights_rot' in obj:
-            self.rot.from_array(obj['lights_rot'])
+        if obj.lighting_light is not None:
+            light_object = bpy.data.objects.get(obj.lighting_light.name)
+            
+            self.flag |= 0x3
+            
+            if light_object:
+                self.color.unmake(light_object.data.color)
+                self.pos.from_array([round(a/self.model.scale) for a in light_object.location])
+                self.rot.from_array(light_object.rotation_euler)
+        
+        self.ambient.unmake(obj.lighting_color)
+        
+        if obj.lighting_invert:
+            self.flag |= 0x4
+        if obj.lighting_flicker:
+            self.flag |= 0x8
+        if obj.lighting_persistent:
+                self.flag |= 0x10
+        
         return self
     
     def to_array(self):
@@ -99,23 +119,23 @@ class Fog(DataStruct):
         self.start = 0
         self.end = 0
     
-    def make(self, obj):
-        obj['fog_flag'] = self.flag
-        obj['fog_color'] = self.color.make()
-        obj['fog_start'] = self.start
-        obj['fog_end'] = self.end
-        obj.id_properties_ui('fog_color').update(subtype='COLOR')
-        obj.id_properties_ui('fog_start').update(subtype='DISTANCE')
+    def make(self, obj): 
+        obj.fog_color_update = self.flag & 0x01 > 0
+        obj.fog_color = self.color.make()
+        obj.fog_range_update = self.flag & 0x02 > 0
+        obj.fog_min = self.start
+        obj.fog_max = self.end
+        obj.fog_clear = self.flag & 0x02 and self.start == 0
         
     def unmake(self, obj):
-        if 'fog_flag' in obj:
-            self.flag = obj['fog_flag'] 
-        if 'fog_color' in obj:
-            self.color.unmake(obj['fog_color'])
-        if 'fog_start' in obj:
-            self.start = obj['fog_start'] 
-        if 'fog_end' in obj:
-            self.end = obj['fog_end']
+        if obj.fog_color_update:
+            self.flag |= 0x01
+        if obj.fog_range_update or obj.fog_clear:
+            self.flag |= 0x02
+            
+        self.color.unmake(obj.fog_color)
+        self.start = 0 if obj.fog_clear else obj.fog_min
+        self.end = obj.fog_max
             
         return self
     
@@ -214,7 +234,6 @@ class CollisionTrigger(DataStruct):
         trigger_empty.scale = [self.width/2, self.width/2, self.height/2]
         trigger_empty['id'] = self.id
         
-        gizmo = bpy.data.Gizmos.new('GIZMO_GT_TRIGGER')
         
         self.flags.make(trigger_empty)
         trigger_empty['target'] = self.target
@@ -318,14 +337,14 @@ class SpecialSurfaceFlags(DataStruct):
             setattr(self, attr, bool(getattr(SpecialSurfaceEnum, attr) & data))
             
     def make(self, obj):
-        for attr in self.flags:
-            obj[attr] = getattr(self, attr)
+        obj.magnet = self.Unk5
+        obj.skybox_show = self.Unk2
+        obj.skybox_hide = self.Unk1
             
     def unmake(self, obj):
-        for attr in self.flags:
-            if attr in obj:
-                setattr(self, attr, obj[attr])
-        return self
+        self.Unk5 = obj.magnet
+        self.Unk2 = obj.skybox_show
+        self.Unk1 = obj.skybox_hide
     
     def write(self, buffer, cursor):
         data = 0
@@ -380,7 +399,7 @@ class CollisionTags(DataStruct):
         self.model = model
         self.unk = SpecialSurfaceFlags()
         self.fog = Fog()
-        self.lights = Lights()
+        self.lights = Lights(self.model)
         self.flags = SurfaceFlags()
         self.unk1 = 0
         self.unk2 = 0
@@ -429,6 +448,7 @@ class CollisionTags(DataStruct):
         return self
     
     def write(self, buffer, cursor):
+        print(self.fog.to_array(), self.lights.to_array())
         struct.pack_into(self.format_string, buffer, cursor, *[0, *self.fog.to_array(), *self.lights.to_array(), 0, self.unk1, self.unk2, self.unload, self.load, 0])
         self.unk.write(buffer, cursor)
         self.flags.write(buffer, cursor + 44)
@@ -1369,7 +1389,7 @@ class Mesh(DataStruct):
             mesh = bpy.data.meshes.new(mesh_name)
             obj = bpy.data.objects.new(mesh_name, mesh)
             
-            obj['collidable'] = True   
+            obj.collidable = True   
             obj['id'] = self.id
             obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
@@ -1389,7 +1409,7 @@ class Mesh(DataStruct):
             mesh_name = '{:07d}'.format(self.id) + "_" + "visuals"
             mesh = bpy.data.meshes.new(mesh_name)
             obj = bpy.data.objects.new(mesh_name, mesh)
-            obj['visible'] = True
+            obj.visible = True
             obj['id'] = self.id
             obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
@@ -1423,12 +1443,12 @@ class Mesh(DataStruct):
         else:
             self.id = node.name
         if 'visible' not in node and 'collidable' not in node:
-            node['visible'] = True
-            node['collidable'] = True
+            node.visible = True
+            node.collidable = True
             
         get_animations(node, self.model, self)
         
-        if 'visible' in node and node['visible']:
+        if node.visible:
             self.material = Material(self, self.model).unmake(node)
             self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
             verts = self.visuals_vert_buffer.data
@@ -1494,7 +1514,7 @@ class Mesh(DataStruct):
             self.visuals_vert_buffer.data = new_verts
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
                 
-        if 'collidable' in node and node['collidable']:
+        if node.collidable:
             if 'collision_data' in node and node['collision_data']:
                 self.collision_tags = CollisionTags(self, self.model).unmake(node)
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node)
@@ -2099,6 +2119,7 @@ class LStr(DataStruct):
         return self
     def make(self):
         light = bpy.data.lights.new(name = "lightstreak", type = 'POINT')
+        light.LStr = True
         light_object = bpy.data.objects.new(name = "lightstreak", object_data = light)
         self.model.collection.objects.link(light_object)
         light_object.location = (self.data.data[0]*self.model.scale, self.data.data[1]*self.model.scale, self.data.data[2]*self.model.scale)
@@ -2138,7 +2159,7 @@ class ModelData():
     def unmake(self):
         #TODO only get objects from collection
         for obj in bpy.data.objects:
-            if obj.type == 'LIGHT' and obj.data.type == 'POINT':
+            if obj.type == 'LIGHT' and obj.data.LStr:
                 self.data.append(LStr(self, self.model).unmake(obj))
         return self
     def write(self, buffer, cursor):
@@ -2684,6 +2705,11 @@ class Model():
         meshes = []
         root = Group20580(self, self, 20580)
         
+        if self.ext == 'Part':
+            root = Group53349(self, self, 53349)
+            root.header = [0]
+            root.col_flags &= 0xFFFFFFFD
+        
         self.nodes.append(root)
         
         for child_collection in collection.children:
@@ -2766,6 +2792,10 @@ class Model():
                 sky_empty.children.append(sky_to_camera)
                 sky_group.children.append(sky_empty)
                 root.children.append(sky_group)
+        
+        if self.ext == 'Part':
+            
+            assign_meshes_to_node_by_type([Mesh(None,self).unmake(o) for o in collection.objects if o.type == 'MESH'], root, self)
         
         self.header.unmake(collection)
             

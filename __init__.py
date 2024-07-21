@@ -91,6 +91,9 @@ def register():
     bpy.types.Scene.lights_expanded = bpy.props.BoolProperty(name = 'lights_expanded', default=False)
     bpy.types.Scene.textures_expanded = bpy.props.BoolProperty(name = 'texture_expanded', default=False)
     
+    bpy.types.Object.visible = bpy.props.BoolProperty(name ='visible', default=False, update = utils.create_update_function("visible"))
+    bpy.types.Object.collidable = bpy.props.BoolProperty(name ='collidable', default=False, update = utils.create_update_function("collidable"))
+    
     for flag in dir(swe1r.modelblock.SurfaceEnum):
         if not flag.startswith("__"):
             setattr(bpy.types.Object, flag, bpy.props.BoolProperty(name = flag, default=False, update = utils.create_update_function(flag)))

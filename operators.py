@@ -318,10 +318,6 @@ class BakeVColors(bpy.types.Operator):
             
             color_layer = obj.data.vertex_colors.active.data   
                 
-            # Print the results
-            for vertex_index, total_light in total_lights.items():
-                print(f"Total light at vertex {vertex_index}: {total_light}")
-                
             for poly in obj.data.polygons:
                 for p in range(len(poly.vertices)):
                     color = total_lights[poly.vertices[p]]

@@ -46,12 +46,12 @@ def SplineVis(self, context = None):
 
 def ColVis(self, context = None):
     for obj in bpy.context.scene.objects:
-        if 'collidable' in obj and obj['collidable']:
+        if obj.collidable:
             obj.hide_viewport = not context.scene.collision_visible
             
 def ShoVis(self, context = None):
     for obj in bpy.context.scene.objects:
-        if 'visible' in obj and obj['visible']:
+        if obj.visible:
             obj.hide_viewport = not context.scene.visuals_visible
                 
 def EmptyVis(self, context):
@@ -104,24 +104,20 @@ def euclidean_distance(color1, color2):
     return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
 
 def calculate_point_light_contribution(light, vertex_position, vertex_normal, depsgraph, falloff_factor):
-    light_position = light.location
-    light_color = light.data.color
-
+    light_position = light.matrix_world.to_translation()
+    light_color =light.data.color
     # Vector from the vertex to the light
     light_direction = light_position - vertex_position
     light_distance = light_direction.length
     light_direction.normalize()
-
     # Calculate the angle between the vertex normal and the light direction
     angle_cos = vertex_normal.dot(light_direction)
-
     # Check for occlusion using ray_cast
     hit, location, normal, index, obj, matrix = bpy.context.scene.ray_cast(
         depsgraph,
         vertex_position + vertex_normal * 0.001,  # Move start point slightly off the surface
         light_direction
     )
-
     if hit and (location - vertex_position).length < light_distance:
         # If hit and the hit location is closer than the light, it's in shadow
         return mathutils.Color((0, 0, 0))
@@ -165,7 +161,10 @@ def calculate_total_light_for_object(obj, falloff_factor=2.0, ambient_light_inte
     # Create a dictionary to store the total light for each vertex
     ambient_light_color_copy = copy.copy(ambient_light_color)
     total_lights = {v.index: ambient_light_color_copy for v in mesh.vertices}
-    print(total_lights)
+    
+    # Calculate the normal transformation matrix
+    normal_matrix = world_matrix.to_3x3().inverted().transposed()
+    
     # Iterate over all lights in the scene
     for light in bpy.context.scene.objects:
         if light.type == 'LIGHT':
@@ -173,11 +172,12 @@ def calculate_total_light_for_object(obj, falloff_factor=2.0, ambient_light_inte
                 # Transform vertex coordinates and normal to world space
                 vertex_world_co = world_matrix @ vertex.co
                 vertex_normal_world = world_matrix.to_3x3() @ vertex.normal
-
                 if light.data.type == 'POINT':
-                    total_lights[vertex.index] += calculate_point_light_contribution(light, vertex_world_co, vertex_normal_world, depsgraph, falloff_factor)
+                    light_contribution = calculate_point_light_contribution(light, vertex_world_co, vertex.normal, depsgraph, falloff_factor)
+                    total_lights[vertex.index] = light_contribution + total_lights[vertex.index]
                 elif light.data.type == 'SUN':
-                    total_lights[vertex.index] += calculate_sun_light_contribution(light, vertex_world_co, vertex_normal_world, depsgraph)
+                    light_contribution = calculate_sun_light_contribution(light, vertex_world_co, vertex.normal, depsgraph)
+                    total_lights[vertex.index] = light_contribution + total_lights[vertex.index] 
 
     return total_lights
 
@@ -185,7 +185,6 @@ updating_objects = set()
 
 def create_update_function(prop_name):
     def update_function(self, context):
-        print('Updating property', prop_name)
         global updating_objects
         
         # Check if the current object is already being updated
@@ -223,3 +222,19 @@ def populate_enum(scene, context):
         current_view_layers.append((view_layer[0],view_layer[0], ""),)
  
     return current_view_layers
+
+def find_existing_light(color, location, rotation):
+    for light in bpy.data.objects:
+        if light.type == 'LIGHT':
+            # Check color
+            print(light.data.color, color)
+            if light.data.color == color:
+                # Check location
+                print(light.location, location)
+                if (light.location - location).length < 0.001:
+                    # Check rotation (convert both to Euler for comparison)
+                    existing_rotation = light.rotation_euler
+                    print(existing_rotation, rotation)
+                    if existing_rotation == rotation:
+                        return light
+    return None
