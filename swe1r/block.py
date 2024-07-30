@@ -25,8 +25,6 @@ from .general import *
 
 class Block():
     def __init__(self, path, arr):
-        self.asset_count = 0
-        self.buffers = []
         self.data = arr
         self.sub_chunks = len(arr)
         self.path = path
@@ -35,42 +33,50 @@ class Block():
     def read(self):
         with open(self.path, 'rb') as file:
             file = file.read()
+            
         if len(file) == 0:
-            return None
+            raise ValueError('Empty file')
+        
         asset_count = readUInt32BE(file, 0)
-        cursor = 4
+        
+        #split binary into chunks
         self.data = [[] for f in range(self.sub_chunks)]
-        addresses = []
         for i in range(asset_count):
             for j in range(self.sub_chunks):
                 offset = i*4*self.sub_chunks + j * 4
                 asset_start = readUInt32BE(file, 4 + offset)
-                cursor += 4
+                
+                if not asset_start:
+                    self.data[j].append(None)
+                    continue
 
                 asset_end = readUInt32BE(file, 4 + offset + 4)
                 if not asset_end:
                     asset_end = readUInt32BE(file, 4 + offset + 8)
                     
-                asset = file[asset_start:asset_end] if asset_start else None
-                addresses.append(asset_start)
-                self.data[j].append(asset)
+                self.data[j].append(file[asset_start:asset_end])
+                
         return self
     
     def write(self):
         asset_count = len(self.data[0])
         header = bytearray((asset_count * self.sub_chunks + 2) * 4)
-        block = []
-        block.append(header)
+        block = [header]
 
-        struct.pack_into('>I', header, 0, asset_count)  # write total number of assets
+        # start header with total number of assets
+        struct.pack_into('>I', header, 0, asset_count)
         cursor = len(header)
+        
+        #write each asset in block and its pointer in header
         for i in range(asset_count):
             for j in range(self.sub_chunks):
-                struct.pack_into('>I', header, 4 + (i * self.sub_chunks + j) * 4, cursor if (self.data[j][i] and len(self.data[j][i])) else 0)
-                if self.data[j][i] is not None:
+                if self.data[j][i] and len(self.data[j][i]):
+                    struct.pack_into('>I', header, 4 + (i * self.sub_chunks + j) * 4, cursor)
                     cursor += len(self.data[j][i])
                     block.append(self.data[j][i])
-        struct.pack_into('>I', header, (asset_count * self.sub_chunks + 1) * 4, cursor)  # end of block offset
+                    
+        # end header with pointer to end of block
+        struct.pack_into('>I', header, (asset_count * self.sub_chunks + 1) * 4, cursor)  
 
         return b''.join(block)
     

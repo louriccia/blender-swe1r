@@ -23,6 +23,7 @@ bl_info = {
     "name": "SWE1R Import/Export",
     "author": "LightningPirate",
     "blender": (4, 0, 0),
+    "version": (0, 9, 0),
     "location": "View3D > Tool Shelf > SWE1R Import/Export",
     "warning": "",
     "category": "Generic",
@@ -66,7 +67,7 @@ def register():
         items=[(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list) if model['extension'] == utils.model_types[int(utils.get_setting('import_type', 0))][1]],
         name="Model",
         description="Select model",
-        default=utils.get_setting('import_model', 0), 
+        default=0, #utils.get_setting('import_model', 0), 
         update=utils.save_settings
     )
     bpy.types.Scene.export_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=utils.save_settings, default=utils.get_setting('export_folder', ""), description="Select the lev01 folder (or any folder you wish to export to)")
