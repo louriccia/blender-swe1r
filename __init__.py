@@ -63,8 +63,11 @@ def register():
         default=utils.get_setting('import_type', 0), 
         update=utils.update_model_dropdown
     )
+    import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list) if model['extension'] == utils.model_types[int(utils.get_setting('import_type', 0))][1]]
+    if not len(import_items):
+        import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list)]
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
-        items=[(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list) if model['extension'] == utils.model_types[int(utils.get_setting('import_type', 0))][1]],
+        items=import_items,
         name="Model",
         description="Select model",
         default=0, #utils.get_setting('import_model', 0), 
