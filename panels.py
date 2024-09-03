@@ -245,7 +245,7 @@ class SelectedPanel(bpy.types.Panel):
                         #         col.prop(context.active_object, surfaces[j])
                         # row = box.row()
                         
-                        gameplay = ["Fast", "Slow", "Swst", "Slip", "Lava", "ZOn", "ZOff", "Fall"]
+                        gameplay = ["Fast", "Slow", "Swst", "Slip", "Lava", "ZOn", "ZOff", "Fall", "NRsp"]
                         effects = ["Dust", "Wet", "Swmp", "Snow", "NSnw", "Mirr", "Side"]
                         feedback = ["Ruff", "Soft", "Flat"]
                         
