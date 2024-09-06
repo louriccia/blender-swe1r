@@ -20,11 +20,12 @@
 # /licenses>.
 
 import bpy
+from .popup import show_custom_popup
 from .swe1r.modelblock import Model
 from .swe1r.splineblock import Spline
 from .swe1r.spline_map import spline_map
 from .swe1r.block import Block
-from .swe1r.general import data_name_format
+from .swe1r.general import data_name_prefix_short
 
 # for material in bpy.data.materials:
 #     material.user_clear()
@@ -42,12 +43,17 @@ from .swe1r.general import data_name_format
 scale = 0.01
 
 def import_model(file_path, selector=None):
-    # TODO: remove resources again, but following a pattern so as to avoid clashes with unrelated stuff
-    #for image in bpy.data.images:
-    #    bpy.data.images.remove(image)
-    #    
-    #for mat in bpy.data.materials:
-    #    bpy.data.materials.remove(mat)
+    images_removed = 0
+    for image in bpy.data.images:
+        if image.name.startswith(data_name_prefix_short) and image.users == 0:
+            bpy.data.images.remove(image)
+            images_removed += 1
+        
+    materials_removed = 0
+    for material in bpy.data.materials:
+        if material.name.startswith(data_name_prefix_short) and material.users == 0:
+            bpy.data.materials.remove(material)
+            materials_removed += 1
         
     modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
     textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
@@ -72,6 +78,14 @@ def import_model(file_path, selector=None):
             spline_buffer = splineblock.fetch(spline_id)[0]
             spline = Spline(spline_id).read(spline_buffer)
             collection.objects.link(spline.make(model.scale))
-            
+
+    if images_removed > 0:
+        print(f'Removed {images_removed} unused images.')
+
+    if materials_removed > 0:
+        print(f'Removed {materials_removed} unused materials.')
+
     print(f'Successfully unpacked {len(selector)} models')
+
+    show_custom_popup(bpy.context, "IMPORTED!", f"Successfully unpacked {len(selector)} models. Removed {images_removed} unused images and {materials_removed} unused materials.")
     
