@@ -20,10 +20,12 @@
 # /licenses>.
 
 import bpy
+from .popup import show_custom_popup
 from .swe1r.modelblock import Model
 from .swe1r.splineblock import Spline
 from .swe1r.spline_map import spline_map
 from .swe1r.block import Block
+from .swe1r.general import data_name_prefix_short
 
 # for material in bpy.data.materials:
 #     material.user_clear()
@@ -41,12 +43,31 @@ from .swe1r.block import Block
 scale = 0.01
 
 def import_model(file_path, selector=None):
-    for image in bpy.data.images:
-        bpy.data.images.remove(image)
+    if selector is None:
+        selector = range(324)
         
+    # cleanup
+
+    mats_removed = 0
     for mat in bpy.data.materials:
-        bpy.data.materials.remove(mat)
+        if mat.name.startswith(data_name_prefix_short) and (mat.users == 0 or int(mat.name[11:14]) in selector):
+            bpy.data.materials.remove(mat)
+            mats_removed += 1
+
+    if mats_removed > 0:
+        print(f'Removed {mats_removed} unused materials.')
+
+    imgs_removed = 0
+    for img in bpy.data.images:
+        if img.name.startswith(data_name_prefix_short) and img.users == 0:
+            bpy.data.images.remove(img)
+            imgs_removed += 1
+
+    if imgs_removed > 0:
+        print(f'Removed {imgs_removed} unused images.')
         
+    # setup
+
     modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
     textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
     splineblock = Block(file_path + 'out_splineblock.bin', [[]]).read()
@@ -54,9 +75,8 @@ def import_model(file_path, selector=None):
     modelblock.textureblock = textureblock
     modelblock.splineblock = splineblock
 
-    if selector is None:
-        selector = range(324)
-        
+    # unpacking
+
     for model_id in selector:
         model_buffer = modelblock.fetch(model_id)[1]
         model = Model(model_id).read(model_buffer)
@@ -70,6 +90,10 @@ def import_model(file_path, selector=None):
             spline_buffer = splineblock.fetch(spline_id)[0]
             spline = Spline(spline_id).read(spline_buffer)
             collection.objects.link(spline.make(model.scale))
-            
+
+    # reporting
+
     print(f'Successfully unpacked {len(selector)} models')
+
+    show_custom_popup(bpy.context, "IMPORTED!", f"Successfully unpacked {len(selector)} models. Removed {mats_removed} unused materials and {imgs_removed} unused images.")
     
