@@ -25,6 +25,7 @@ import math
 import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture
+from .general import data_name_format, data_name_prefix_len
 from ..popup import show_custom_popup
 from ..utils import find_existing_light
 
@@ -969,9 +970,12 @@ class MaterialTexture(DataStruct):
         self.unk6 = min(65535, self.height * 512)
         self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
         
+        # TODO: cleanup
         if image.name in self.model.written_textures:
-            self.tex_index = self.model.written_textures[image.name]
-            self.id = self.model.written_textures[image.name]
+            self.tex_index = image.name[data_name_prefix_len:]
+            self.id = image.name[data_name_prefix_len:]
+            #self.tex_index = self.model.written_textures[image.name]
+            #self.id = self.model.written_textures[image.name]
         elif self.model.texture_export:
             texture = Texture(self.id).unmake(image)
             pixel_buffer = texture.pixels.write()
@@ -1095,8 +1099,10 @@ class Material(DataStruct):
         self.detect_skybox()
         return self
         
+    # TODO: cleanup
     def make(self):
-        mat_name = str(self.id)
+        #mat_name = str(self.id)
+        mat_name = data_name_format.format(data_type = 'mat', label = str(self.id))
         if (self.texture is not None):
             material = bpy.data.materials.get(mat_name)
             if material is not None:
@@ -1124,8 +1130,11 @@ class Material(DataStruct):
             material.node_tree.links.new(node_3.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             material.node_tree.links.new(node_1.outputs["Alpha"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
             material.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0
-            image = str(self.texture.tex_index)
-            if image in ["1167", "1077", "1461", "1596"]: #probably shouldn't do it this way; TODO find specific tag
+            #image = str(self.texture.tex_index)
+            tex_name = data_name_format.format(data_type = 'tex', label = str(self.texture.tex_index))
+            # NOTE: probably shouldn't do it this way; TODO find specific tag
+            #if image in ["1167", "1077", "1461", "1596"]: 
+            if any(tex_name.endswith(id) for id in ["1167", "1077", "1461", "1596"]):
                 material.blend_method = 'BLEND'
                 material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
             
@@ -1173,7 +1182,8 @@ class Material(DataStruct):
                     material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
                     material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
 
-            b_tex = bpy.data.images.get(image)
+            #b_tex = bpy.data.images.get(image)
+            b_tex = bpy.data.images.get(tex_name)
             if b_tex is None:
                 b_tex = self.texture.make()
 
@@ -1190,6 +1200,7 @@ class Material(DataStruct):
             material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             return material
     
+    # TODO: cleanup
     def unmake(self, mesh):
         #find if the mesh has an image texture
         self.detect_skybox()
@@ -1198,7 +1209,8 @@ class Material(DataStruct):
             material = slot.material
             if material:
                 material_name = material.name #.split(".")[0]
-                self.id = material_name
+                #self.id = material_name
+                self.id = material_name[data_name_prefix_len:]
                 if material_name in self.model.materials:
                     return self.model.materials[material_name]
                 

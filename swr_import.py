@@ -24,6 +24,7 @@ from .swe1r.modelblock import Model
 from .swe1r.splineblock import Spline
 from .swe1r.spline_map import spline_map
 from .swe1r.block import Block
+from .swe1r.general import data_name_format
 
 # for material in bpy.data.materials:
 #     material.user_clear()
@@ -41,11 +42,12 @@ from .swe1r.block import Block
 scale = 0.01
 
 def import_model(file_path, selector=None):
-    for image in bpy.data.images:
-        bpy.data.images.remove(image)
-        
-    for mat in bpy.data.materials:
-        bpy.data.materials.remove(mat)
+    # TODO: remove resources again, but following a pattern so as to avoid clashes with unrelated stuff
+    #for image in bpy.data.images:
+    #    bpy.data.images.remove(image)
+    #    
+    #for mat in bpy.data.materials:
+    #    bpy.data.materials.remove(mat)
         
     modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
     textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
