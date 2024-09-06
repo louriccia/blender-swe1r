@@ -25,7 +25,6 @@ from ..utils import euclidean_distance
 from .modelblock import DataStruct
 from .general import data_name_format
 
-# TODO: cleanup
 class Texture():
     def __init__(self, id, format = 513, width = 32, height = 32):
         if(int(id) == 65535):
@@ -56,7 +55,6 @@ class Texture():
             print(f"Texture {self.id} is missing width/height/format data")
             return
         tex_name = data_name_format.format(data_type = 'tex', label = str(self.id))
-        #new_image = bpy.data.images.new(str(self.id), self.width, self.height)
         new_image = bpy.data.images.new(tex_name, self.width, self.height)
         image_pixels = []    
         pixels = self.pixels.data
@@ -157,7 +155,7 @@ class Palette():
             threshold = 16 if int(image['format']) == 512 else 256
         pixels = image.pixels
         
-        #TODO replace with color quantization solution
+        # TODO: replace with color quantization solution
         for i in range(0, len(pixels), 4):
             color = RGBA5551().from_array([ int(j*255) for j in pixels[i: i+4]])
             if not color in self.data:

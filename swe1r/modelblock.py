@@ -238,7 +238,7 @@ class CollisionTrigger(DataStruct):
         
         self.flags.make(trigger_empty)
         trigger_empty['target'] = self.target
-        #TODO this needs to be able to select targets that aren't made yet
+        # TODO: this needs to be able to select targets that aren't made yet
         if self.target and '{:07d}'.format(self.target) in bpy.data.objects:
             trigger_empty.target = bpy.data.objects['{:07d}'.format(self.target)]
         
@@ -970,12 +970,9 @@ class MaterialTexture(DataStruct):
         self.unk6 = min(65535, self.height * 512)
         self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
         
-        # TODO: cleanup
         if image.name in self.model.written_textures:
             self.tex_index = image.name[data_name_prefix_len:]
             self.id = image.name[data_name_prefix_len:]
-            #self.tex_index = self.model.written_textures[image.name]
-            #self.id = self.model.written_textures[image.name]
         elif self.model.texture_export:
             texture = Texture(self.id).unmake(image)
             pixel_buffer = texture.pixels.write()
@@ -1099,9 +1096,7 @@ class Material(DataStruct):
         self.detect_skybox()
         return self
         
-    # TODO: cleanup
     def make(self):
-        #mat_name = str(self.id)
         mat_name = data_name_format_long.format(data_type = 'mat', group_id = '{:03d}'.format(self.model.id), label = str(self.id))
         if (self.texture is not None):
             material = bpy.data.materials.get(mat_name)
@@ -1130,10 +1125,10 @@ class Material(DataStruct):
             material.node_tree.links.new(node_3.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             material.node_tree.links.new(node_1.outputs["Alpha"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
             material.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0
-            #image = str(self.texture.tex_index)
+
             tex_name = data_name_format.format(data_type = 'tex', label = str(self.texture.tex_index))
-            # NOTE: probably shouldn't do it this way; TODO find specific tag
-            #if image in ["1167", "1077", "1461", "1596"]: 
+            # NOTE: probably shouldn't do it this way
+            # TODO: find specific tag
             if any(tex_name.endswith(id) for id in ["1167", "1077", "1461", "1596"]):
                 material.blend_method = 'BLEND'
                 material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
@@ -1200,7 +1195,6 @@ class Material(DataStruct):
             material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             return material
     
-    # TODO: cleanup
     def unmake(self, mesh):
         #find if the mesh has an image texture
         self.detect_skybox()
@@ -1209,7 +1203,6 @@ class Material(DataStruct):
             material = slot.material
             if material:
                 material_name = material.name #.split(".")[0]
-                #self.id = material_name
                 self.id = material_name[data_name_prefix_len:]
                 if material_name in self.model.materials:
                     return self.model.materials[material_name]
@@ -1518,7 +1511,7 @@ class Mesh(DataStruct):
                         
                 new_faces.append(new_face)
 
-            #TODO check if node has vertex group
+            # TODO: check if node has vertex group
             if False:
                 self.group_parent = None
                 self.group_count = None
@@ -2169,7 +2162,7 @@ class ModelData():
         for d in self.data:
             d.make()
     def unmake(self):
-        #TODO only get objects from collection
+        # TODO: only get objects from collection
         for obj in bpy.data.objects:
             if obj.type == 'LIGHT' and obj.data.LStr:
                 self.data.append(LStr(self, self.model).unmake(obj))
