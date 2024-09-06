@@ -43,18 +43,31 @@ from .swe1r.general import data_name_prefix_short
 scale = 0.01
 
 def import_model(file_path, selector=None):
-    images_removed = 0
-    for image in bpy.data.images:
-        if image.name.startswith(data_name_prefix_short) and image.users == 0:
-            bpy.data.images.remove(image)
-            images_removed += 1
+    if selector is None:
+        selector = range(324)
         
-    materials_removed = 0
-    for material in bpy.data.materials:
-        if material.name.startswith(data_name_prefix_short) and material.users == 0:
-            bpy.data.materials.remove(material)
-            materials_removed += 1
+    # cleanup
+
+    mats_removed = 0
+    for mat in bpy.data.materials:
+        if mat.name.startswith(data_name_prefix_short) and (mat.users == 0 or int(mat.name[11:14]) in selector):
+            bpy.data.materials.remove(mat)
+            mats_removed += 1
+
+    if mats_removed > 0:
+        print(f'Removed {mats_removed} unused materials.')
+
+    imgs_removed = 0
+    for img in bpy.data.images:
+        if img.name.startswith(data_name_prefix_short) and img.users == 0:
+            bpy.data.images.remove(img)
+            imgs_removed += 1
+
+    if imgs_removed > 0:
+        print(f'Removed {imgs_removed} unused images.')
         
+    # setup
+
     modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
     textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
     splineblock = Block(file_path + 'out_splineblock.bin', [[]]).read()
@@ -62,9 +75,8 @@ def import_model(file_path, selector=None):
     modelblock.textureblock = textureblock
     modelblock.splineblock = splineblock
 
-    if selector is None:
-        selector = range(324)
-        
+    # unpacking
+
     for model_id in selector:
         model_buffer = modelblock.fetch(model_id)[1]
         model = Model(model_id).read(model_buffer)
@@ -79,13 +91,9 @@ def import_model(file_path, selector=None):
             spline = Spline(spline_id).read(spline_buffer)
             collection.objects.link(spline.make(model.scale))
 
-    if images_removed > 0:
-        print(f'Removed {images_removed} unused images.')
-
-    if materials_removed > 0:
-        print(f'Removed {materials_removed} unused materials.')
+    # reporting
 
     print(f'Successfully unpacked {len(selector)} models')
 
-    show_custom_popup(bpy.context, "IMPORTED!", f"Successfully unpacked {len(selector)} models. Removed {images_removed} unused images and {materials_removed} unused materials.")
+    show_custom_popup(bpy.context, "IMPORTED!", f"Successfully unpacked {len(selector)} models. Removed {mats_removed} unused materials and {imgs_removed} unused images.")
     

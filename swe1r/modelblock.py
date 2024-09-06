@@ -25,7 +25,7 @@ import math
 import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture
-from .general import data_name_format, data_name_prefix_len
+from .general import data_name_format, data_name_prefix_len, data_name_format_long
 from ..popup import show_custom_popup
 from ..utils import find_existing_light
 
@@ -1102,7 +1102,7 @@ class Material(DataStruct):
     # TODO: cleanup
     def make(self):
         #mat_name = str(self.id)
-        mat_name = data_name_format.format(data_type = 'mat', label = str(self.id))
+        mat_name = data_name_format_long.format(data_type = 'mat', group_id = '{:03d}'.format(self.model.id), label = str(self.id))
         if (self.texture is not None):
             material = bpy.data.materials.get(mat_name)
             if material is not None:
