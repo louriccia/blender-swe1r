@@ -54,7 +54,10 @@ else:
 
 import bpy
 
+
+
 def register():
+ 
     bpy.types.Scene.import_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=utils.save_settings, default =utils.get_setting('import_folder', ""), description="Select the lev01 folder (or any folder containing the .bin files)")
     bpy.types.Scene.import_type = bpy.props.EnumProperty(
         items=utils.model_types,
@@ -130,6 +133,7 @@ def register():
     panels.register()
     
 def unregister():
+ 
     panels.unregister()
     operators.unregister()
     props.unregister
