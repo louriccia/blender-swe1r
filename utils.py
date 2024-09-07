@@ -58,6 +58,18 @@ def EmptyVis(self, context):
     for obj in bpy.context.scene.objects:
         if obj.type == "EMPTY" or obj.type == "LIGHT":
             obj.hide_viewport = not context.scene.emptyvis
+            
+def UpdateVisibleSelectable(self, context = None):
+    if context is None:
+        context = bpy.context
+    for obj in bpy.context.scene.objects:
+        if obj.collidable:
+            obj.hide_viewport = not context.scene.collision_visible
+            obj.hide_select = not context.scene.collision_selectable
+        if obj.visible:
+            obj.hide_viewport =  not context.scene.visuals_visible
+            obj.hide_select = not context.scene.visuals_selectable
+            
     
 def save_settings(self, context):
     keys = ['import_folder', 'import_type', 'import_model', 'export_folder', 'export_model', 'export_texture', 'export_spline']

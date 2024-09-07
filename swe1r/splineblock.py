@@ -327,9 +327,6 @@ class Spline(DataStruct):
             if i == len(self.points) - 1 and not loop:
                 point.unk_set[0] = 0
             
-        for point in self.points:
-            print(point.to_array())
-            
         # LIMITATIONS:
         # cannot split or join more than 2 times on any point
         # cannot have alt paths that start before and end after the finish line on main spline

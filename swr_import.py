@@ -26,6 +26,7 @@ from .swe1r.splineblock import Spline
 from .swe1r.spline_map import spline_map
 from .swe1r.block import Block
 from .swe1r.general import data_name_prefix_short
+from .utils import UpdateVisibleSelectable
 
 # for material in bpy.data.materials:
 #     material.user_clear()
@@ -90,6 +91,9 @@ def import_model(file_path, selector=None):
             spline_buffer = splineblock.fetch(spline_id)[0]
             spline = Spline(spline_id).read(spline_buffer)
             collection.objects.link(spline.make(model.scale))
+            
+    # toggle visible/selectable
+    UpdateVisibleSelectable(None)
 
     # reporting
 

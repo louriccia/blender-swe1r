@@ -54,7 +54,10 @@ else:
 
 import bpy
 
+
+
 def register():
+ 
     bpy.types.Scene.import_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=utils.save_settings, default =utils.get_setting('import_folder', ""), description="Select the lev01 folder (or any folder containing the .bin files)")
     bpy.types.Scene.import_type = bpy.props.EnumProperty(
         items=utils.model_types,
@@ -78,10 +81,11 @@ def register():
     bpy.types.Scene.export_texture = bpy.props.BoolProperty(name="Texture", update=utils.save_settings, default=utils.get_setting('export_texture', True))
     bpy.types.Scene.export_spline = bpy.props.BoolProperty(name="Spline", update=utils.save_settings, default=utils.get_setting('export_spline', True))
     bpy.types.Scene.export_spawn = bpy.props.BoolProperty(name="Spawn", update=utils.save_settings, default=utils.get_setting('export_spawn', True))
-    bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'collision_visible', update =utils.ColVis, default=True)
-    bpy.types.Scene.collision_selectable = bpy.props.BoolProperty(name = 'collision_selectable', update =utils.SelCol, default=True)
-    bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'visuals_visible', update =utils.ShoVis, default=True)
-    bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'visuals_selectable', update =utils.SelVis, default=True)
+   
+    bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'collision_visible', update =utils.UpdateVisibleSelectable, default=True)
+    bpy.types.Scene.collision_selectable = bpy.props.BoolProperty(name = 'collision_selectable', update =utils.UpdateVisibleSelectable, default=True)
+    bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'visuals_visible', update =utils.UpdateVisibleSelectable, default=True)
+    bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'visuals_selectable', update =utils.UpdateVisibleSelectable, default=True)
     bpy.types.Scene.spline_cyclic = bpy.props.BoolProperty(name = 'cyclic', update =utils.save_settings, default=utils.get_setting('spline_cyclic', True))
     
     bpy.types.Scene.light_falloff = bpy.props.FloatProperty(name = 'falloff', min=0.0, max=10.0, update =utils.save_settings, default=utils.get_setting('light_falloff', 1.0))
@@ -130,6 +134,7 @@ def register():
     panels.register()
     
 def unregister():
+ 
     panels.unregister()
     operators.unregister()
     props.unregister

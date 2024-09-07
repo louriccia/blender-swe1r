@@ -7,7 +7,9 @@ from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum
 from .operators import *
 from .constants import *
-
+from . import bl_info
+import os
+from bpy.utils import previews
 
 models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
 classes = []    
@@ -46,8 +48,15 @@ class InfoPanel(bpy.types.Panel):
     
     def draw(self, context):
         layout = self.layout
-            
-        layout.operator("view3d.open_url", text="").url = URL_DISCORD
+        layout.label(text = bl_info['name'])
+        layout.label(text = "Version: " + ".".join(map(str, bl_info['version'])))
+        row = layout.row(align=True)
+        row.operator("view3d.open_url", text="Discord", icon_value=preview_collections["main"]["discord"].icon_id).url = URL_DISCORD
+        row.operator("view3d.open_url", text="Github", icon_value=preview_collections["main"]["github"].icon_id).url = URL_GITHUB
+        row.operator("view3d.open_url", text="ko-fi", icon_value=preview_collections["main"]["kofi"].icon_id).url = URL_KOFI
+
+# Global variable to store icons
+preview_collections = {}
 
 class ImportPanel(bpy.types.Panel):
     bl_label = "Import"
@@ -92,8 +101,8 @@ class ExportPanel(bpy.types.Panel):
         row.prop(context.scene, "export_model", text="Model", icon='MESH_CUBE', toggle=True, icon_only=True)
         row.prop(context.scene, "export_texture", text="Texture", icon='MATERIAL', toggle=True, icon_only=True)
         row.prop(context.scene, "export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
-        row = layout.row()
-        row.prop(context.scene, "export_spawn", text="Spawn at cursor", icon='CURSOR')
+        # row = layout.row()
+        # row.prop(context.scene, "export_spawn", text="Spawn at cursor", icon='CURSOR')
         row = layout.row()
         row.scale_y = 1.5
         row.operator("view3d.export_operator", text="Export")
@@ -350,6 +359,19 @@ class SelectedPanel(bpy.types.Panel):
         
 
 def register():
+    # Load custom icons
+    pcoll = previews.new()
+    icons_dir = os.path.join(os.path.dirname(__file__), "icons")
+    icon_files = [
+        ("discord", "discord.png"),
+        ("github", "github.png"),
+        ("kofi", "kofi.png"),
+    ]
+    
+    for name, file in icon_files:
+        pcoll.load(name, os.path.join(icons_dir, file), 'IMAGE')
+    preview_collections["main"] = pcoll
+
     bpy.utils.register_class(InfoPanel)
     bpy.utils.register_class(ImportPanel)
     bpy.utils.register_class(ExportPanel)
@@ -362,3 +384,8 @@ def unregister():
     bpy.utils.unregister_class(ExportPanel)
     bpy.utils.unregister_class(ToolPanel)
     bpy.utils.unregister_class(SelectedPanel)
+    
+    # Remove icons
+    for pcoll in preview_collections.values():
+        previews.remove(pcoll)
+    preview_collections.clear()
