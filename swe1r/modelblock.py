@@ -1045,6 +1045,9 @@ class MaterialShader(DataStruct):
         self.color.write(buffer, cursor + 34)
         return cursor + self.size
     
+name_mat_flip_x = data_name_format.format(data_type = 'mat', label = 'flip_x')
+name_mat_flip_y = data_name_format.format(data_type = 'mat', label = 'flip_y')
+
 class Material(DataStruct):
     def __init__(self, parent, model):
         super().__init__('>I4xII')
@@ -1145,10 +1148,13 @@ class Material(DataStruct):
                 material.node_tree.links.new(node_4.outputs["UV"], node_5.inputs["Vector"])
                 material.node_tree.links.new(node_6.outputs["Vector"], node_1.inputs["Vector"])
                 
+                # TODO: cleanup
                 if(chunk_tag & 0x1):
-                    material['flip_x'] = True
+                    #material['flip_x'] = True
+                    material[name_mat_flip_x] = True
                 if(chunk_tag & 0x10):
-                    material['flip_y'] = True
+                    #material['flip_y'] = True
+                    material[name_mat_flip_y] = True
                     
                 
                 if(chunk_tag & 0x11 == 0x11):
@@ -1218,8 +1224,11 @@ class Material(DataStruct):
                     if node.type == 'TEX_IMAGE':
                         self.texture = MaterialTexture(self, self.model).unmake(node.image)
                         
-                        flip_x = 'flip_x' in material and material['flip_x']
-                        flip_y = 'flip_y' in material and material['flip_y']
+                        # TODO: cleanup
+                        flip_x = name_mat_flip_x in material and material[name_mat_flip_x]
+                        flip_y = name_mat_flip_y in material and material[name_mat_flip_y]
+                        #flip_x = 'flip_x' in material and material['flip_x']
+                        #flip_y = 'flip_y' in material and material['flip_y']
                         
                         if flip_x or flip_y:
                             if flip_x:
