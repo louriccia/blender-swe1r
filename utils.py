@@ -250,3 +250,12 @@ def find_existing_light(color, location, rotation):
                     if existing_rotation == rotation:
                         return light
     return None
+
+# checks if normals will be flipped after applying scale due to object-parent 
+# chain resolving to negative scale
+def check_flipped(o):
+    flipped = False
+    while o.parent is not None:
+        flipped = not(flipped) if [n < 0 for n in o.scale].count(True) % 2 else flipped
+        o = o.parent
+    return flipped

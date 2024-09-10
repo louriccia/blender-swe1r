@@ -21,13 +21,14 @@
 
 import struct
 import bpy
+import bmesh
 import math
 import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture
 from .general import data_name_format, data_name_prefix_len, data_name_format_long, data_name_prefix_short
 from ..popup import show_custom_popup
-from ..utils import find_existing_light
+from ..utils import find_existing_light, check_flipped
 
 
 class Lights(DataStruct):
@@ -1458,14 +1459,37 @@ class Mesh(DataStruct):
         if 'visible' not in node and 'collidable' not in node:
             node.visible = True
             node.collidable = True
-            
-        get_animations(node, self.model, self)
+
+        node_tmp = node
+        node_tmp_data = None
+        node_tmp_clean = False
+
+        if check_flipped(node):
+            node_tmp = node.copy()
+            node_tmp_data = node.data.copy()
+            node_tmp.data = node_tmp_data
+            node_tmp_clean = True
+
+            with bpy.context.temp_override(selected_editable_objects=[node_tmp]):
+                bpy.ops.object.make_single_user(type='SELECTED_OBJECTS', object=True, obdata=True)
+                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+            bm = bmesh.new()
+            bm.from_mesh(node_tmp.data)
+            bm.faces.ensure_lookup_table()
+            bmesh.ops.reverse_faces(bm, faces=bm.faces)
+            bm.to_mesh(node_tmp.data)
+            bm.free()
+            node_tmp.data.update()            
+
+        # NOTE: may be impacted in future by normal correction for negatively scaled objects
+        get_animations(node_tmp, self.model, self)
         
-        if node.visible:
-            self.material = Material(self, self.model).unmake(node)
-            self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
+        if node_tmp.visible:
+            self.material = Material(self, self.model).unmake(node_tmp)
+            self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node_tmp)
             verts = self.visuals_vert_buffer.data
-            faces = [[v for v in face.vertices] for face in node.data.polygons]            
+            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons]            
             
             #tesselate faces
             t_faces = []
@@ -1527,13 +1551,13 @@ class Mesh(DataStruct):
             self.visuals_vert_buffer.data = new_verts
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
                 
-        if node.collidable:
-            if 'collision_data' in node and node['collision_data']:
-                self.collision_tags = CollisionTags(self, self.model).unmake(node)
-            self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node)
-            self.vert_strips = CollisionVertStrips(self, self.model).unmake(node)
+        if node_tmp.collidable:
+            if 'collision_data' in node_tmp and node_tmp['collision_data']:
+                self.collision_tags = CollisionTags(self, self.model).unmake(node_tmp)
+            self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node_tmp)
+            self.vert_strips = CollisionVertStrips(self, self.model).unmake(node_tmp)
             
-            faces = [[v for v in face.vertices] for face in node.data.polygons]            
+            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons]            
             verts = self.collision_vert_buffer.data
             
             #tesselate/validate faces
@@ -1641,6 +1665,11 @@ class Mesh(DataStruct):
             self.vert_strips.include_buffer = True
             
         self.bounding_box = MeshBoundingBox(self, self.model).unmake(self)
+
+        if node_tmp_clean:
+            bpy.data.objects.remove(node_tmp)
+            bpy.data.meshes.remove(node_tmp_data)
+
         return self
     
     def write(self, buffer, cursor):
