@@ -27,7 +27,7 @@ from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Byt
 from .textureblock import Texture
 from .general import data_name_format, data_name_prefix_len, data_name_format_long, data_name_prefix_short
 from ..popup import show_custom_popup
-from ..utils import find_existing_light
+from ..utils import find_existing_light, check_flipped
 
 
 class Lights(DataStruct):
@@ -1458,6 +1458,10 @@ class Mesh(DataStruct):
         if 'visible' not in node and 'collidable' not in node:
             node.visible = True
             node.collidable = True
+
+        # TODO: cleanup
+        if check_flipped(node):
+            print('model {} will have flipped normals!!!'.format(node.name))
             
         get_animations(node, self.model, self)
         
