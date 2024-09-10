@@ -21,6 +21,7 @@
 
 import struct
 import bpy
+import bmesh
 import math
 import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
@@ -1461,8 +1462,19 @@ class Mesh(DataStruct):
 
         # TODO: cleanup
         if check_flipped(node):
-            print('model {} will have flipped normals!!!'.format(node.name))
-            
+            print('{} will have flipped normals!!!'.format(node.name))
+            # apply scale
+            with bpy.context.temp_override(selected_editable_objects=[node]):
+                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            # flip normals
+            bm = bmesh.new()
+            bm.from_mesh(node.data)
+            bm.faces.ensure_lookup_table()
+            bmesh.ops.reverse_faces(bm, faces=bm.faces)
+            bm.to_mesh(node.data)
+            bm.free()
+            node.data.update()            
+
         get_animations(node, self.model, self)
         
         if node.visible:
