@@ -1464,18 +1464,16 @@ class Mesh(DataStruct):
         node_tmp_data = None
         node_tmp_clean = False
 
-        # TODO: cleanup
         if check_flipped(node):
-            print('{} will have flipped normals!!!'.format(node.name))
             node_tmp = node.copy()
             node_tmp_data = node.data.copy()
             node_tmp.data = node_tmp_data
             node_tmp_clean = True
-            # apply scale
+
             with bpy.context.temp_override(selected_editable_objects=[node_tmp]):
                 bpy.ops.object.make_single_user(type='SELECTED_OBJECTS', object=True, obdata=True)
                 bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-            # flip normals
+
             bm = bmesh.new()
             bm.from_mesh(node_tmp.data)
             bm.faces.ensure_lookup_table()
@@ -1484,6 +1482,7 @@ class Mesh(DataStruct):
             bm.free()
             node_tmp.data.update()            
 
+        # NOTE: may be impacted in future by normal correction for negatively scaled objects
         get_animations(node_tmp, self.model, self)
         
         if node_tmp.visible:
