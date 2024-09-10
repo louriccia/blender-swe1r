@@ -1157,16 +1157,12 @@ class Material(DataStruct):
                 node_6 = material.node_tree.nodes.new("ShaderNodeCombineXYZ")
                 material.node_tree.links.new(node_4.outputs["UV"], node_5.inputs["Vector"])
                 material.node_tree.links.new(node_6.outputs["Vector"], node_1.inputs["Vector"])
-                
-                # TODO: cleanup
+
                 if(chunk_tag & 0x1):
-                    #material['flip_x'] = True
                     material[name_mat_flip_x] = True
                 if(chunk_tag & 0x10):
-                    #material['flip_y'] = True
                     material[name_mat_flip_y] = True
-                    
-                
+
                 if(chunk_tag & 0x11 == 0x11):
                     node_7 = material.node_tree.nodes.new("ShaderNodeMath")
                     node_7.operation = 'PINGPONG'
@@ -1193,8 +1189,6 @@ class Material(DataStruct):
                     material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
                     material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
 
-            # TODO: cleanup
-            #b_tex = bpy.data.images.get(image)
             b_tex = bpy.data.images.get(tex_name)
             if b_tex is None:
                 b_tex = self.texture.make()
@@ -1211,7 +1205,7 @@ class Material(DataStruct):
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             return material
-    
+
     def unmake(self, mesh):
         #find if the mesh has an image texture
         self.detect_skybox()
@@ -1226,32 +1220,26 @@ class Material(DataStruct):
 
                 if material.use_backface_culling == False:
                     self.format &= 0b11110111
-                
+
                 self.shader.unmake(material)
-                
+
                 for node in material.node_tree.nodes:
                     if node.type == 'TEX_IMAGE':
                         force_id = material.get(name_tex_override_id)
                         force_fmt = material.get(name_tex_override_format)
                         self.texture = MaterialTexture(self, self.model).unmake(node.image, force_id, force_fmt)
-                        
-                        # TODO: cleanup
-                        flip_x = material.get(name_mat_flip_x, False)
-                        flip_y = material.get(name_mat_flip_y, False)
-                        #flip_x = 'flip_x' in material and material['flip_x']
-                        #flip_y = 'flip_y' in material and material['flip_y']
-                        
-                        if flip_x or flip_y:
-                            if flip_x:
-                                self.texture.chunks[0].unk1 |= 0x01
-                            if flip_y:
-                                self.texture.chunks[0].unk1 |= 0x10
-                            
+
+                        if material.get(name_mat_flip_x, False):
+                            self.texture.chunks[0].unk1 |= 0x01
+
+                        if material.get(name_mat_flip_y, False):
+                            self.texture.chunks[0].unk1 |= 0x10
+
                 break
+
         self.model.materials[material_name] = self
-        
         return self.model.materials[material_name]
-        
+
     def write(self, buffer, cursor):
         material_start = cursor
         self.written = cursor
@@ -1261,14 +1249,14 @@ class Material(DataStruct):
             self.model.highlight(material_start + 8)
             tex_addr = cursor
             cursor = self.texture.write(buffer, cursor)
-        
+
         self.model.highlight(material_start + 12)
         shader_addr = cursor
         cursor = self.shader.write(buffer, cursor)
-        
+
         struct.pack_into(self.format_string, buffer, material_start, self.format, tex_addr, shader_addr)
         return cursor
-    
+
 class MeshBoundingBox(DataStruct):
     """Defines the minimum and maximum bounds of a mesh"""
     
