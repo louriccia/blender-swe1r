@@ -1460,28 +1460,37 @@ class Mesh(DataStruct):
             node.visible = True
             node.collidable = True
 
+        node_tmp = node
+        node_tmp_data = None
+        node_tmp_clean = False
+
         # TODO: cleanup
         if check_flipped(node):
             print('{} will have flipped normals!!!'.format(node.name))
+            node_tmp = node.copy()
+            node_tmp_data = node.data.copy()
+            node_tmp.data = node_tmp_data
+            node_tmp_clean = True
             # apply scale
-            with bpy.context.temp_override(selected_editable_objects=[node]):
+            with bpy.context.temp_override(selected_editable_objects=[node_tmp]):
+                bpy.ops.object.make_single_user(type='SELECTED_OBJECTS', object=True, obdata=True)
                 bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
             # flip normals
             bm = bmesh.new()
-            bm.from_mesh(node.data)
+            bm.from_mesh(node_tmp.data)
             bm.faces.ensure_lookup_table()
             bmesh.ops.reverse_faces(bm, faces=bm.faces)
-            bm.to_mesh(node.data)
+            bm.to_mesh(node_tmp.data)
             bm.free()
-            node.data.update()            
+            node_tmp.data.update()            
 
-        get_animations(node, self.model, self)
+        get_animations(node_tmp, self.model, self)
         
-        if node.visible:
-            self.material = Material(self, self.model).unmake(node)
-            self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
+        if node_tmp.visible:
+            self.material = Material(self, self.model).unmake(node_tmp)
+            self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node_tmp)
             verts = self.visuals_vert_buffer.data
-            faces = [[v for v in face.vertices] for face in node.data.polygons]            
+            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons]            
             
             #tesselate faces
             t_faces = []
@@ -1543,13 +1552,13 @@ class Mesh(DataStruct):
             self.visuals_vert_buffer.data = new_verts
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
                 
-        if node.collidable:
-            if 'collision_data' in node and node['collision_data']:
-                self.collision_tags = CollisionTags(self, self.model).unmake(node)
-            self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node)
-            self.vert_strips = CollisionVertStrips(self, self.model).unmake(node)
+        if node_tmp.collidable:
+            if 'collision_data' in node_tmp and node_tmp['collision_data']:
+                self.collision_tags = CollisionTags(self, self.model).unmake(node_tmp)
+            self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node_tmp)
+            self.vert_strips = CollisionVertStrips(self, self.model).unmake(node_tmp)
             
-            faces = [[v for v in face.vertices] for face in node.data.polygons]            
+            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons]            
             verts = self.collision_vert_buffer.data
             
             #tesselate/validate faces
@@ -1657,6 +1666,11 @@ class Mesh(DataStruct):
             self.vert_strips.include_buffer = True
             
         self.bounding_box = MeshBoundingBox(self, self.model).unmake(self)
+
+        if node_tmp_clean:
+            bpy.data.objects.remove(node_tmp)
+            bpy.data.meshes.remove(node_tmp_data)
+
         return self
     
     def write(self, buffer, cursor):
