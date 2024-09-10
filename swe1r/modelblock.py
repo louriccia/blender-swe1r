@@ -982,7 +982,7 @@ class MaterialTexture(DataStruct):
             self.tex_index = image.name[data_name_prefix_len:]
             self.id = image.name[data_name_prefix_len:]
         elif self.model.texture_export:
-            texture = Texture(self.id).unmake(image)
+            texture = Texture(self.id, self.format).unmake(image, self.format)
             pixel_buffer = texture.pixels.write()
             palette_buffer = texture.palette.write()
             self.model.textureblock.inject([pixel_buffer, palette_buffer], self.id)
