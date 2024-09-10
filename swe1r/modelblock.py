@@ -25,7 +25,7 @@ import math
 import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture
-from .general import data_name_format, data_name_prefix_len, data_name_format_long
+from .general import data_name_format, data_name_prefix_len, data_name_format_long, data_name_prefix_short
 from ..popup import show_custom_popup
 from ..utils import find_existing_light
 
@@ -905,7 +905,7 @@ class MaterialTextureChunk(DataStruct):
 class MaterialTexture(DataStruct):
     def __init__(self, parent, model):
         super().__init__('>I2H4x8H6I4xHH4x')
-        
+
         self.parent = parent
         self.model = model
         self.id = None
@@ -919,16 +919,14 @@ class MaterialTexture(DataStruct):
         self.chunks = []
         self.unk9 = 2560 #this is a required value
         self.tex_index = 0
-        
+
     def read(self, buffer, cursor):
-        
         if cursor == 0:
             return None
-        
+
         if cursor in self.model.textures:
             return self.model.textures[cursor]
-        
-        
+
         unk_pointers = []
         self.id = cursor
         self.unk0, unk1, unk3, self.format, self.unk4, self.width, self.height, unk5, unk6, self.unk7, self.unk8, *unk_pointers, self.unk9, self.tex_index = struct.unpack_from(self.format_string, buffer, cursor)
@@ -937,11 +935,11 @@ class MaterialTexture(DataStruct):
                 chunk = MaterialTextureChunk(self, self.model)
                 chunk.read(buffer, pointer)
                 self.chunks.append(chunk)
-                
+
         self.model.textures[cursor] = self
-        
+
         return self.model.textures[cursor]
-            
+
     def make(self):
         if self.tex_index == 65535:
             return
@@ -950,26 +948,36 @@ class MaterialTexture(DataStruct):
         pixel_buffer, palette_buffer = textureblock.fetch(self.tex_index)
         self.texture.read(pixel_buffer, palette_buffer)
         return self.texture.make()
-    
-    def unmake(self, image):
+
+    def unmake(self, image, override_id = None, override_format = None):
         if image is None:
             return self
-        self.width, self.height = image.size
-        if 'id' in image:
+
+        if override_id is not None and int(override_id) < 0xFFFF:
+            self.tex_index = int(override_id)
+            self.id = int(override_id)
+        elif 'id' in image:
             self.tex_index = int(image['id'])
+            self.id = int(image['id'])
         else:
-            self.format = 513
             self.tex_index = self.model.texture_index
             self.id = self.model.texture_index
             self.model.texture_index += 1
-            
+
+        if override_format is not None:
+            self.format = int(override_format)
+        elif 'format' in image:
+            self.format = int(image['format'])
+        else:
+            self.format = 513
+
+        self.width, self.height = image.size
         self.unk1 = min(self.width * 4, 65535)
         self.unk2 = min(self.height * 4, 65535)
-        self.format = int(image['format']) if 'format' in image else 513
         self.unk5 = min(65535, self.width * 512)
         self.unk6 = min(65535, self.height * 512)
         self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
-        
+
         if image.name in self.model.written_textures:
             self.tex_index = image.name[data_name_prefix_len:]
             self.id = image.name[data_name_prefix_len:]
@@ -979,21 +987,21 @@ class MaterialTexture(DataStruct):
             palette_buffer = texture.palette.write()
             self.model.textureblock.inject([pixel_buffer, palette_buffer], self.id)
             self.model.written_textures[image.name] = self.tex_index
-        
+
         return self
-    
+
     def write(self, buffer, cursor):
         chunk_addr = cursor + 28
         self.model.highlight(cursor + 56)
         struct.pack_into(self.format_string, buffer, cursor, self.unk0, min(self.width*4, 32768), min(self.height*4, 32768), self.format, self.unk4, self.width, self.height, min(self.width*512, 32768), min(self.height*512, 32768), self.unk7, self.unk8, *[0, 0, 0, 0, 0, 0], self.unk9, self.tex_index)
         cursor += self.size
-        
+
         for i, chunk in enumerate(self.chunks):
             self.model.highlight(chunk_addr + i * 4)
             writeUInt32BE(buffer, cursor, chunk_addr + i*4)
             cursor = chunk.write(buffer, cursor)
         return cursor
-        
+
 class MaterialShader(DataStruct):
     def __init__(self, parent, model):
         super().__init__('>IH4IH2IH4x7H')
@@ -1047,6 +1055,8 @@ class MaterialShader(DataStruct):
     
 name_mat_flip_x = data_name_format.format(data_type = 'mat', label = 'flip_x')
 name_mat_flip_y = data_name_format.format(data_type = 'mat', label = 'flip_y')
+name_tex_override_id = data_name_format.format(data_type = 'tex', label = 'override_id')
+name_tex_override_format = data_name_format.format(data_type = 'tex', label = 'override_format')
 
 class Material(DataStruct):
     def __init__(self, parent, model):
@@ -1183,6 +1193,7 @@ class Material(DataStruct):
                     material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
                     material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
 
+            # TODO: cleanup
             #b_tex = bpy.data.images.get(image)
             b_tex = bpy.data.images.get(tex_name)
             if b_tex is None:
@@ -1204,7 +1215,7 @@ class Material(DataStruct):
     def unmake(self, mesh):
         #find if the mesh has an image texture
         self.detect_skybox()
-        material_name = ""
+        material_name: str = ""
         for slot in mesh.material_slots:
             material = slot.material
             if material:
@@ -1212,9 +1223,7 @@ class Material(DataStruct):
                 self.id = material_name[data_name_prefix_len:]
                 if material_name in self.model.materials:
                     return self.model.materials[material_name]
-                
-                
-                
+
                 if material.use_backface_culling == False:
                     self.format &= 0b11110111
                 
@@ -1222,11 +1231,13 @@ class Material(DataStruct):
                 
                 for node in material.node_tree.nodes:
                     if node.type == 'TEX_IMAGE':
-                        self.texture = MaterialTexture(self, self.model).unmake(node.image)
+                        force_id = material.get(name_tex_override_id)
+                        force_fmt = material.get(name_tex_override_format)
+                        self.texture = MaterialTexture(self, self.model).unmake(node.image, force_id, force_fmt)
                         
                         # TODO: cleanup
-                        flip_x = name_mat_flip_x in material and material[name_mat_flip_x]
-                        flip_y = name_mat_flip_y in material and material[name_mat_flip_y]
+                        flip_x = material.get(name_mat_flip_x, False)
+                        flip_y = material.get(name_mat_flip_y, False)
                         #flip_x = 'flip_x' in material and material['flip_x']
                         #flip_y = 'flip_y' in material and material['flip_y']
                         
