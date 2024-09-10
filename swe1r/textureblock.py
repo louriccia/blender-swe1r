@@ -85,10 +85,10 @@ class Texture():
 
         return new_image
 
-    def unmake(self, image):
+    def unmake(self, image, override_format = None):
         self.width, self.height = image.size
-        self.palette = Palette(self).unmake(image)
-        self.pixels = Pixels(self).unmake(image)
+        self.palette = Palette(self).unmake(image, override_format)
+        self.pixels = Pixels(self).unmake(image, override_format)
         return self
     
 class RGBA5551(DataStruct):
@@ -148,8 +148,10 @@ class Palette():
     def to_array(self):
         return [c.to_array() for c in self.data]
     
-    def unmake(self, image):
-        if 'format' not in image:
+    def unmake(self, image, override_format = None):
+        if override_format is not None:
+            threshold = 16 if int(override_format) == 512 else 256
+        elif 'format' not in image:
             threshold = 256
         else:
             threshold = 16 if int(image['format']) == 512 else 256
@@ -230,8 +232,10 @@ class Pixels():
 
         return self.data
 
-    def unmake(self, image):
-        if 'format' not in image:
+    def unmake(self, image, override_format = None):
+        if override_format is not None:
+            self.texture.format = int(override_format)
+        elif 'format' not in image:
             self.texture.format = 513
         else:
             self.texture.format = int(image['format'])
