@@ -1452,10 +1452,12 @@ class Mesh(DataStruct):
                     color_layer[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
     
     def unmake(self, node):
+        new_self: Mesh = Mesh(self.parent, self.model)
+
         if 'id' in node:
-            self.id = node['id']
+            new_self.id = node['id']
         else:
-            self.id = node.name
+            new_self.id = node.name
         if 'visible' not in node and 'collidable' not in node:
             node.visible = True
             node.collidable = True
@@ -1483,12 +1485,12 @@ class Mesh(DataStruct):
             node_tmp.data.update()            
 
         # NOTE: may be impacted in future by normal correction for negatively scaled objects
-        get_animations(node_tmp, self.model, self)
+        get_animations(node_tmp, new_self.model, new_self)
         
         if node_tmp.visible:
-            self.material = Material(self, self.model).unmake(node_tmp)
-            self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node_tmp)
-            verts = self.visuals_vert_buffer.data
+            new_self.material = Material(new_self, new_self.model).unmake(node_tmp)
+            new_self.visuals_vert_buffer = VisualsVertBuffer(new_self, new_self.model).unmake(node_tmp)
+            verts = new_self.visuals_vert_buffer.data
             faces = [[v for v in face.vertices] for face in node_tmp.data.polygons]            
             
             #tesselate faces
@@ -1545,20 +1547,20 @@ class Mesh(DataStruct):
 
             # TODO: check if node has vertex group
             if False:
-                self.group_parent = None
-                self.group_count = None
+                new_self.group_parent = None
+                new_self.group_count = None
                 
-            self.visuals_vert_buffer.data = new_verts
-            self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
+            new_self.visuals_vert_buffer.data = new_verts
+            new_self.visuals_index_buffer = VisualsIndexBuffer(new_self, new_self.model).unmake(new_faces)
                 
         if node_tmp.collidable:
             if 'collision_data' in node_tmp and node_tmp['collision_data']:
-                self.collision_tags = CollisionTags(self, self.model).unmake(node_tmp)
-            self.collision_vert_buffer = CollisionVertBuffer(self, self.model).unmake(node_tmp)
-            self.vert_strips = CollisionVertStrips(self, self.model).unmake(node_tmp)
+                new_self.collision_tags = CollisionTags(new_self, new_self.model).unmake(node_tmp)
+            new_self.collision_vert_buffer = CollisionVertBuffer(new_self, new_self.model).unmake(node_tmp)
+            new_self.vert_strips = CollisionVertStrips(new_self, new_self.model).unmake(node_tmp)
             
             faces = [[v for v in face.vertices] for face in node_tmp.data.polygons]            
-            verts = self.collision_vert_buffer.data
+            verts = new_self.collision_vert_buffer.data
             
             #tesselate/validate faces
             t_faces = []
@@ -1653,24 +1655,24 @@ class Mesh(DataStruct):
                 new_verts.extend([s for s in strip[0]])
             
             strip_list = [2+ len(strip) for strip in strips]
-            self.collision_vert_buffer.data = new_verts
-            self.collision_vert_buffer.format_string = f'>{len(new_verts)*3}h'
-            self.collision_vert_buffer.size = struct.calcsize(f'>{len(new_verts)*3}h')
-            self.strip_count = len(strip_list)
-            self.vert_strips.strip_count = len(strip_list)
-            self.vert_strips.data = strip_list
-            self.vert_strips.format_string = f'>{len(strip_list)}I'
-            self.vert_strips.size = struct.calcsize(f'>{len(strip_list)}I')
-            self.vert_strips.strip_size = 5
-            self.vert_strips.include_buffer = True
+            new_self.collision_vert_buffer.data = new_verts
+            new_self.collision_vert_buffer.format_string = f'>{len(new_verts)*3}h'
+            new_self.collision_vert_buffer.size = struct.calcsize(f'>{len(new_verts)*3}h')
+            new_self.strip_count = len(strip_list)
+            new_self.vert_strips.strip_count = len(strip_list)
+            new_self.vert_strips.data = strip_list
+            new_self.vert_strips.format_string = f'>{len(strip_list)}I'
+            new_self.vert_strips.size = struct.calcsize(f'>{len(strip_list)}I')
+            new_self.vert_strips.strip_size = 5
+            new_self.vert_strips.include_buffer = True
             
-        self.bounding_box = MeshBoundingBox(self, self.model).unmake(self)
+        new_self.bounding_box = MeshBoundingBox(new_self, new_self.model).unmake(new_self)
 
         if node_tmp_clean:
             bpy.data.objects.remove(node_tmp)
             bpy.data.meshes.remove(node_tmp_data)
 
-        return self
+        return [new_self]
     
     def write(self, buffer, cursor):
         #print('writing mesh', self.id)
@@ -1901,7 +1903,7 @@ class Node(DataStruct):
         
         if self.node_type == 12388:
             for child in node.children:
-                self.children.append(Mesh(self, self.model).unmake(child))
+                self.children.extend(Mesh(self, self.model).unmake(child))
         else:
             for child in node.children:
                 n = create_node(child['node_type'], self, self.model)
@@ -2776,7 +2778,9 @@ class Model():
                         children = find_obj_in_hierarchy(obj)
                         if len(children):
                             anim_objects.extend(children)
-                            anims = [Mesh(None, self).unmake(child) for child in children]
+                            anims = []
+                            for child in children:
+                                anims.extend(Mesh(None, self).unmake(child))
                             target_node = Group20580(anim_target, self, 20580)
                             assign_meshes_to_node_by_type(anims, target_node, self)
                             anim_target.children.append(target_node)
@@ -2784,31 +2788,36 @@ class Model():
                         
                     #get everything to do with triggers
                     if obj.type == 'MESH':
-                        mesh = Mesh(None, self).unmake(obj)
-                        if mesh.has_trigger():
-                            trigger_objects.append(obj)
-                            meshes.append(mesh)
+                        for mesh in Mesh(None, self).unmake(obj):
+                            if mesh.has_trigger():
+                                trigger_objects.append(obj)
+                                meshes.append(mesh)
+                                
+                                for trigger in mesh.collision_tags.triggers:
+                                    if trigger.target:
+                                        children = find_obj_in_hierarchy(trigger.target)
+                                        if len(children):
+                                            #add bpy objects to list to be ignored
+                                            trigger_objects.extend(children)
+                                            
+                                            #unmake all objects
+                                            target_objects = []
+                                            for child in children:
+                                                target_objects.extend(Mesh(None, self).unmake(child))
+
+                                            target_node = Group20580(root_node, self, 20580)
+                                            assign_meshes_to_node_by_type(target_objects, target_node, self)
+                                            root_node.children.append(target_node)
+                                            trigger.target = target_node
+                                            
+                                        else:
+                                            target_empty = Group53349(root_node, self, 53349).unmake(trigger.target)
+                                            root_node.children.append(target_empty)
+                                            trigger.target = target_empty
                             
-                            for trigger in mesh.collision_tags.triggers:
-                                if trigger.target:
-                                    children = find_obj_in_hierarchy(trigger.target)
-                                    if len(children):
-                                        #add bpy objects to list to be ignored
-                                        trigger_objects.extend(children)
-                                        
-                                        #unmake all objects
-                                        target_objects = [Mesh(None, self).unmake(child) for child in children]
-                                        target_node = Group20580(root_node, self, 20580)
-                                        assign_meshes_to_node_by_type(target_objects, target_node, self)
-                                        root_node.children.append(target_node)
-                                        trigger.target = target_node
-                                        
-                                    else:
-                                        target_empty = Group53349(root_node, self, 53349).unmake(trigger.target)
-                                        root_node.children.append(target_empty)
-                                        trigger.target = target_empty
-                            
-                meshes.extend([Mesh(None,self).unmake(o) for o in child_collection.objects if (o.type == 'MESH' and o not in trigger_objects and o not in anim_objects)])
+                for o in child_collection.objects:
+                    if (o.type == 'MESH' and o not in trigger_objects and o not in anim_objects):
+                        meshes.extend(Mesh(None,self).unmake(o))
                 
                 assign_meshes_to_node_by_type(meshes, root_node, self)
         
@@ -2824,11 +2833,11 @@ class Model():
                 sky_mesh = MeshGroup12388(sky_to_camera, self, 12388)
                 
                 for obj in [obj for obj in child_collection.objects if obj.type == 'MESH']:
-                    mesh = Mesh(sky_mesh, self).unmake(obj)
-                    mesh.material.shader.render_mode_1 = 0b1100000010000010000000001000
-                    mesh.material.shader.render_mode_2 = 0b11000000100010000000001000
-                    sky_mesh.children.append(mesh)
-                    mesh.parent = sky_mesh
+                    for mesh in Mesh(sky_mesh, self).unmake(obj):
+                        mesh.material.shader.render_mode_1 = 0b1100000010000010000000001000
+                        mesh.material.shader.render_mode_2 = 0b11000000100010000000001000
+                        sky_mesh.children.append(mesh)
+                        mesh.parent = sky_mesh
                 sky_mesh.calc_bounding()
                 sky_to_camera.children.append(sky_mesh)
                 sky_empty.children.append(sky_to_camera)
@@ -2836,8 +2845,9 @@ class Model():
                 root.children.append(sky_group)
         
         if self.ext == 'Part':
-            
-            assign_meshes_to_node_by_type([Mesh(None,self).unmake(o) for o in collection.objects if o.type == 'MESH'], root, self)
+            for o in collection.objects:
+                if o.type == 'MESH':
+                    assign_meshes_to_node_by_type(Mesh(None,self).unmake(o), root, self)
         
         self.header.unmake(collection)
             
