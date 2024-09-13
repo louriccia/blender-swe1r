@@ -1207,36 +1207,32 @@ class Material(DataStruct):
             material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
             return material
 
-    def unmake(self, mesh):
+    def unmake(self, material):
         #find if the mesh has an image texture
         self.detect_skybox()
         material_name: str = ""
-        for slot in mesh.material_slots:
-            material = slot.material
-            if material:
-                material_name = material.name #.split(".")[0]
-                self.id = material_name[data_name_prefix_len:]
-                if material_name in self.model.materials:
-                    return self.model.materials[material_name]
+        if material:
+            material_name = material.name #.split(".")[0]
+            self.id = material_name[data_name_prefix_len:]
+            if material_name in self.model.materials:
+                return self.model.materials[material_name]
 
-                if material.use_backface_culling == False:
-                    self.format &= 0b11110111
+            if material.use_backface_culling == False:
+                self.format &= 0b11110111
 
-                self.shader.unmake(material)
+            self.shader.unmake(material)
 
-                for node in material.node_tree.nodes:
-                    if node.type == 'TEX_IMAGE':
-                        force_id = material.get(name_tex_override_id)
-                        force_fmt = material.get(name_tex_override_format)
-                        self.texture = MaterialTexture(self, self.model).unmake(node.image, force_id, force_fmt)
+            for node in material.node_tree.nodes:
+                if node.type == 'TEX_IMAGE':
+                    force_id = material.get(name_tex_override_id)
+                    force_fmt = material.get(name_tex_override_format)
+                    self.texture = MaterialTexture(self, self.model).unmake(node.image, force_id, force_fmt)
 
-                        if material.get(name_mat_flip_x, False):
-                            self.texture.chunks[0].unk1 |= 0x01
+                    if material.get(name_mat_flip_x, False):
+                        self.texture.chunks[0].unk1 |= 0x01
 
-                        if material.get(name_mat_flip_y, False):
-                            self.texture.chunks[0].unk1 |= 0x10
-
-                break
+                    if material.get(name_mat_flip_y, False):
+                        self.texture.chunks[0].unk1 |= 0x10
 
         self.model.materials[material_name] = self
         return self.model.materials[material_name]
@@ -1452,12 +1448,6 @@ class Mesh(DataStruct):
                     color_layer[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
     
     def unmake(self, node):
-        new_self: Mesh = Mesh(self.parent, self.model)
-
-        if 'id' in node:
-            new_self.id = node['id']
-        else:
-            new_self.id = node.name
         if 'visible' not in node and 'collidable' not in node:
             node.visible = True
             node.collidable = True
@@ -1484,14 +1474,20 @@ class Mesh(DataStruct):
             bm.free()
             node_tmp.data.update()            
 
-        # NOTE: may be impacted in future by normal correction for negatively scaled objects
-        get_animations(node_tmp, new_self.model, new_self)
-        
-        if node_tmp.visible:
-            new_self.material = Material(new_self, new_self.model).unmake(node_tmp)
+        def unmake_setup(new_self):
+            if 'id' in node_tmp:
+                new_self.id = node_tmp['id']
+            else:
+                new_self.id = node_tmp.name
+
+            # NOTE: may be impacted in future by normal correction for negatively scaled objects
+            get_animations(node_tmp, new_self.model, new_self)
+
+        def unmake_visuals(new_self):
+            new_self.material = Material(new_self, new_self.model).unmake(mat_slot.material)
             new_self.visuals_vert_buffer = VisualsVertBuffer(new_self, new_self.model).unmake(node_tmp)
             verts = new_self.visuals_vert_buffer.data
-            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons]            
+            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons]
             
             #tesselate faces
             t_faces = []
@@ -1552,8 +1548,8 @@ class Mesh(DataStruct):
                 
             new_self.visuals_vert_buffer.data = new_verts
             new_self.visuals_index_buffer = VisualsIndexBuffer(new_self, new_self.model).unmake(new_faces)
-                
-        if node_tmp.collidable:
+
+        def unmake_collision(new_self):
             if 'collision_data' in node_tmp and node_tmp['collision_data']:
                 new_self.collision_tags = CollisionTags(new_self, new_self.model).unmake(node_tmp)
             new_self.collision_vert_buffer = CollisionVertBuffer(new_self, new_self.model).unmake(node_tmp)
@@ -1665,14 +1661,36 @@ class Mesh(DataStruct):
             new_self.vert_strips.size = struct.calcsize(f'>{len(strip_list)}I')
             new_self.vert_strips.strip_size = 5
             new_self.vert_strips.include_buffer = True
+
+        mesh_list = []
+
+        for mat_slot in node_tmp.material_slots:
+            new_self: Mesh = Mesh(self.parent, self.model)
+
+            unmake_setup(new_self)
             
-        new_self.bounding_box = MeshBoundingBox(new_self, new_self.model).unmake(new_self)
+            if node_tmp.visible:
+                unmake_visuals(new_self)
+                    
+            if node_tmp.collidable:
+                unmake_collision(new_self)
+                
+            new_self.bounding_box = MeshBoundingBox(new_self, new_self.model).unmake(new_self)
+            mesh_list.append(new_self)
+            break
+
+        if len(mesh_list) == 0 and node_tmp.collidable:
+            new_self: Mesh = Mesh(self.parent, self.model)
+            unmake_setup(new_self)
+            unmake_collision(new_self)
+            new_self.bounding_box = MeshBoundingBox(new_self, new_self.model).unmake(new_self)
+            mesh_list.append(new_self)
 
         if node_tmp_clean:
             bpy.data.objects.remove(node_tmp)
             bpy.data.meshes.remove(node_tmp_data)
 
-        return [new_self]
+        return mesh_list
     
     def write(self, buffer, cursor):
         #print('writing mesh', self.id)
