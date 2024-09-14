@@ -437,17 +437,17 @@ class CollisionTags(DataStruct):
             trigger.make(obj, collection)
         
     # TODO: cleanup
-    def unmake(self, mesh):
+    def unmake(self, mesh, triggers = True):
         self.unk.unmake(mesh) # ok (SpecialSurfaceFlags)
         self.flags.unmake(mesh)  # ok
         self.fog.unmake(mesh) # ok
         self.lights.unmake(mesh) # ok
         
-        for child in mesh.children:
-            # FIXME: unmake here will cause duplicate triggers if mesh faces split by materials
-            trigger = CollisionTrigger(self, self.model).unmake(child) 
-            if trigger:
-                self.triggers.append(trigger)
+        if triggers:
+            for child in mesh.children:
+                trigger = CollisionTrigger(self, self.model).unmake(child) 
+                if trigger:
+                    self.triggers.append(trigger)
         
         return self
     
@@ -1555,9 +1555,10 @@ class Mesh(DataStruct):
             new_self.visuals_vert_buffer.data = new_verts
             new_self.visuals_index_buffer = VisualsIndexBuffer(new_self, new_self.model).unmake(new_faces)
 
-        def unmake_collision(new_self, mat_index: int = -1):
+        # TODO: match triggers to collision segments
+        def unmake_collision(new_self, mat_index: int = -1, triggers = True):
             if 'collision_data' in node_tmp and node_tmp['collision_data']:
-                new_self.collision_tags = CollisionTags(new_self, new_self.model).unmake(node_tmp) # FIXME: trig
+                new_self.collision_tags = CollisionTags(new_self, new_self.model).unmake(node_tmp, triggers)
             new_self.collision_vert_buffer = CollisionVertBuffer(new_self, new_self.model).unmake(node_tmp) # ok
 
             faces = [[v for v in face.vertices] for face in node_tmp.data.polygons if mat_index < 0 or face.material_index == mat_index]            
@@ -1673,18 +1674,20 @@ class Mesh(DataStruct):
             new_self.vert_strips.include_buffer = True
 
         mesh_list = []
+        todo_triggers = True
 
         for mat_slot in node_tmp.material_slots:
             new_self: Mesh = Mesh(self.parent, self.model)
 
             unmake_setup(new_self)
-            
+
             if node_tmp.visible:
                 unmake_visuals(new_self, mat_slot.slot_index)
-                    
+
             if node_tmp.collidable:
-                unmake_collision(new_self, mat_slot.slot_index)
-                
+                unmake_collision(new_self, mat_slot.slot_index, todo_triggers)
+
+            todo_triggers = False
             new_self.bounding_box = MeshBoundingBox(new_self, new_self.model).unmake(new_self)
             mesh_list.append(new_self)
 
@@ -1700,7 +1703,7 @@ class Mesh(DataStruct):
             bpy.data.meshes.remove(node_tmp_data)
 
         return mesh_list
-    
+
     def write(self, buffer, cursor):
         #print('writing mesh', self.id)
         self.model.map_ref(cursor, self.id)
