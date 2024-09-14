@@ -1688,9 +1688,6 @@ class Mesh(DataStruct):
             new_self.bounding_box = MeshBoundingBox(new_self, new_self.model).unmake(new_self)
             mesh_list.append(new_self)
 
-            # FIXME: remove when done
-            break
-
         if len(mesh_list) == 0 and node_tmp.collidable:
             new_self: Mesh = Mesh(self.parent, self.model)
             unmake_setup(new_self)
