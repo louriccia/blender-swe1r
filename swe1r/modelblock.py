@@ -1487,12 +1487,13 @@ class Mesh(DataStruct):
             # NOTE: may be impacted in future by normal correction for negatively scaled objects
             get_animations(node_tmp, new_self.model, new_self)
 
-        def unmake_visuals(new_self):
+        def unmake_visuals(new_self, mat_index = -1):
             new_self.material = Material(new_self, new_self.model).unmake(mat_slot.material)
             new_self.visuals_vert_buffer = VisualsVertBuffer(new_self, new_self.model).unmake(node_tmp)
+
+            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons if mat_index < 0 or face.material_index == mat_index]
             verts = new_self.visuals_vert_buffer.data
-            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons]
-            
+
             #tesselate faces
             t_faces = []
             for face in faces:
@@ -1504,10 +1505,10 @@ class Mesh(DataStruct):
                 else:
                     t_faces.append(face)
             faces = t_faces
-            
+
             #replace each index with its vert
             faces = [[verts[i] for i in face] for face in faces]
-            
+
             #reorder faces to maximize shared edges
             ordered_faces = []
             ordered_faces.append(faces.pop(0))
@@ -1522,7 +1523,7 @@ class Mesh(DataStruct):
                     ordered_faces.append(faces.pop(shared))
                 else:
                     ordered_faces.append(faces.pop(0))
-                
+
             #relist vertices so indices aren't too far apart    
             new_verts = []
             new_faces = []
@@ -1536,20 +1537,21 @@ class Mesh(DataStruct):
                         index = current_index - new_verts[::-1].index(vert) - 1
                     except ValueError:
                         index = -1
-                    
+
                     if index > -1 and current_index - index < 64:
                         new_face.append(index)
                     else: 
                         new_verts.append(vert)
                         new_face.append(current_index)
-                        
+
                 new_faces.append(new_face)
 
             # TODO: check if node has vertex group
             if False:
                 new_self.group_parent = None
                 new_self.group_count = None
-                
+
+            new_self.visuals_vert_buffer.length = len(new_verts)
             new_self.visuals_vert_buffer.data = new_verts
             new_self.visuals_index_buffer = VisualsIndexBuffer(new_self, new_self.model).unmake(new_faces)
 
@@ -1678,7 +1680,7 @@ class Mesh(DataStruct):
             unmake_setup(new_self)
             
             if node_tmp.visible:
-                unmake_visuals(new_self)
+                unmake_visuals(new_self, mat_slot.slot_index)
                     
             if node_tmp.collidable:
                 unmake_collision(new_self, mat_slot.slot_index)
