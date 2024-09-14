@@ -436,12 +436,11 @@ class CollisionTags(DataStruct):
         for trigger in self.triggers:
             trigger.make(obj, collection)
         
-    # TODO: cleanup
     def unmake(self, mesh, triggers = True):
-        self.unk.unmake(mesh) # ok (SpecialSurfaceFlags)
-        self.flags.unmake(mesh)  # ok
-        self.fog.unmake(mesh) # ok
-        self.lights.unmake(mesh) # ok
+        self.unk.unmake(mesh)
+        self.flags.unmake(mesh)
+        self.fog.unmake(mesh)
+        self.lights.unmake(mesh)
         
         if triggers:
             for child in mesh.children:
@@ -510,10 +509,8 @@ class CollisionVertStrips(DataStruct):
         self.strip_size = 3
         self.include_buffer = False
     
-    # TODO: cleanup
-    #recognizes strips in the pattern of the faces' vertex indices
+    # recognizes strips in the pattern of the faces' vertex indices
     def unmake(self, face_buffer = []):
-        #face_buffer = [[v for v in face.vertices] for face in mesh.data.polygons]
         if not len(face_buffer):
             return self
         
@@ -522,7 +519,7 @@ class CollisionVertStrips(DataStruct):
             for i in range(1, len(face_buffer)):
                 last = face_buffer[i - 1]
                 
-                # this detects cases where the strip buffer needs to be written
+                # this detects cases where the strip buffer needs to be written.
                 # the index pattern is different depending on whether the strip buffer is provided or not
                 if last[0] % 2 == 0 and last[0] + 1 == last[1] and last[1] + 1 == last[2]:
                     self.include_buffer = True
@@ -1450,9 +1447,8 @@ class Mesh(DataStruct):
                     uv_layer[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
                     color_layer[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
     
-    # TODO: cleanup
     def unmake(self, node):
-        if 'visible' not in node and 'collidable' not in node:
+        if node.get('visible') is None and node.get('collidable') is None:
             node.visible = True
             node.collidable = True
 
@@ -1478,23 +1474,20 @@ class Mesh(DataStruct):
             bm.free()
             node_tmp.data.update()            
 
-        def unmake_setup(new_self):
-            if 'id' in node_tmp:
-                new_self.id = node_tmp['id']
-            else:
-                new_self.id = node_tmp.name
+        def unmake_setup(r_mesh):
+            r_mesh.id = node_tmp.get('id', node_tmp.name)
 
             # NOTE: may be impacted in future by normal correction for negatively scaled objects
-            get_animations(node_tmp, new_self.model, new_self)
+            get_animations(node_tmp, r_mesh.model, r_mesh)
 
-        def unmake_visuals(new_self, mat_index = -1):
-            new_self.material = Material(new_self, new_self.model).unmake(mat_slot.material)
-            new_self.visuals_vert_buffer = VisualsVertBuffer(new_self, new_self.model).unmake(node_tmp)
+        def unmake_visuals(r_mesh, b_mat_slot):
+            r_mesh.material = Material(r_mesh, r_mesh.model).unmake(b_mat_slot.material)
+            r_mesh.visuals_vert_buffer = VisualsVertBuffer(r_mesh, r_mesh.model).unmake(node_tmp)
 
-            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons if mat_index < 0 or face.material_index == mat_index]
-            verts = new_self.visuals_vert_buffer.data
+            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons if face.material_index == b_mat_slot.slot_index]
+            verts = r_mesh.visuals_vert_buffer.data
 
-            #tesselate faces
+            # tesselate faces
             t_faces = []
             for face in faces:
                 if len(face) > 4:
@@ -1506,10 +1499,10 @@ class Mesh(DataStruct):
                     t_faces.append(face)
             faces = t_faces
 
-            #replace each index with its vert
+            # replace each index with its vert
             faces = [[verts[i] for i in face] for face in faces]
 
-            #reorder faces to maximize shared edges
+            # reorder faces to maximize shared edges
             ordered_faces = []
             ordered_faces.append(faces.pop(0))
             while len(faces):
@@ -1524,7 +1517,7 @@ class Mesh(DataStruct):
                 else:
                     ordered_faces.append(faces.pop(0))
 
-            #relist vertices so indices aren't too far apart    
+            # relist vertices so indices aren't too far apart    
             new_verts = []
             new_faces = []
             for face in ordered_faces:
@@ -1532,7 +1525,7 @@ class Mesh(DataStruct):
                 for vert in face:
                     current_index = len(new_verts)
                     index = -1
-                    #find last instance of vert
+                    # find last instance of vert
                     try:
                         index = current_index - new_verts[::-1].index(vert) - 1
                     except ValueError:
@@ -1548,25 +1541,25 @@ class Mesh(DataStruct):
 
             # TODO: check if node has vertex group
             if False:
-                new_self.group_parent = None
-                new_self.group_count = None
+                r_mesh.group_parent = None
+                r_mesh.group_count = None
 
-            new_self.visuals_vert_buffer.length = len(new_verts)
-            new_self.visuals_vert_buffer.data = new_verts
-            new_self.visuals_index_buffer = VisualsIndexBuffer(new_self, new_self.model).unmake(new_faces)
+            r_mesh.visuals_vert_buffer.length = len(new_verts)
+            r_mesh.visuals_vert_buffer.data = new_verts
+            r_mesh.visuals_index_buffer = VisualsIndexBuffer(r_mesh, r_mesh.model).unmake(new_faces)
 
         # TODO: match triggers to collision segments
-        def unmake_collision(new_self, mat_index: int = -1, triggers = True):
-            if 'collision_data' in node_tmp and node_tmp['collision_data']:
-                new_self.collision_tags = CollisionTags(new_self, new_self.model).unmake(node_tmp, triggers)
-            new_self.collision_vert_buffer = CollisionVertBuffer(new_self, new_self.model).unmake(node_tmp) # ok
+        def unmake_collision(r_mesh, b_mat_slot = None, triggers = True):
+            if node_tmp.get('collision_data'):
+                r_mesh.collision_tags = CollisionTags(r_mesh, r_mesh.model).unmake(node_tmp, triggers)
+            r_mesh.collision_vert_buffer = CollisionVertBuffer(r_mesh, r_mesh.model).unmake(node_tmp)
 
-            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons if mat_index < 0 or face.material_index == mat_index]            
-            verts = new_self.collision_vert_buffer.data
+            faces = [[v for v in face.vertices] for face in node_tmp.data.polygons if b_mat_slot is None or face.material_index == b_mat_slot.slot_index]            
+            verts = r_mesh.collision_vert_buffer.data
 
-            new_self.vert_strips = CollisionVertStrips(new_self, new_self.model).unmake(copy.deepcopy(faces))
+            r_mesh.vert_strips = CollisionVertStrips(r_mesh, r_mesh.model).unmake(copy.deepcopy(faces))
 
-            #tesselate/validate faces
+            # tesselate/validate faces
             t_faces = []
             for face in faces:
                 for vert in face:
@@ -1581,7 +1574,7 @@ class Mesh(DataStruct):
                     t_faces.append(face)
             faces = t_faces
 
-            #replace each index with its vert
+            # replace each index with its vert
             faces = [[verts[i] for i in face] for face in faces]
 
             def unshared_vert(list1, list2):
@@ -1603,7 +1596,7 @@ class Mesh(DataStruct):
 
                 return edge
 
-            #restrip mesh
+            # restrip mesh
             strips = []
             new_verts = []
             strip = []
@@ -1613,13 +1606,13 @@ class Mesh(DataStruct):
                 last_face = strip[-1]
                 shared = None
 
-                #search for a suitable adjacent face to continue strip
+                # search for a suitable adjacent face to continue strip
                 for f, face in enumerate(faces):
-                    #ignore faces with less than 2 shared verts
+                    # ignore faces with less than 2 shared verts
                     if len([i for i in face if i in last_face]) < 2:
                         continue
 
-                    #not only must the faces share an edge, the edge must run opposite to ensure they have same normals
+                    # the faces mush share an edge, and it must run opposite to ensure same normals
                     edge1 = get_edge(last_face, face)
                     edge2 = get_edge(face, last_face) 
                     if edge1 is None or edge2 is None:
@@ -1632,7 +1625,7 @@ class Mesh(DataStruct):
                         strip_verts.append(last_face[unshared])
                         strip_verts.extend(edge1)
 
-                    #additionally, we need to check that the shared edge is opposite the third to last vert
+                    # additionally, we need to check that the shared edge is opposite the third to last vert
                     if strip_verts[-3] in face:  
                         continue
 
@@ -1659,50 +1652,48 @@ class Mesh(DataStruct):
 
             strip_list = [2+ len(strip) for strip in strips]
 
-            # FIXME: questions in comments
-            # why are fields being added here that aren't in the def
-            new_self.collision_vert_buffer.length = len(new_verts)
-            new_self.collision_vert_buffer.data = new_verts
-            new_self.collision_vert_buffer.format_string = f'>{len(new_verts)*3}h'
-            new_self.collision_vert_buffer.size = struct.calcsize(f'>{len(new_verts)*3}h')
-            new_self.strip_count = len(strip_list)
-            new_self.vert_strips.strip_count = len(strip_list)
-            new_self.vert_strips.data = strip_list
-            new_self.vert_strips.format_string = f'>{len(strip_list)}I'
-            new_self.vert_strips.size = struct.calcsize(f'>{len(strip_list)}I')
-            new_self.vert_strips.strip_size = 5 # always 5 for collision???
-            new_self.vert_strips.include_buffer = True
+            r_mesh.collision_vert_buffer.length = len(new_verts)
+            r_mesh.collision_vert_buffer.data = new_verts
+            r_mesh.collision_vert_buffer.format_string = f'>{len(new_verts)*3}h'
+            r_mesh.collision_vert_buffer.size = struct.calcsize(f'>{len(new_verts)*3}h')
+            r_mesh.strip_count = len(strip_list)
+            r_mesh.vert_strips.strip_count = len(strip_list)
+            r_mesh.vert_strips.data = strip_list
+            r_mesh.vert_strips.format_string = f'>{len(strip_list)}I'
+            r_mesh.vert_strips.size = struct.calcsize(f'>{len(strip_list)}I')
+            r_mesh.vert_strips.strip_size = 5
+            r_mesh.vert_strips.include_buffer = True
 
-        mesh_list = []
+        r_mesh_list = []
         todo_triggers = True
 
-        for mat_slot in node_tmp.material_slots:
-            new_self: Mesh = Mesh(self.parent, self.model)
+        for b_mat_slot in node_tmp.material_slots:
+            r_mesh: Mesh = Mesh(self.parent, self.model)
 
-            unmake_setup(new_self)
+            unmake_setup(r_mesh)
 
             if node_tmp.visible:
-                unmake_visuals(new_self, mat_slot.slot_index)
+                unmake_visuals(r_mesh, b_mat_slot)
 
             if node_tmp.collidable:
-                unmake_collision(new_self, mat_slot.slot_index, todo_triggers)
+                unmake_collision(r_mesh, b_mat_slot, todo_triggers)
 
             todo_triggers = False
-            new_self.bounding_box = MeshBoundingBox(new_self, new_self.model).unmake(new_self)
-            mesh_list.append(new_self)
+            r_mesh.bounding_box = MeshBoundingBox(r_mesh, r_mesh.model).unmake(r_mesh)
+            r_mesh_list.append(r_mesh)
 
-        if len(mesh_list) == 0 and node_tmp.collidable:
-            new_self: Mesh = Mesh(self.parent, self.model)
-            unmake_setup(new_self)
-            unmake_collision(new_self)
-            new_self.bounding_box = MeshBoundingBox(new_self, new_self.model).unmake(new_self)
-            mesh_list.append(new_self)
+        if len(r_mesh_list) == 0 and node_tmp.collidable:
+            r_mesh: Mesh = Mesh(self.parent, self.model)
+            unmake_setup(r_mesh)
+            unmake_collision(r_mesh)
+            r_mesh.bounding_box = MeshBoundingBox(r_mesh, r_mesh.model).unmake(r_mesh)
+            r_mesh_list.append(r_mesh)
 
         if node_tmp_clean:
             bpy.data.objects.remove(node_tmp)
             bpy.data.meshes.remove(node_tmp_data)
 
-        return mesh_list
+        return r_mesh_list
 
     def write(self, buffer, cursor):
         #print('writing mesh', self.id)
