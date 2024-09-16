@@ -1480,12 +1480,11 @@ class Mesh(DataStruct):
             # NOTE: may be impacted in future by normal correction for negatively scaled objects
             get_animations(node_tmp, r_mesh.model, r_mesh)
 
-        def unmake_visuals(r_mesh, b_mat_slot):
-            r_mesh.material = Material(r_mesh, r_mesh.model).unmake(b_mat_slot.material)
-            r_mesh.visuals_vert_buffer = VisualsVertBuffer(r_mesh, r_mesh.model).unmake(node_tmp)
+        def unmake_visuals(r_mesh, b_mat_slot) -> bool:
+            visuals_vert_buffer = VisualsVertBuffer(r_mesh, r_mesh.model).unmake(node_tmp)
+            verts = visuals_vert_buffer.data
 
             faces = [[v for v in face.vertices] for face in node_tmp.data.polygons if face.material_index == b_mat_slot.slot_index]
-            verts = r_mesh.visuals_vert_buffer.data
 
             # tesselate faces
             t_faces = []
@@ -1499,8 +1498,12 @@ class Mesh(DataStruct):
                     t_faces.append(face)
             faces = t_faces
 
+            if len(faces) == 0:
+                return False
+
             # replace each index with its vert
             faces = [[verts[i] for i in face] for face in faces]
+
 
             # reorder faces to maximize shared edges
             ordered_faces = []
@@ -1544,18 +1547,19 @@ class Mesh(DataStruct):
                 r_mesh.group_parent = None
                 r_mesh.group_count = None
 
-            r_mesh.visuals_vert_buffer.length = len(new_verts)
-            r_mesh.visuals_vert_buffer.data = new_verts
+            r_mesh.material = Material(r_mesh, r_mesh.model).unmake(b_mat_slot.material)
+            visuals_vert_buffer.length = len(new_verts)
+            visuals_vert_buffer.data = new_verts
+            r_mesh.visuals_vert_buffer = visuals_vert_buffer
             r_mesh.visuals_index_buffer = VisualsIndexBuffer(r_mesh, r_mesh.model).unmake(new_faces)
+            return True
 
         # TODO: match triggers to collision segments
-        def unmake_collision(r_mesh, b_mat_slot = None, triggers = True):
-            if node_tmp.get('collision_data'):
-                r_mesh.collision_tags = CollisionTags(r_mesh, r_mesh.model).unmake(node_tmp, triggers)
-            r_mesh.collision_vert_buffer = CollisionVertBuffer(r_mesh, r_mesh.model).unmake(node_tmp)
+        def unmake_collision(r_mesh, b_mat_slot = None, triggers = True) -> bool:
+            collision_vert_buffer = CollisionVertBuffer(r_mesh, r_mesh.model).unmake(node_tmp)
+            verts = collision_vert_buffer.data
 
             faces = [[v for v in face.vertices] for face in node_tmp.data.polygons if b_mat_slot is None or face.material_index == b_mat_slot.slot_index]            
-            verts = r_mesh.collision_vert_buffer.data
 
             r_mesh.vert_strips = CollisionVertStrips(r_mesh, r_mesh.model).unmake(copy.deepcopy(faces))
 
@@ -1573,6 +1577,9 @@ class Mesh(DataStruct):
                 else:
                     t_faces.append(face)
             faces = t_faces
+
+            if len(faces) == 0:
+                return False
 
             # replace each index with its vert
             faces = [[verts[i] for i in face] for face in faces]
@@ -1652,10 +1659,13 @@ class Mesh(DataStruct):
 
             strip_list = [2+ len(strip) for strip in strips]
 
-            r_mesh.collision_vert_buffer.length = len(new_verts)
-            r_mesh.collision_vert_buffer.data = new_verts
-            r_mesh.collision_vert_buffer.format_string = f'>{len(new_verts)*3}h'
-            r_mesh.collision_vert_buffer.size = struct.calcsize(f'>{len(new_verts)*3}h')
+            if node_tmp.get('collision_data'):
+                r_mesh.collision_tags = CollisionTags(r_mesh, r_mesh.model).unmake(node_tmp, triggers)
+            collision_vert_buffer.length = len(new_verts)
+            collision_vert_buffer.data = new_verts
+            collision_vert_buffer.format_string = f'>{len(new_verts)*3}h'
+            collision_vert_buffer.size = struct.calcsize(f'>{len(new_verts)*3}h')
+            r_mesh.collision_vert_buffer = collision_vert_buffer
             r_mesh.strip_count = len(strip_list)
             r_mesh.vert_strips.strip_count = len(strip_list)
             r_mesh.vert_strips.data = strip_list
@@ -1663,22 +1673,27 @@ class Mesh(DataStruct):
             r_mesh.vert_strips.size = struct.calcsize(f'>{len(strip_list)}I')
             r_mesh.vert_strips.strip_size = 5
             r_mesh.vert_strips.include_buffer = True
+            return True
 
         r_mesh_list = []
         todo_triggers = True
 
         for b_mat_slot in node_tmp.material_slots:
             r_mesh: Mesh = Mesh(self.parent, self.model)
+            to_append: bool = False
 
             unmake_setup(r_mesh)
 
-            if node_tmp.visible:
-                unmake_visuals(r_mesh, b_mat_slot)
+            if node_tmp.visible and unmake_visuals(r_mesh, b_mat_slot):
+                to_append = True
 
-            if node_tmp.collidable:
-                unmake_collision(r_mesh, b_mat_slot, todo_triggers)
+            if node_tmp.collidable and unmake_collision(r_mesh, b_mat_slot, todo_triggers):
+                to_append = True
+                todo_triggers = False
 
-            todo_triggers = False
+            if not to_append:
+                continue
+
             r_mesh.bounding_box = MeshBoundingBox(r_mesh, r_mesh.model).unmake(r_mesh)
             r_mesh_list.append(r_mesh)
 
