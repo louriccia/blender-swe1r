@@ -230,6 +230,7 @@ def create_update_function(prop_name):
 name_attr_colors = data_name_format_short.format(label='colors')
 name_attr_baked = data_name_format_short.format(label='colors_baked')
 
+# TODO: finalize core functionality - create color map if none + delete baked colors
 def reset_vertex_colors(obj):
     if not hasattr(obj.data, 'color_attributes') or len(obj.data.color_attributes) == 0:
         obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')

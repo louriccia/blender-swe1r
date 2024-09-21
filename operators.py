@@ -307,22 +307,35 @@ class OpenUrl(bpy.types.Operator):
 class BakeVColors(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors"
     bl_label = "Bake Vertex Colors"
+    bl_description = "Bake lighting into dedicated color map while preserving Render Color. Will overwrite previously baked lighting or create a default Render Color as needed"
     
     def execute(self, context):
         selected_objects = context.selected_objects
         for obj in selected_objects:
             # Calculate the total light for each vertex of the selected object
             total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
-               
-            reset_vertex_colors(obj)
             
-            color_layer = obj.data.attributes[obj.data.attributes.default_color_name].data
-                
+            d = obj.data
+
+            if len(d.color_attributes) == 0:
+                reset_vertex_colors(obj)
+
+            if d.attributes.default_color_name == name_attr_baked:
+                show_custom_popup(bpy.context, 'ERROR', 'Baking target is base color map. Rename or choose another Render Color.')
+                return {"CANCELLED"}
+
+            color_layer = d.attributes.get(name_attr_baked)
+            if color_layer is not None:
+                color_layer = color_layer.data
+            else:
+                d.color_attributes.new(name_attr_baked, 'BYTE_COLOR', 'CORNER') 
+                color_layer = d.attributes[name_attr_baked].data
+
             for poly in obj.data.polygons:
                 for p in range(len(poly.vertices)):
                     color = total_lights[poly.vertices[p]]
                     color_layer[poly.loop_indices[p]].color = [*color, 1.0]
-                
+
         return {"FINISHED"}
     
 def register():

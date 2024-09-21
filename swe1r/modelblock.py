@@ -30,6 +30,10 @@ from .textureblock import Texture
 from ..popup import show_custom_popup
 from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short
 
+name_attr_uvmap = data_name_format_short.format(label='uv_map')
+name_attr_colors = data_name_format_short.format(label='colors')
+name_attr_baked = data_name_format_short.format(label='colors_baked')
+
 
 class Lights(DataStruct):
     def __init__(self, model):
@@ -606,27 +610,32 @@ class VisualsVertBuffer():
     def unmake(self, mesh):
         uv_data = None
         color_data = None
+
+        d = mesh.data
         
-        if mesh.data is None:
-            print(self.parent.id, 'has no mesh data')
+        if d is None:
+            print(self.parent.id, 'has no mesh.data')
             return
         
-        if mesh.data.uv_layers and mesh.data.uv_layers.active:
-            uv_data = mesh.data.uv_layers.active.data
-        if mesh.data.color_attributes and len(mesh.data.color_attributes):
-            color_data = mesh.data.attributes[mesh.data.attributes.default_color_name].data
+        if d.uv_layers and d.uv_layers.active:
+            uv_data = d.uv_layers.active.data
+        if d.color_attributes and len(d.color_attributes):
+            if d.attributes.get(name_attr_baked) is not None:
+                color_data = d.attributes[name_attr_baked].data
+            else:
+                color_data = d.attributes[d.attributes.default_color_name].data
         
-        for vert in mesh.data.vertices:
+        for vert in d.vertices:
             self.data.append(VisualsVertChunk(self, self.model))
             
         #there's probably a better way to do this but this works for now
         #https://docs.blender.org/api/current/bpy.types.Mesh.html
-        for poly in mesh.data.polygons:
+        for poly in d.polygons:
             for loop_index in poly.loop_indices:
-                vert_index = mesh.data.loops[loop_index].vertex_index
+                vert_index = d.loops[loop_index].vertex_index
                 uv = None if not uv_data else uv_data[loop_index].uv
                 color = None if not color_data else color_data[loop_index].color
-                self.data[vert_index].unmake(mesh.matrix_world @ mesh.data.vertices[vert_index].co, uv, color)
+                self.data[vert_index].unmake(mesh.matrix_world @ d.vertices[vert_index].co, uv, color)
                 
         self.length = len(self.data)
         return self
@@ -1308,10 +1317,6 @@ class MeshGroupBoundingBox(MeshBoundingBox):
         self.max_y = max([b[4] for b in bb])
         self.max_z = max([b[5] for b in bb])
         return self
-
-name_attr_uvmap = data_name_format_short.format(label='uv_map')
-name_attr_colors = data_name_format_short.format(label='colors')
-name_attr_baked = data_name_format_short.format(label='colors_baked')
     
 class Mesh(DataStruct):
     def __init__(self, parent, model):
