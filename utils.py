@@ -231,10 +231,11 @@ name_attr_colors = data_name_format_short.format(label='colors')
 name_attr_baked = data_name_format_short.format(label='colors_baked')
 
 def reset_vertex_colors(obj):
-    if not hasattr(obj.data, 'color_attributes') or obj.data.color_attributes.active is None:
+    if not hasattr(obj.data, 'color_attributes') or len(obj.data.color_attributes) == 0:
         obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
+        obj.data.attributes.render_color_index = obj.data.attributes.active_color_index
             
-    color_layer = obj.data.attributes.active_color.data   
+    color_layer = obj.data.attributes[obj.data.attributes.default_color_name].data   
     for poly in obj.data.polygons:
         for loop_index in poly.loop_indices:
             color_layer[loop_index].color = [1.0, 1.0, 1.0, 1.0]
