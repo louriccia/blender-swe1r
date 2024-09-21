@@ -614,8 +614,8 @@ class VisualsVertBuffer():
         
         if mesh.data.uv_layers and mesh.data.uv_layers.active:
             uv_data = mesh.data.uv_layers.active.data
-        if mesh.data.vertex_colors and mesh.data.vertex_colors.active:
-            color_data = mesh.data.vertex_colors.active.data
+        if mesh.data.color_attributes and mesh.data.color_attributes.active:
+            color_data = mesh.data.color_attributes.active.data
         
         for vert in mesh.data.vertices:
             self.data.append(VisualsVertChunk(self, self.model))
@@ -1436,10 +1436,11 @@ class Mesh(DataStruct):
             
             #set vector colors / uv coords
             uv_layer = mesh.uv_layers.new(name = 'uv')
-            color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
+            # NOTE: color layer has to come after uv_layer
+            color_layer = mesh.color_attributes.new('colors', 'BYTE_COLOR', 'CORNER') 
             # no idea why but 4.0 requires I do this:
             uv_layer = obj.data.uv_layers.active.data
-            color_layer = obj.data.vertex_colors.active.data                                           
+            color_layer = obj.data.attributes.active_color.data                                           
             
             for poly in mesh.polygons:
                 for p in range(len(poly.vertices)):

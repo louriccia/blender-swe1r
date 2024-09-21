@@ -218,10 +218,10 @@ def create_update_function(prop_name):
     return update_function
 
 def reset_vertex_colors(obj):
-    if not hasattr(obj.data, 'vertex_colors') or obj.data.vertex_colors.active is None:
-        obj.data.vertex_colors.new(name = 'colors')
+    if not hasattr(obj.data, 'color_attributes') or obj.data.color_attributes.active is None:
+        obj.data.color_attributes.new('colors', 'BYTE_COLOR', 'CORNER')
             
-    color_layer = obj.data.vertex_colors.active.data   
+    color_layer = obj.data.attributes.active_color.data   
     for poly in obj.data.polygons:
         for loop_index in poly.loop_indices:
             color_layer[loop_index].color = [1.0, 1.0, 1.0, 1.0]

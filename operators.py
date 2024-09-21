@@ -316,7 +316,7 @@ class BakeVColors(bpy.types.Operator):
                
             reset_vertex_colors(obj)
             
-            color_layer = obj.data.vertex_colors.active.data   
+            color_layer = obj.data.attributes.active_color.data
                 
             for poly in obj.data.polygons:
                 for p in range(len(poly.vertices)):
