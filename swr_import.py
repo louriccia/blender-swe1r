@@ -25,8 +25,7 @@ from .swe1r.modelblock import Model
 from .swe1r.splineblock import Spline
 from .swe1r.spline_map import spline_map
 from .swe1r.block import Block
-from .swe1r.general import data_name_prefix_short
-from .utils import UpdateVisibleSelectable
+from .utils import UpdateVisibleSelectable, data_name_prefix_short
 
 # for material in bpy.data.materials:
 #     material.user_clear()

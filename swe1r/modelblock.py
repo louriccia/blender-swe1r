@@ -27,9 +27,8 @@ import mathutils
 import copy
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture
-from .general import data_name_format, data_name_prefix_len, data_name_format_long, data_name_prefix_short
 from ..popup import show_custom_popup
-from ..utils import find_existing_light, check_flipped
+from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short
 
 
 class Lights(DataStruct):
@@ -1309,6 +1308,10 @@ class MeshGroupBoundingBox(MeshBoundingBox):
         self.max_y = max([b[4] for b in bb])
         self.max_z = max([b[5] for b in bb])
         return self
+
+name_attr_uvmap = data_name_format_short.format(label='uv_map')
+name_attr_colors = data_name_format_short.format(label='colors')
+name_attr_baked = data_name_format_short.format(label='colors_baked')
     
 class Mesh(DataStruct):
     def __init__(self, parent, model):
@@ -1435,9 +1438,9 @@ class Mesh(DataStruct):
             
             
             #set vector colors / uv coords
-            uv_layer = mesh.uv_layers.new(name = 'uv')
+            uv_layer = mesh.uv_layers.new(name = name_attr_uvmap)
             # NOTE: color layer has to come after uv_layer
-            color_layer = mesh.color_attributes.new('colors', 'BYTE_COLOR', 'CORNER') 
+            color_layer = mesh.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER') 
             # no idea why but 4.0 requires I do this:
             uv_layer = obj.data.uv_layers.active.data
             color_layer = obj.data.attributes.active_color.data                                           

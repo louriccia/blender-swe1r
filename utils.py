@@ -9,6 +9,16 @@ import copy
 
 from .swe1r.model_list import *
 
+# 'bswe1r' for 'blender swe1r'
+# NOTE: use 3-letter code for data_type and group_id
+data_name_prefix_short = 'bswe1r_'
+data_name_format_short = 'bswe1r_{label}'
+data_name_prefix_short_len = 7
+data_name_format = 'bswe1r_{data_type}_{label}'
+data_name_prefix_len = 11
+data_name_format_long = 'bswe1r_{data_type}_{group_id}_{label}'
+data_name_format_long_len = 15
+
 
 SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
 
@@ -217,9 +227,12 @@ def create_update_function(prop_name):
             updating_objects.discard(self)
     return update_function
 
+name_attr_colors = data_name_format_short.format(label='colors')
+name_attr_baked = data_name_format_short.format(label='colors_baked')
+
 def reset_vertex_colors(obj):
     if not hasattr(obj.data, 'color_attributes') or obj.data.color_attributes.active is None:
-        obj.data.color_attributes.new('colors', 'BYTE_COLOR', 'CORNER')
+        obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
             
     color_layer = obj.data.attributes.active_color.data   
     for poly in obj.data.polygons:
