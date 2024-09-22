@@ -125,6 +125,14 @@ def clamp(value, min_value, max_value):
 def euclidean_distance(color1, color2):
     return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
 
+# TODO: cleanup
+def blend_multiply(a: float, b: float) -> float:
+    return a*b 
+
+# TODO: cleanup
+def blend_overlay(a: float, b: float) -> float:
+    return 2.0*a*b if a < 0.5 else 1.0-2.0*(1.0-a)*(1.0-b) 
+
 def calculate_point_light_contribution(light, vertex_position, vertex_normal, depsgraph, falloff_factor):
     light_position = light.matrix_world.to_translation()
     light_color =light.data.color
@@ -174,7 +182,7 @@ def calculate_sun_light_contribution(light, vertex_position, vertex_normal, deps
     else:
         return mathutils.Color((0, 0, 0))
 
-
+# TODO: cleanup
 def calculate_total_light_for_object(obj, falloff_factor=2.0, ambient_light_intensity=0.1, ambient_light_color=[0, 0, 0]):
     mesh = obj.data
     depsgraph = bpy.context.evaluated_depsgraph_get()

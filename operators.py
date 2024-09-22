@@ -312,9 +312,6 @@ class BakeVColors(bpy.types.Operator):
     def execute(self, context):
         selected_objects = context.selected_objects
         for obj in selected_objects:
-            # Calculate the total light for each vertex of the selected object
-            total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
-            
             d = obj.data
 
             if len(d.color_attributes) == 0:
@@ -324,6 +321,14 @@ class BakeVColors(bpy.types.Operator):
                 show_custom_popup(bpy.context, 'ERROR', 'Baking target is base color map. Rename or choose another Render Color.')
                 return {"CANCELLED"}
 
+            color_base = d.attributes[d.attributes.default_color_name].data
+            if len(color_base) == 0:
+                show_custom_popup(bpy.context, 'ERROR', 'Base color map {} has no color data. Data may have been purged.'.format(d.attributes.default_color_name))
+                return {"CANCELLED"}
+
+            # Calculate the total light for each vertex of the selected object
+            total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
+            
             color_layer = d.attributes.get(name_attr_baked)
             if color_layer is not None:
                 color_layer = color_layer.data
@@ -331,10 +336,12 @@ class BakeVColors(bpy.types.Operator):
                 d.color_attributes.new(name_attr_baked, 'BYTE_COLOR', 'CORNER') 
                 color_layer = d.attributes[name_attr_baked].data
 
-            for poly in obj.data.polygons:
+            for poly in d.polygons:
                 for p in range(len(poly.vertices)):
                     color = total_lights[poly.vertices[p]]
-                    color_layer[poly.loop_indices[p]].color = [*color, 1.0]
+                    a_col = color_base[poly.loop_indices[p]].color # old color
+                    for i, b in enumerate([*color, 1.0]):
+                        color_layer[poly.loop_indices[p]].color[i] = blend_multiply(a_col[i], b)
 
         return {"FINISHED"}
     

@@ -612,7 +612,6 @@ class VisualsVertBuffer():
         color_data = None
 
         d = mesh.data
-        
         if d is None:
             print(self.parent.id, 'has no mesh.data')
             return
