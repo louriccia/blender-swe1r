@@ -30,7 +30,7 @@ from .swe1r.model_list import *
 from .swe1r.modelblock import *
 from .swe1r.block import *
 from .swe1r.textureblock import *
-from  .swe1r.splineblock import *
+from .swe1r.splineblock import *
 from .swe1r.general import *
 from .panels import *
 from .swr_import import *
@@ -304,27 +304,32 @@ class OpenUrl(bpy.types.Operator):
         open_url(self.url)
         return {"FINISHED"}
     
+# TODO: cleanup
 class BakeVColors(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors"
     bl_label = "Bake Vertex Colors"
     bl_description = "Bake lighting into dedicated color map while preserving Render Color. Will overwrite previously baked lighting or create a default Render Color as needed"
     
     def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
+        errlist_mismatch = []
+        errlist_nodata = []
+        for obj in context.selected_objects:
+            if obj.type != 'MESH' or not obj.get('visible', False):
+                continue
+
             d = obj.data
 
             if len(d.color_attributes) == 0:
                 reset_vertex_colors(obj)
 
             if d.attributes.default_color_name == name_attr_baked:
-                show_custom_popup(bpy.context, 'ERROR', 'Baking target is base color map. Rename or choose another Render Color.')
-                return {"CANCELLED"}
+                errlist_mismatch.append(obj.name)
+                continue
 
             color_base = d.attributes[d.attributes.default_color_name].data
             if len(color_base) == 0:
-                show_custom_popup(bpy.context, 'ERROR', 'Base color map {} has no color data. Data may have been purged.'.format(d.attributes.default_color_name))
-                return {"CANCELLED"}
+                errlist_nodata.append(obj.name)
+                continue
 
             # Calculate the total light for each vertex of the selected object
             total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
@@ -342,6 +347,12 @@ class BakeVColors(bpy.types.Operator):
                     a_col = color_base[poly.loop_indices[p]].color # old color
                     for i, b in enumerate([*color, 1.0]):
                         color_layer[poly.loop_indices[p]].color[i] = blend_multiply(a_col[i], b)
+
+        if len(errlist_mismatch) > 0:
+            show_custom_popup(bpy.context, 'ERROR', 'Baking target was base color map. Choose another Render Color or rename. Affected objects: {}'.format(', '.join(errlist_mismatch)))
+
+        if len(errlist_nodata) > 0:
+            show_custom_popup(bpy.context, 'ERROR', 'Base color map has no color data. Data may have been purged. Affected objects: {}'.format(', '.join(errlist_nodata)))
 
         return {"FINISHED"}
     
