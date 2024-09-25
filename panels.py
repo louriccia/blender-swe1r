@@ -193,8 +193,8 @@ class SelectedPanel(bpy.types.Panel):
                 row = box.row()
                 row.label(text = "Lighting", icon = "LIGHT_SUN")
                 icon = "DOWNARROW_HLT" if context.scene.lights_expanded else "RIGHTARROW"
-                row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
-                row.prop(context.scene, "lights_expanded", icon = icon, text = "", emboss = False)
+                #row.operator('view3d.bake_vcolors', text='', emboss=False, icon='FILE_REFRESH')
+                row.prop(context.scene, 'lights_expanded', icon = icon, text = '', emboss = False)
                 
                 if context.scene.lights_expanded:
                     row = box.row()
@@ -204,13 +204,14 @@ class SelectedPanel(bpy.types.Panel):
                     row.prop(context.scene, 'ambient_light', text='')
                     row = box.row()
                     row.scale_y = 1.5
-                    row.operator("view3d.bake_vcolors", text = "Bake")
+                    row.operator('view3d.bake_vcolors', text='Bake')
+                    row.operator('view3d.bake_vcolors_clear', text='', icon='TRASH', emboss=False)
                 
                 box = parent_box.box()
                 row = box.row()
                 row.label(text = "Texture", icon = "TEXTURE")
                 icon = "DOWNARROW_HLT" if context.scene.textures_expanded else "RIGHTARROW"
-                row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                #row.operator('', text='', emboss=False, icon='FILE_REFRESH')
                 row.prop(context.scene, "textures_expanded", icon = icon, text = "", emboss = False)
                 
                 if context.scene.textures_expanded:

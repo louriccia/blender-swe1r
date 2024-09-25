@@ -356,6 +356,31 @@ class BakeVColors(bpy.types.Operator):
 
         return {"FINISHED"}
     
+# TODO: cleanup
+class BakeVColorsClear(bpy.types.Operator):
+    bl_idname = "view3d.bake_vcolors_clear"
+    bl_label = "Clear Baked Lighting"
+    bl_description = "Remove baked lighting color map from Color Attributes"
+
+    def execute(self, context):
+        errlist_mismatch = []
+        for obj in context.selected_objects:
+            if obj.type != 'MESH' or not obj.get('visible', False):
+                continue
+
+            color_layer = obj.data.attributes.get(name_attr_baked)
+            if color_layer is not None:
+                if obj.data.attributes.default_color_name == name_attr_baked:
+                    errlist_mismatch.append(obj.name)
+                    continue
+
+                obj.data.attributes.remove(color_layer)
+
+        if len(errlist_mismatch) > 0:
+            show_custom_popup(bpy.context, 'ERROR', 'Baked lighting was in base color map. Skipped deleting bake. Affected objects: {}'.format(', '.join(errlist_mismatch)))
+
+        return {"FINISHED"}
+    
 def register():
     bpy.utils.register_class(ImportOperator)
     bpy.utils.register_class(ExportOperator)
@@ -374,6 +399,7 @@ def register():
     bpy.utils.register_class(ReconstructSpline)
     bpy.utils.register_class(OpenUrl)
     bpy.utils.register_class(BakeVColors)
+    bpy.utils.register_class(BakeVColorsClear)
     
 def unregister():
     bpy.utils.unregister_class(ImportOperator)
@@ -393,3 +419,4 @@ def unregister():
     bpy.utils.unregister_class(ReconstructSpline)
     bpy.utils.unregister_class(OpenUrl)
     bpy.utils.unregister_class(BakeVColors)
+    bpy.utils.unregister_class(BakeVColorsClear)
