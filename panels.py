@@ -201,7 +201,7 @@ class SelectedPanel(bpy.types.Panel):
                     row.prop(context.scene, 'light_falloff', text = 'Falloff', slider = True)
                     row = box.row()
                     row.label(text = 'Ambient Light')
-                    row.prop(context.scene, 'ambient_light', text = '')
+                    row.prop(context.scene, 'ambient_light', text='')
                     row = box.row()
                     row.scale_y = 1.5
                     row.operator("view3d.bake_vcolors", text = "Bake")
