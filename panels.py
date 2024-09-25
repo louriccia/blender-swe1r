@@ -187,15 +187,16 @@ class SelectedPanel(bpy.types.Panel):
                 row.label(text = 'Visuals', icon = 'MATERIAL_DATA')
                 row.operator("view3d.v_color", text="Reset", emboss = False)
                 row.operator("view3d.set_nonvisible", text = "", icon = "TRASH", emboss = False)
-                
-                
+
+                # baked lighting panel
+
                 box = parent_box.box()
                 row = box.row()
-                row.label(text = "Lighting", icon = "LIGHT_SUN")
-                icon = "DOWNARROW_HLT" if context.scene.lights_expanded else "RIGHTARROW"
+                row.label(text='Baked Lighting', icon='LIGHT_SUN')
+                icon = 'DOWNARROW_HLT' if context.scene.lights_expanded else 'RIGHTARROW'
                 #row.operator('view3d.bake_vcolors', text='', emboss=False, icon='FILE_REFRESH')
                 row.prop(context.scene, 'lights_expanded', icon = icon, text = '', emboss = False)
-                
+
                 if context.scene.lights_expanded:
                     row = box.row()
                     row.prop(context.scene, 'light_falloff', text = 'Falloff', slider = True)
@@ -206,14 +207,15 @@ class SelectedPanel(bpy.types.Panel):
                     row.scale_y = 1.5
                     row.operator('view3d.bake_vcolors', text='Bake')
                     row.operator('view3d.bake_vcolors_clear', text='', icon='TRASH', emboss=False)
-                
+
+                # texture panel
+
                 box = parent_box.box()
                 row = box.row()
                 row.label(text = "Texture", icon = "TEXTURE")
                 icon = "DOWNARROW_HLT" if context.scene.textures_expanded else "RIGHTARROW"
                 #row.operator('', text='', emboss=False, icon='FILE_REFRESH')
                 row.prop(context.scene, "textures_expanded", icon = icon, text = "", emboss = False)
-                
                 if context.scene.textures_expanded:
                     row = box.row()
                     row.label(text = 'Scroll animation')

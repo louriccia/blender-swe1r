@@ -308,7 +308,7 @@ class OpenUrl(bpy.types.Operator):
 class BakeVColors(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors"
     bl_label = "Bake Vertex Colors"
-    bl_description = "Bake lighting into dedicated color map while preserving Render Color. Will overwrite previously baked lighting or create a default Render Color as needed"
+    bl_description = "Bake lighting into dedicated color map, while preserving Render Color"
     
     def execute(self, context):
         errlist_mismatch = []
