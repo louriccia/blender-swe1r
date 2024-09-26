@@ -125,11 +125,9 @@ def clamp(value, min_value, max_value):
 def euclidean_distance(color1, color2):
     return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
 
-# TODO: cleanup
 def blend_multiply(a: float, b: float) -> float:
     return a*b 
 
-# TODO: cleanup
 def blend_overlay(a: float, b: float) -> float:
     return 2.0*a*b if a < 0.5 else 1.0-2.0*(1.0-a)*(1.0-b) 
 
@@ -182,7 +180,6 @@ def calculate_sun_light_contribution(light, vertex_position, vertex_normal, deps
     else:
         return mathutils.Color((0, 0, 0))
 
-# TODO: cleanup
 def calculate_total_light_for_object(obj, falloff_factor=2.0, ambient_light_intensity=0.1, ambient_light_color=[0, 0, 0]):
     mesh = obj.data
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -238,33 +235,31 @@ def create_update_function(prop_name):
 name_attr_colors = data_name_format_short.format(label='colors')
 name_attr_baked = data_name_format_short.format(label='colors_baked')
 
-# TODO: cleanup
-def init_vertex_colors(obj):
-    if obj.type != 'MESH' or not obj.get('visible', False):
+def init_vertex_colors(b_obj):
+    if b_obj.type != 'MESH' or not b_obj.get('visible', False):
         return
 
-    if not hasattr(obj.data, 'color_attributes') or len(obj.data.color_attributes) == 0:
-        obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
-        obj.data.attributes.render_color_index = obj.data.attributes.active_color_index
+    if not hasattr(b_obj.data, 'color_attributes') or len(b_obj.data.color_attributes) == 0:
+        b_obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
+        b_obj.data.attributes.render_color_index = b_obj.data.attributes.active_color_index
 
-        for color in obj.data.attributes[name_attr_colors].data:
+        for color in b_obj.data.attributes[name_attr_colors].data:
             color.color = [1.0, 1.0, 1.0, 1.0]
 
-# TODO: cleanup
-def reset_vertex_colors(obj):
-    if obj.type != 'MESH' or not obj.get('visible', False):
+def reset_vertex_colors(b_obj):
+    if b_obj.type != 'MESH' or not b_obj.get('visible', False):
         return
 
-    if not hasattr(obj.data, 'color_attributes') or len(obj.data.color_attributes) == 0:
-        obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
-        obj.data.attributes.render_color_index = obj.data.attributes.active_color_index
+    if not hasattr(b_obj.data, 'color_attributes') or len(b_obj.data.color_attributes) == 0:
+        b_obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
+        b_obj.data.attributes.render_color_index = b_obj.data.attributes.active_color_index
 
-        for color in obj.data.attributes[name_attr_colors].data:
+        for color in b_obj.data.attributes[name_attr_colors].data:
             color.color = [1.0, 1.0, 1.0, 1.0]
 
-    color_baked = obj.data.attributes.get(name_attr_baked)
-    if color_baked is not None and obj.data.attributes.default_color_name != name_attr_baked:
-        obj.data.attributes.remove(color_baked)
+    color_baked = b_obj.data.attributes.get(name_attr_baked)
+    if color_baked is not None and b_obj.data.attributes.default_color_name != name_attr_baked:
+        b_obj.data.attributes.remove(color_baked)
             
 def populate_enum(scene, context):
 

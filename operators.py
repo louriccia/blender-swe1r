@@ -308,7 +308,6 @@ class OpenUrl(bpy.types.Operator):
 
 # BAKE LIGHTING TO VERTEX COLORS
 
-# TODO: cleanup
 def bake_vertex_colors(b_context, b_obj_list):
     errlist_mismatch = []
     errlist_nodata = []
@@ -354,7 +353,6 @@ def bake_vertex_colors(b_context, b_obj_list):
     if len(errlist_nodata) > 0:
         show_custom_popup(bpy.context, 'ERROR', 'Base color map has no color data. Data may have been purged. Affected objects: {}'.format(', '.join(errlist_nodata)))
 
-# TODO: cleanup
 def bake_vertex_colors_clear(b_context, b_obj_list):
     errlist_mismatch = []
     for obj in b_obj_list:
@@ -372,7 +370,6 @@ def bake_vertex_colors_clear(b_context, b_obj_list):
     if len(errlist_mismatch) > 0:
         show_custom_popup(bpy.context, 'ERROR', 'Baked lighting was in base color map. Skipped deleting bake. Affected objects: {}'.format(', '.join(errlist_mismatch)))
 
-# TODO: cleanup
 class BakeVColors(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors"
     bl_label = "Bake Vertex Colors"
@@ -382,7 +379,6 @@ class BakeVColors(bpy.types.Operator):
         bake_vertex_colors(context, context.selected_objects)
         return {"FINISHED"}
     
-# TODO: cleanup
 class BakeVColorsClear(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors_clear"
     bl_label = "Clear Baked Lighting"
@@ -392,7 +388,6 @@ class BakeVColorsClear(bpy.types.Operator):
         bake_vertex_colors_clear(context, context.selected_objects)
         return {"FINISHED"}
 
-# TODO: cleanup
 class BakeVColorsCollection(bpy.types.Operator):
     bl_idname = "outliner.collection_bake"
     bl_label = "Bake Lighting on Collection"
@@ -405,7 +400,6 @@ class BakeVColorsCollection(bpy.types.Operator):
         bake_vertex_colors(context, context.collection.all_objects)
         return {'FINISHED'}
 
-# TODO: cleanup
 class BakeVColorsCollectionClear(bpy.types.Operator):
     bl_idname = "outliner.collection_bake_clear"
     bl_label = "Remove Baked Lighting from Collection"
