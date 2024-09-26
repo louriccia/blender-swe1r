@@ -185,7 +185,7 @@ class SelectedPanel(bpy.types.Panel):
                 row = col.row(align=True)
                 row.scale_y = 1.5
                 row.label(text = 'Visuals', icon = 'MATERIAL_DATA')
-                row.operator("view3d.v_color", text="Reset", emboss = False)
+                row.operator("view3d.v_color", text="Reset", emboss=False) # TODO: formalize reset fn
                 row.operator("view3d.set_nonvisible", text = "", icon = "TRASH", emboss = False)
 
                 # baked lighting panel

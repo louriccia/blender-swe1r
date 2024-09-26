@@ -238,16 +238,33 @@ def create_update_function(prop_name):
 name_attr_colors = data_name_format_short.format(label='colors')
 name_attr_baked = data_name_format_short.format(label='colors_baked')
 
-# TODO: finalize core functionality - create color map if none + delete baked colors
-def reset_vertex_colors(obj):
+# TODO: cleanup
+def init_vertex_colors(obj):
+    if obj.type != 'MESH' or not obj.get('visible', False):
+        return
+
     if not hasattr(obj.data, 'color_attributes') or len(obj.data.color_attributes) == 0:
         obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
         obj.data.attributes.render_color_index = obj.data.attributes.active_color_index
-            
-    color_layer = obj.data.attributes[obj.data.attributes.default_color_name].data   
-    for poly in obj.data.polygons:
-        for loop_index in poly.loop_indices:
-            color_layer[loop_index].color = [1.0, 1.0, 1.0, 1.0]
+
+        for color in obj.data.attributes[name_attr_colors].data:
+            color.color = [1.0, 1.0, 1.0, 1.0]
+
+# TODO: cleanup
+def reset_vertex_colors(obj):
+    if obj.type != 'MESH' or not obj.get('visible', False):
+        return
+
+    if not hasattr(obj.data, 'color_attributes') or len(obj.data.color_attributes) == 0:
+        obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
+        obj.data.attributes.render_color_index = obj.data.attributes.active_color_index
+
+        for color in obj.data.attributes[name_attr_colors].data:
+            color.color = [1.0, 1.0, 1.0, 1.0]
+
+    color_baked = obj.data.attributes.get(name_attr_baked)
+    if color_baked is not None and obj.data.attributes.default_color_name != name_attr_baked:
+        obj.data.attributes.remove(color_baked)
             
 def populate_enum(scene, context):
 

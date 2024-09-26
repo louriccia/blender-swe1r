@@ -84,7 +84,9 @@ class ExportOperator(bpy.types.Operator):
         
         export_model(selected_collection, folder_path, [context.scene.export_model, context.scene.export_texture, context.scene.export_spline])
         return {'FINISHED'}
-    
+
+# WARN: the way this is actually used is more like "reset visuals"; could be
+# merged with VisibleOperator
 class VertexColorOperator(bpy.types.Operator):
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.v_color"
@@ -104,7 +106,7 @@ class VisibleOperator(bpy.types.Operator):
         selected_objects = context.selected_objects
         for obj in selected_objects:
             obj['visible'] = True
-            reset_vertex_colors(obj)
+            init_vertex_colors(obj)
         return {'FINISHED'}
     
 class NonVisibleOperator(bpy.types.Operator):
