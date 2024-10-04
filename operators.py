@@ -30,7 +30,7 @@ from .swe1r.model_list import *
 from .swe1r.modelblock import *
 from .swe1r.block import *
 from .swe1r.textureblock import *
-from  .swe1r.splineblock import *
+from .swe1r.splineblock import *
 from .swe1r.general import *
 from .panels import *
 from .swr_import import *
@@ -84,7 +84,9 @@ class ExportOperator(bpy.types.Operator):
         
         export_model(selected_collection, folder_path, [context.scene.export_model, context.scene.export_texture, context.scene.export_spline])
         return {'FINISHED'}
-    
+
+# WARN: the way this is actually used is more like "reset visuals"; could be
+# merged with VisibleOperator
 class VertexColorOperator(bpy.types.Operator):
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.v_color"
@@ -104,7 +106,7 @@ class VisibleOperator(bpy.types.Operator):
         selected_objects = context.selected_objects
         for obj in selected_objects:
             obj['visible'] = True
-            reset_vertex_colors(obj)
+            init_vertex_colors(obj)
         return {'FINISHED'}
     
 class NonVisibleOperator(bpy.types.Operator):
@@ -303,62 +305,152 @@ class OpenUrl(bpy.types.Operator):
     def execute(self, context):
         open_url(self.url)
         return {"FINISHED"}
-    
+
+# BAKE LIGHTING TO VERTEX COLORS
+
+def bake_vertex_colors(b_context, b_obj_list):
+    errlist_mismatch = []
+    errlist_nodata = []
+
+    for obj in b_obj_list:
+        if obj.type != 'MESH' or not obj.get('visible', False):
+            continue
+
+        d = obj.data
+
+        if len(d.color_attributes) == 0:
+            reset_vertex_colors(obj)
+
+        if d.attributes.default_color_name == name_attr_baked:
+            errlist_mismatch.append(obj.name)
+            continue
+
+        color_base = d.attributes[d.attributes.default_color_name].data
+        if len(color_base) == 0:
+            errlist_nodata.append(obj.name)
+            continue
+
+        # Calculate the total light for each vertex of the selected object
+        total_lights = calculate_total_light_for_object(obj, b_context.scene.light_falloff, b_context.scene.ambient_light_intensity, b_context.scene.ambient_light)
+        
+        color_layer = d.attributes.get(name_attr_baked)
+        if color_layer is not None:
+            color_layer = color_layer.data
+        else:
+            d.color_attributes.new(name_attr_baked, 'BYTE_COLOR', 'CORNER') 
+            color_layer = d.attributes[name_attr_baked].data
+
+        for poly in d.polygons:
+            for p in range(len(poly.vertices)):
+                color = total_lights[poly.vertices[p]]
+                a_col = color_base[poly.loop_indices[p]].color # old color
+                for i, b in enumerate([*color, 1.0]):
+                    color_layer[poly.loop_indices[p]].color[i] = blend_multiply(a_col[i], b)
+
+    if len(errlist_mismatch) > 0:
+        show_custom_popup(bpy.context, 'ERROR', 'Baking target was base color map. Choose another Render Color or rename. Affected objects: {}'.format(', '.join(errlist_mismatch)))
+
+    if len(errlist_nodata) > 0:
+        show_custom_popup(bpy.context, 'ERROR', 'Base color map has no color data. Data may have been purged. Affected objects: {}'.format(', '.join(errlist_nodata)))
+
+def bake_vertex_colors_clear(b_context, b_obj_list):
+    errlist_mismatch = []
+    for obj in b_obj_list:
+        if obj.type != 'MESH' or not obj.get('visible', False):
+            continue
+
+        color_layer = obj.data.attributes.get(name_attr_baked)
+        if color_layer is not None:
+            if obj.data.attributes.default_color_name == name_attr_baked:
+                errlist_mismatch.append(obj.name)
+                continue
+
+            obj.data.attributes.remove(color_layer)
+
+    if len(errlist_mismatch) > 0:
+        show_custom_popup(bpy.context, 'ERROR', 'Baked lighting was in base color map. Skipped deleting bake. Affected objects: {}'.format(', '.join(errlist_mismatch)))
+
 class BakeVColors(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors"
     bl_label = "Bake Vertex Colors"
+    bl_description = "Bake lighting into dedicated color map, while preserving Render Color"
     
     def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            # Calculate the total light for each vertex of the selected object
-            total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
-               
-            reset_vertex_colors(obj)
-            
-            color_layer = obj.data.vertex_colors.active.data   
-                
-            for poly in obj.data.polygons:
-                for p in range(len(poly.vertices)):
-                    color = total_lights[poly.vertices[p]]
-                    color_layer[poly.loop_indices[p]].color = [*color, 1.0]
-                
+        bake_vertex_colors(context, context.selected_objects)
         return {"FINISHED"}
     
+class BakeVColorsClear(bpy.types.Operator):
+    bl_idname = "view3d.bake_vcolors_clear"
+    bl_label = "Clear Baked Lighting"
+    bl_description = "Remove baked lighting color map from Color Attributes"
+
+    def execute(self, context):
+        bake_vertex_colors_clear(context, context.selected_objects)
+        return {"FINISHED"}
+
+class BakeVColorsCollection(bpy.types.Operator):
+    bl_idname = "outliner.collection_bake"
+    bl_label = "Bake Lighting on Collection"
+
+    @classmethod
+    def poll(cls, context):
+        return context.collection is not None
+
+    def execute(self, context):
+        bake_vertex_colors(context, context.collection.all_objects)
+        return {'FINISHED'}
+
+class BakeVColorsCollectionClear(bpy.types.Operator):
+    bl_idname = "outliner.collection_bake_clear"
+    bl_label = "Remove Baked Lighting from Collection"
+
+    @classmethod
+    def poll(cls, context):
+        return context.collection is not None
+
+    def execute(self, context):
+        bake_vertex_colors_clear(context, context.collection.all_objects)
+        return {'FINISHED'}
+
+# OUTLINER > COLLECTION context menu
+
+def draw_OUTLINER_MT_collection(self, context):
+    self.layout.separator()
+    self.layout.label(text='SWE1R Import/Export')
+    self.layout.operator('outliner.collection_bake', text='Bake Lighting', icon='LIGHT_SUN')
+    self.layout.operator('outliner.collection_bake_clear', text='Remove Baked Lighting')
+
+# REGISTER
+
+register_classes = (
+    ImportOperator,
+    ExportOperator,
+    VertexColorOperator,
+    VisibleOperator,
+    CollidableOperator,
+    VisibleSelect,
+    CollidableSelect,
+    AddCollisionData,
+    ResetCollisionData,
+    NonVisibleOperator,
+    NonCollidableOperator,
+    AddTrigger,
+    InvertSpline,
+    SplineCyclic,
+    ReconstructSpline,
+    OpenUrl,
+    BakeVColors,
+    BakeVColorsClear,
+    BakeVColorsCollection,
+    BakeVColorsCollectionClear,
+)
+
 def register():
-    bpy.utils.register_class(ImportOperator)
-    bpy.utils.register_class(ExportOperator)
-    bpy.utils.register_class(VertexColorOperator)
-    bpy.utils.register_class(VisibleOperator)
-    bpy.utils.register_class(CollidableOperator)
-    bpy.utils.register_class(VisibleSelect)
-    bpy.utils.register_class(CollidableSelect)
-    bpy.utils.register_class(AddCollisionData)
-    bpy.utils.register_class(ResetCollisionData)
-    bpy.utils.register_class(NonVisibleOperator)
-    bpy.utils.register_class(NonCollidableOperator)
-    bpy.utils.register_class(AddTrigger)
-    bpy.utils.register_class(InvertSpline)
-    bpy.utils.register_class(SplineCyclic)
-    bpy.utils.register_class(ReconstructSpline)
-    bpy.utils.register_class(OpenUrl)
-    bpy.utils.register_class(BakeVColors)
+    for c in register_classes:
+        bpy.utils.register_class(c)
+    bpy.types.OUTLINER_MT_collection.append(draw_OUTLINER_MT_collection)
     
 def unregister():
-    bpy.utils.unregister_class(ImportOperator)
-    bpy.utils.unregister_class(ExportOperator)
-    bpy.utils.unregister_class(VertexColorOperator)
-    bpy.utils.unregister_class(VisibleOperator)
-    bpy.utils.unregister_class(CollidableOperator)
-    bpy.utils.unregister_class(VisibleSelect)
-    bpy.utils.unregister_class(CollidableSelect)
-    bpy.utils.unregister_class(AddCollisionData)
-    bpy.utils.unregister_class(ResetCollisionData)
-    bpy.utils.unregister_class(NonVisibleOperator)
-    bpy.utils.unregister_class(NonCollidableOperator)
-    bpy.utils.unregister_class(AddTrigger)
-    bpy.utils.unregister_class(InvertSpline)
-    bpy.utils.unregister_class(SplineCyclic)
-    bpy.utils.unregister_class(ReconstructSpline)
-    bpy.utils.unregister_class(OpenUrl)
-    bpy.utils.unregister_class(BakeVColors)
+    for c in register_classes:
+        bpy.utils.unregister_class(c)
+    bpy.types.OUTLINER_MT_collection.remove(draw_OUTLINER_MT_collection)
