@@ -224,8 +224,10 @@ def create_update_function(prop_name):
             
             # Update the property for all selected objects except the current one
             for obj in context.selected_objects:
-                if obj != self:
+                if obj != self and hasattr(obj, prop_name):
                     setattr(obj, prop_name, getattr(self, prop_name))
+                elif hasattr(obj.data, prop_name):
+                    setattr(obj.data, prop_name, getattr(self, prop_name))
                     
         finally:
             # Remove the current object from the updating set after updating

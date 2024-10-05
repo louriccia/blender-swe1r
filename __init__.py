@@ -128,7 +128,7 @@ def register():
         items= utils.populate_enum
     )
     
-    bpy.types.Light.LStr = bpy.props.BoolProperty(name = 'Light Streak', default=False, update = utils.create_update_function("LStr"))
+    bpy.types.Light.LStr = bpy.props.BoolProperty(name = 'LStr', default=False, update = utils.create_update_function("LStr"))
     
     operators.register()
     panels.register()
