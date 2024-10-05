@@ -89,7 +89,7 @@ def register():
     bpy.types.Scene.spline_cyclic = bpy.props.BoolProperty(name = 'cyclic', update =utils.save_settings, default=utils.get_setting('spline_cyclic', True))
     
     bpy.types.Scene.light_falloff = bpy.props.FloatProperty(name = 'falloff', min=0.0, max=10.0, update =utils.save_settings, default=utils.get_setting('light_falloff', 1.0))
-    bpy.types.Scene.ambient_light = bpy.props.FloatVectorProperty(name = 'ambient light', subtype='COLOR', min=0.0, max=1.0, description="Pick an ambient color", update =utils.save_settings, default=utils.get_setting('ambient_light', (0.0, 0.0, 0.0)))
+    bpy.types.Scene.ambient_light = bpy.props.FloatVectorProperty(name = 'Ambient Light', subtype='COLOR', min=0.0, max=1.0, description="Tweak visibility and shading in dark areas", update =utils.save_settings, default=utils.get_setting('ambient_light', (0.0, 0.0, 0.0)))
     bpy.types.Scene.ambient_light_intensity = bpy.props.FloatProperty(name = 'ambient_light_intensity', min=0.0, max=1.0, update =utils.save_settings, default=utils.get_setting('ambient_light_intensity', 0.1))
     
     bpy.types.Scene.flags_expanded = bpy.props.BoolProperty(name = 'flags_expanded', default=False)

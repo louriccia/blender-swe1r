@@ -1,15 +1,6 @@
 import struct
 from ..utils import clamp
 
-# 'bswe1r' for 'blender swe1r'
-# NOTE: use 3-letter code for data_type and group_id
-data_name_prefix_short = 'bswe1r_'
-data_name_prefix_short_len = 7
-data_name_format = 'bswe1r_{data_type}_{label}'
-data_name_prefix_len = 11
-data_name_format_long = 'bswe1r_{data_type}_{group_id}_{label}'
-data_name_format_long_len = 15
-
 def readUInt8(buffer, cursor):
     return int.from_bytes(buffer[cursor: cursor+1], byteorder='big')
 
