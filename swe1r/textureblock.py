@@ -21,8 +21,9 @@
 
 import struct
 import bpy
-from ..utils import euclidean_distance, data_name_format
+from ..utils import euclidean_distance
 from .modelblock import DataStruct
+from .general import data_name_format
 
 class Texture():
     def __init__(self, id, format = 513, width = 32, height = 32):
