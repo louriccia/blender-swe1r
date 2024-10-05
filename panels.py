@@ -296,7 +296,7 @@ class SelectedPanel(bpy.types.Panel):
                         col = row.column()
                         col.prop(context.active_object, 'fog_color', text = '')
                         col.enabled = context.active_object.fog_color_update
-                        row.enabled = not context.active_object.fog_clear
+                        
                         row = box.row()
                         col = row.column()
                         col.prop(context.active_object, 'fog_range_update', text = 'Set range')
@@ -304,7 +304,7 @@ class SelectedPanel(bpy.types.Panel):
                         col.prop(context.active_object, 'fog_min', text = 'Min', slider = True)
                         col.prop(context.active_object, 'fog_max', text = 'Max', slider = True)
                         col.enabled = context.active_object.fog_range_update
-                        row.enabled = not context.active_object.fog_clear
+                        
                         row = box.row()
                         row.prop(context.active_object, 'fog_clear', text = 'Clear Fog', icon = 'SHADERFX')
                         row = box.row()
