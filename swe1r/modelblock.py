@@ -454,7 +454,6 @@ class CollisionTags(DataStruct):
         return self
     
     def write(self, buffer, cursor):
-        print(self.fog.to_array(), self.lights.to_array())
         struct.pack_into(self.format_string, buffer, cursor, *[0, *self.fog.to_array(), *self.lights.to_array(), 0, self.unk1, self.unk2, self.unload, self.load, 0])
         self.unk.write(buffer, cursor)
         self.flags.write(buffer, cursor + 44)

@@ -274,18 +274,11 @@ def populate_enum(scene, context):
 
 def find_existing_light(color, location, rotation):
     for light in bpy.data.objects:
-        if light.type == 'LIGHT':
-            # Check color
-            print(light.data.color, color)
-            if light.data.color == color:
-                # Check location
-                print(light.location, location)
-                if (light.location - location).length < 0.001:
-                    # Check rotation (convert both to Euler for comparison)
-                    existing_rotation = light.rotation_euler
-                    print(existing_rotation, rotation)
-                    if existing_rotation == rotation:
-                        return light
+        if light.type == 'LIGHT' and light.data.color == color and (light.location - location).length < 0.001:
+            # Check rotation (convert both to Euler for comparison)
+            existing_rotation = light.rotation_euler
+            if existing_rotation == rotation:
+                return light
     return None
 
 # checks if normals will be flipped after applying scale due to object-parent 
