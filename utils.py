@@ -9,6 +9,16 @@ import copy
 
 from .swe1r.model_list import *
 
+# 'bswe1r' for 'blender swe1r'
+# NOTE: use 3-letter code for data_type and group_id
+data_name_prefix_short = 'bswe1r_'
+data_name_format_short = 'bswe1r_{label}'
+data_name_prefix_short_len = 7
+data_name_format = 'bswe1r_{data_type}_{label}'
+data_name_prefix_len = 11
+data_name_format_long = 'bswe1r_{data_type}_{group_id}_{label}'
+data_name_format_long_len = 15
+
 
 SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
 
@@ -115,6 +125,12 @@ def clamp(value, min_value, max_value):
 def euclidean_distance(color1, color2):
     return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
 
+def blend_multiply(a: float, b: float) -> float:
+    return a*b 
+
+def blend_overlay(a: float, b: float) -> float:
+    return 2.0*a*b if a < 0.5 else 1.0-2.0*(1.0-a)*(1.0-b) 
+
 def calculate_point_light_contribution(light, vertex_position, vertex_normal, depsgraph, falloff_factor):
     light_position = light.matrix_world.to_translation()
     light_color =light.data.color
@@ -163,7 +179,6 @@ def calculate_sun_light_contribution(light, vertex_position, vertex_normal, deps
         return light_color * angle_cos
     else:
         return mathutils.Color((0, 0, 0))
-
 
 def calculate_total_light_for_object(obj, falloff_factor=2.0, ambient_light_intensity=0.1, ambient_light_color=[0, 0, 0]):
     mesh = obj.data
@@ -217,14 +232,34 @@ def create_update_function(prop_name):
             updating_objects.discard(self)
     return update_function
 
-def reset_vertex_colors(obj):
-    if not hasattr(obj.data, 'vertex_colors') or obj.data.vertex_colors.active is None:
-        obj.data.vertex_colors.new(name = 'colors')
-            
-    color_layer = obj.data.vertex_colors.active.data   
-    for poly in obj.data.polygons:
-        for loop_index in poly.loop_indices:
-            color_layer[loop_index].color = [1.0, 1.0, 1.0, 1.0]
+name_attr_colors = data_name_format_short.format(label='colors')
+name_attr_baked = data_name_format_short.format(label='colors_baked')
+
+def init_vertex_colors(b_obj):
+    if b_obj.type != 'MESH' or not b_obj.get('visible', False):
+        return
+
+    if not hasattr(b_obj.data, 'color_attributes') or len(b_obj.data.color_attributes) == 0:
+        b_obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
+        b_obj.data.attributes.render_color_index = b_obj.data.attributes.active_color_index
+
+        for color in b_obj.data.attributes[name_attr_colors].data:
+            color.color = [1.0, 1.0, 1.0, 1.0]
+
+def reset_vertex_colors(b_obj):
+    if b_obj.type != 'MESH' or not b_obj.get('visible', False):
+        return
+
+    if not hasattr(b_obj.data, 'color_attributes') or len(b_obj.data.color_attributes) == 0:
+        b_obj.data.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER')
+        b_obj.data.attributes.render_color_index = b_obj.data.attributes.active_color_index
+
+        for color in b_obj.data.attributes[name_attr_colors].data:
+            color.color = [1.0, 1.0, 1.0, 1.0]
+
+    color_baked = b_obj.data.attributes.get(name_attr_baked)
+    if color_baked is not None and b_obj.data.attributes.default_color_name != name_attr_baked:
+        b_obj.data.attributes.remove(color_baked)
             
 def populate_enum(scene, context):
 
