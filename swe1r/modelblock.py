@@ -985,6 +985,9 @@ class MaterialTexture(DataStruct):
         self.unk6 = min(65535, self.height * 512)
         self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
 
+        if self.model is None:
+            return self
+
         if image.name in self.model.written_textures:
             self.tex_index = image.name[data_name_prefix_len:]
             self.id = image.name[data_name_prefix_len:]
@@ -1072,6 +1075,7 @@ class Material(DataStruct):
         self.id = None
         self.model = model
         self.format = 14
+        self.name = ""
         #0000001   1   254 1 = lightmap
         #0000010   2   253 no apparent changes
         #0000100   4   251 
@@ -1092,11 +1096,14 @@ class Material(DataStruct):
         #0011111
         #1010111
         self.texture = None
+        self.texture_image = None
         self.written = None
+        self.scroll_x = 0
+        self.scroll_y = 0
+        self.texture_anim = False
         self.shader = MaterialShader(self, self.model)
         
     def detect_skybox(self):
-        
         parent = self.parent
         while parent is not None:
             if hasattr(parent, 'skybox'):
@@ -1116,18 +1123,30 @@ class Material(DataStruct):
         self.detect_skybox()
         return self
         
-    def make(self):
-        mat_name = data_name_format_long.format(data_type = 'mat', group_id = '{:03d}'.format(self.model.id), label = str(self.id))
-        if (self.texture is not None):
-            material = bpy.data.materials.get(mat_name)
-            if material is not None:
-                return material
-            
+    def make(self, remake = False):
+        mat_name = self.name if self.name else data_name_format_long.format(data_type = 'mat', group_id = '{:03d}'.format(self.model.id), label = str(self.id))
+        
+        material = bpy.data.materials.get(mat_name)
+        if material is not None and not remake:
+            return material
+        if not remake:
             material = bpy.data.materials.new(mat_name)
-            material.use_nodes = True
-            #material.blend_method = 'BLEND' #use for transparency
-            material.blend_method = 'OPAQUE'
             
+        material.use_nodes = True
+        material.node_tree.nodes.clear()
+        output_node = material.node_tree.nodes.new(type='ShaderNodeOutputMaterial')
+        node_0 = material.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
+        material.node_tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
+        material['id'] = self.id
+        material['format'] = self.format
+        
+        if (self.texture is not None):
+            tex_name = data_name_format.format(data_type = 'tex', label = str(self.texture.tex_index))
+
+            material['scroll_x'] = self.scroll_x
+            material['scroll_y'] = self.scroll_y
+            
+            material.blend_method = 'OPAQUE'
             self.shader.make(material)
             
             if self.texture.format == 3:
@@ -1140,22 +1159,48 @@ class Material(DataStruct):
             node_3 = material.node_tree.nodes.new("ShaderNodeMixRGB")
             node_3.blend_type = 'MULTIPLY'
             node_3.inputs['Fac'].default_value = 1
-            material.node_tree.links.new(node_1.outputs["Color"], node_3.inputs["Color1"])
-            material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color2"])
-            material.node_tree.links.new(node_3.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
-            material.node_tree.links.new(node_1.outputs["Alpha"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
-            material.node_tree.nodes["Principled BSDF"].inputs["Specular IOR Level"].default_value = 0
+            material.node_tree.links.new(node_1.outputs["Color"], node_3.inputs["Color2"])
+            material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color1"])
+            material.node_tree.links.new(node_3.outputs["Color"], node_0.inputs["Base Color"])
+            material.node_tree.links.new(node_1.outputs["Alpha"], node_0.inputs["Alpha"])
+            node_0.inputs["Specular IOR Level"].default_value = 0
 
-            tex_name = data_name_format.format(data_type = 'tex', label = str(self.texture.tex_index))
+            if self.scroll_x != 0 or self.scroll_y != 0: # TODO: Check if both are supported
+                shader_node = material.node_tree.nodes.new("ShaderNodeTexCoord")
+                mapping_node = material.node_tree.nodes.new("ShaderNodeMapping")
+                material.node_tree.links.new(shader_node.outputs["UV"], mapping_node.inputs["Vector"])
+                material.node_tree.links.new(mapping_node.outputs["Vector"], node_1.inputs["Vector"])
+                
+                keyframes = [0, abs(self.scroll_x) if self.scroll_x != 0 else abs(self.scroll_y)]
+                poses = [0, 1]
+                
+                if self.scroll_x < 0 or self.scroll_y < 0:
+                    poses.reverse()
+                
+                for i, time in enumerate(keyframes):
+                    default_value = [0, 0, 0]
+                    if self.scroll_x: 
+                        default_value[0] = poses[i]
+                    elif self.scroll_y: 
+                        default_value[1] = poses[i]
+                        
+                    mapping_node.inputs[1].default_value = default_value
+                    mapping_node.inputs[1].keyframe_insert(data_path="default_value", frame = time * 60)
+                
+                if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
+                    for fcurves_f in material.node_tree.animation_data.action.fcurves:
+                        for k in fcurves_f.keyframe_points:
+                            k.interpolation = 'LINEAR'
+            
             # NOTE: probably shouldn't do it this way
             # TODO: find specific tag
             if any(tex_name.endswith(id) for id in ["1167", "1077", "1461", "1596"]):
                 material.blend_method = 'BLEND'
-                material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Alpha"])
+                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Alpha"])
             
             if self.format in [31, 15, 7]:
-                material.node_tree.links.new(node_2.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Normal"])
-                material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
+                material.node_tree.links.new(node_2.outputs["Color"], node_0.inputs["Normal"])
+                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
             
             chunk_tag = self.texture.chunks[0].unk1 if len(self.texture.chunks) else 0
             if(self.texture.chunks and chunk_tag & 0x11 != 0):
@@ -1164,6 +1209,9 @@ class Material(DataStruct):
                 node_6 = material.node_tree.nodes.new("ShaderNodeCombineXYZ")
                 material.node_tree.links.new(node_4.outputs["UV"], node_5.inputs["Vector"])
                 material.node_tree.links.new(node_6.outputs["Vector"], node_1.inputs["Vector"])
+
+                if self.scroll_x or self.scroll_y:
+                    material.node_tree.links.new(mapping_node.outputs["Vector"], node_5.inputs["Vector"])
 
                 if(chunk_tag & 0x1):
                     material[name_mat_flip_x] = True
@@ -1196,52 +1244,78 @@ class Material(DataStruct):
                     material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
                     material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
 
-            b_tex = bpy.data.images.get(tex_name)
-            if b_tex is None:
-                b_tex = self.texture.make()
+            if self.texture_image is None:
+                b_tex = bpy.data.images.get(tex_name)
+                if b_tex is None:
+                    b_tex = self.texture.make()
 
+                material['texture_image'] = b_tex
+                self.texture_image = b_tex
+            
             image_node = material.node_tree.nodes["Image Texture"]
-            image_node.image = b_tex
+            image_node.image = self.texture_image
+            
+            if self.texture_anim:
+                bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
+                image_node.image = bpy.data.images.get('0.png')
+                bpy.data.images["0.png"].source = 'SEQUENCE'
+                node_1.image_user.use_auto_refresh = True
+                node_1.image_user.frame_duration = 1
+                for f in range(anim[child]['num_keyframes']):
+                    node_1.image_user.frame_offset = anim[child]['keyframe_poses'][f] - 1
+                    node_1.image_user.keyframe_insert(data_path="frame_offset", frame = round(anim[child]['keyframe_times'][f] * 60))
+                if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
+                    for fcurves_f in material.node_tree.animation_data.action.fcurves:
+                        #new_modifier = fcurves_f.modifiers.new(type='CYCLES')
+                        for k in fcurves_f.keyframe_points:
+                            k.interpolation = 'CONSTANT'
+            
             return material
         else:
-            material = bpy.data.materials.new(mat_name)
-            material.use_nodes = True
+            
             # material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
             # colors = [0, 0, 0, 0] if self.unk is None else self.unk.color
             # material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
-            material.node_tree.links.new(node_1.outputs["Color"], material.node_tree.nodes['Principled BSDF'].inputs["Base Color"])
+            material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
             return material
 
     def unmake(self, material):
-        #find if the mesh has an image texture
         self.detect_skybox()
+        self.name = material.name
         material_name: str = ""
         if material:
             material_name = material.name #.split(".")[0]
             self.id = material_name[data_name_prefix_len:]
-            if material_name in self.model.materials:
+            if self.model and material_name in self.model.materials:
                 return self.model.materials[material_name]
 
             if material.use_backface_culling == False:
                 self.format &= 0b11110111
 
+            self.texture_image = material.get('texture_image')
+            self.scroll_x = material.get('scroll_x')
+            self.scroll_y = material.get('scroll_y')
+            self.texture_anim = material.get('texture_anim')
+
             self.shader.unmake(material)
 
-            for node in material.node_tree.nodes:
-                if node.type == 'TEX_IMAGE':
-                    force_id = material.get(name_tex_override_id)
-                    force_fmt = material.get(name_tex_override_format)
-                    self.texture = MaterialTexture(self, self.model).unmake(node.image, force_id, force_fmt)
+            self.id = material.get('id')
+            self.format = material.get('format')
+            self.texture = MaterialTexture(self, self.model).unmake(self.texture_image, self.id, self.format)
 
-                    if material.get(name_mat_flip_x, False):
-                        self.texture.chunks[0].unk1 |= 0x01
+            if material.get(name_mat_flip_x, False):
+                self.texture.chunks[0].unk1 |= 0x01
 
-                    if material.get(name_mat_flip_y, False):
-                        self.texture.chunks[0].unk1 |= 0x10
+            if material.get(name_mat_flip_y, False):
+                self.texture.chunks[0].unk1 |= 0x10
 
-        self.model.materials[material_name] = self
-        return self.model.materials[material_name]
+        
+        if self.model: 
+            self.model.materials[material_name] = self
+            return self.model.materials[material_name]
+        else:
+            return self
 
     def write(self, buffer, cursor):
         material_start = cursor
@@ -2337,20 +2411,45 @@ class UVPose(DataStruct):
         self.parent = parent
         self.model = model
         self.data = []
-        
-    def read(self, buffer, cursor):
-        self.data = struct.unpack_from(self.format_string, buffer, cursor)
-        return self
     
-    def make(self, target):
-        pass
+    def make(self, target, time):
+        add_nodes = False
+        
+        # we need to check the node graph for existing nodes
+        # this assumes that each material node graph can only have one mapping and tex coord node
+        # it might be better to do this by connections
+        for node in target.node_tree.nodes:
+            if isinstance(node, bpy.types.ShaderNodeTexImage):
+                node_1 = node
+            elif isinstance(node, bpy.types.ShaderNodeTexCoord):
+                add_nodes = True
+                shader_node = node
+            elif isinstance(node, bpy.types.ShaderNodeMapping):
+                add_nodes = True
+                mapping_node = node
+                
+        if add_nodes:
+            shader_node = target.node_tree.nodes.new("ShaderNodeTexCoord")
+            mapping_node = target.node_tree.nodes.new("ShaderNodeMapping")
+            target.node_tree.links.new(shader_node.outputs["UV"], mapping_node.inputs["Vector"])
+            target.node_tree.links.new(mapping_node.outputs["Vector"], node_1.inputs["Vector"])
+        
+        if self.parent.flag2 == 27: #x animation
+            mapping_node.inputs[1].default_value = [1-self.data, 0, 0]
+        elif self.parent.flag2 == 28: #y animation
+            mapping_node.inputs[1].default_value = [0, 1-self.data, 0]
+            
+        mapping_node.inputs[1].keyframe_insert(data_path="default_value", frame = time * 60)
+        
+        if target.node_tree.animation_data is not None and target.node_tree.animation_data.action is not None:
+            for fcurves_f in target.node_tree.animation_data.action.fcurves:
+                for k in fcurves_f.keyframe_points:
+                    k.interpolation = 'LINEAR'
     
     def unmake(self, obj):
         pass
         return self
-    
-    def write(self, buffer, cursor):
-        pass
+
     
 class TexturePose(DataStruct):
     def __init__(self, parent, model):
@@ -2360,7 +2459,8 @@ class TexturePose(DataStruct):
         self.model = model
         
     def read(self, buffer, cursor):
-        pass
+        self.data = MaterialTexture(self, self.model).read(buffer, cursor)
+        return self
     
     def make(self, target):
         pass
@@ -2414,6 +2514,8 @@ def get_animations(obj, model, entity):
         poses = keyframe_poses[path].values()
         if path == 'location':
             model.animations.append(Anim(entity, model).unmake(times, poses, path))
+        if path == 'rotation_quaternion':
+            pass # TODO
             
         
     
@@ -2455,37 +2557,75 @@ class Anim(DataStruct):
 
             if self.flag2 in [8, 24, 40, 56, 4152]:  # rotation (4)
                 pose = RotationPose(self, self.model).read(buffer, cursor)
-                self.keyframe_poses.append(pose)
-                cursor += pose.size
             elif self.flag2 in [25, 41, 57, 4153]:  # position (3)
                 pose = LocationPose(self, self.model).read(buffer, cursor)
-                self.keyframe_poses.append(pose)
-                cursor += pose.size
             elif self.flag2 in [27, 28]:  # uv_x/uv_y (1)
-                self.keyframe_poses.append([
-                    readFloatBE(buffer, keyframe_poses_addr + f * 4)
-                ])
+                pose = UVPose(self, self.model).read(buffer, cursor)
             elif self.flag2 in [2, 18]:  # texture
-                tex = readUInt32BE(buffer,keyframe_poses_addr + f * 4)
+                pose = TexturePose(self, self.model).read(buffer, cursor)
+                
+            self.keyframe_poses.append(pose)
+            cursor += pose.size
 
-                if tex < cursor:
-                    self.keyframe_poses.append({'repeat': tex})
-                else:
-                    self.keyframe_poses.append(read_mat_texture(buffer=buffer, cursor=tex, model=model))
         return self
                     
     def make(self):
         #assume we have an object or material to apply animations to
         
-        target = get_obj_by_id(self.target)
+        if self.flag2 in [27, 28]: #uv
+            target = get_mat_by_id(self.target)
+            if target is None:
+                return
+            
+            scroll = self.keyframe_times[1]
+            poses = [pose.data for pose in self.keyframe_poses]
+            if poses[0] < poses[1]:
+                scroll = scroll * -1
+            
+            if self.flag2 == 27:
+                target['scroll_x'] = scroll
+            if self.flag2 == 28:
+                target['scroll_y'] = scroll
+            
+            #remake material
+            material = Material(None, None).unmake(target)
+            material.make(remake = True)
+
+        elif self.flag2 in [2, 18]: #texture
+            target = get_mat_by_id(self.target)
+            if target is None:
+                return
+            
+            
+        elif self.flag2 in [56, 8, 24, 40, 4152]: #rotation
+            target = get_obj_by_id(self.target)
+            if target is None:
+                return
+            
+            target.rotation_mode = 'QUATERNION'
+            previous_q = None
+            for i, time in enumerate(self.keyframe_times):
+                pose = self.keyframe_poses[i]
+                axis = pose.data[:3]
+                angle = pose.data[3]*math.pi/180
+                R = mathutils.Matrix.Rotation(angle, 4, axis)
+                R = R.to_quaternion()
+                self.R = R
+                
+                if previous_q is not None:
+                    R.make_compatible(previous_q)
+                    
+                target.rotation_quaternion = R
+                target.keyframe_insert(data_path="rotation_quaternion", frame = round(time * self.model.fps))
+                previous_q = R
         
-        if target is None:
-            return
-        
-        target.rotation_mode = 'QUATERNION'
-        
-        for i, time in enumerate(self.keyframe_times):
-            self.keyframe_poses[i].make(target, time)
+        elif self.flag2 in [57, 41, 25, 4153]: #location
+            target = get_obj_by_id(self.target)
+            if target is None:
+                return
+
+            for i, time in enumerate(self.keyframe_times):
+                self.keyframe_poses[i].make(target, time)
             
         #make linear
         if target.animation_data is not None and target.animation_data.action is not None:
@@ -2493,28 +2633,7 @@ class Anim(DataStruct):
                 for keyframe in fcurve.keyframe_points:
                     keyframe.interpolation = 'LINEAR'
     
-        #texture anim
-        # if 'anim' in header:
-        #     if offset in header['anim']:
-        #         anim = header['anim'][offset]
-        #         if '2' in anim or '18' in anim:
-        #             if '2' in anim:
-        #                 child = '2'
-        #             if '18' in anim:
-        #                 child = '18'
-        #             bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
-        #             image_node.image = bpy.data.images.get('0.png')
-        #             bpy.data.images["0.png"].source = 'SEQUENCE'
-        #             node_1.image_user.use_auto_refresh = True
-        #             node_1.image_user.frame_duration = 1
-        #             for f in range(anim[child]['num_keyframes']):
-        #                 node_1.image_user.frame_offset = anim[child]['keyframe_poses'][f] - 1
-        #                 node_1.image_user.keyframe_insert(data_path="frame_offset", frame = round(anim[child]['keyframe_times'][f] * 60))
-        #             if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
-        #                 for fcurves_f in material.node_tree.animation_data.action.fcurves:
-        #                     #new_modifier = fcurves_f.modifiers.new(type='CYCLES')
-        #                     for k in fcurves_f.keyframe_points:
-        #                         k.interpolation = 'CONSTANT'
+        
     
     def unmake(self, times, poses, path):
         self.target = self.parent
@@ -2712,6 +2831,12 @@ def get_obj_by_id(id):
     for obj in bpy.data.objects:
         if 'id' in obj and int(obj['id']) == int(id):
             return obj
+    return None
+
+def get_mat_by_id(id):
+    for mat in bpy.data.materials:
+        if 'id' in mat and mat['id'] is not None and int(mat['id']) == int(id):
+            return mat
     return None
 
 class Model():    
