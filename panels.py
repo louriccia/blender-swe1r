@@ -121,17 +121,22 @@ class ToolPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         
-        row = layout.row(align=True)
-        row.label(text = "Visuals")
-        row.operator("view3d.select_visible", text = "Select", icon = 'SELECT_SET')
-        row.prop(context.scene, "visuals_visible", toggle=True, text = "", icon = 'HIDE_OFF' if context.scene.visuals_visible else 'HIDE_ON')
-        row.prop(context.scene, "visuals_selectable", toggle =True, text = "", icon = 'RESTRICT_SELECT_OFF' if context.scene.visuals_selectable else 'RESTRICT_SELECT_ON') 
+        row =layout.row()
+        row.label(text = "Visuals", icon = 'MATERIAL_DATA')
         
-        row = layout.row(align=True)
-        row.label(text = "Collision")
-        row.operator("view3d.select_collidable", text = "Select", icon = 'SELECT_SET')
-        row.prop(context.scene, "collision_visible", toggle=True, text = "", icon = 'HIDE_OFF' if context.scene.collision_visible else 'HIDE_ON')
-        row.prop(context.scene, "collision_selectable", toggle =True, text = "", icon = 'RESTRICT_SELECT_OFF' if context.scene.collision_selectable else 'RESTRICT_SELECT_ON') 
+        row.operator("view3d.select_visible", text = "Select")
+        row =layout.row(align = True)
+        row.prop(context.scene, "visuals_selectable", toggle =True, text = "Selectable", icon = 'RESTRICT_SELECT_OFF' if context.scene.visuals_selectable else 'RESTRICT_SELECT_ON') 
+        row.prop(context.scene, "visuals_visible", toggle=True, text = "Visible", icon = 'HIDE_OFF' if context.scene.visuals_visible else 'HIDE_ON')
+        
+        
+        row =layout.row()
+        row.label(text = "Collision", icon = 'MOD_PHYSICS')
+        
+        row.operator("view3d.select_collidable", text = "Select")
+        row =layout.row(align = True)
+        row.prop(context.scene, "collision_selectable", toggle =True, text = "Selectable", icon = 'RESTRICT_SELECT_OFF' if context.scene.collision_selectable else 'RESTRICT_SELECT_ON') 
+        row.prop(context.scene, "collision_visible", toggle=True, text = "Visible", icon = 'HIDE_OFF' if context.scene.collision_visible else 'HIDE_ON')
         
         
 class SelectedPanel(bpy.types.Panel):
@@ -327,7 +332,7 @@ class SelectedPanel(bpy.types.Panel):
                         row.prop(context.active_object, 'lighting_light', text = '')
                         row = box.row()
                         row.prop(context.active_object, 'lighting_color', text = 'Ambient Color')
-                        row = box.row()
+                        row = box.row(align = True)
                         row.prop(context.active_object, 'lighting_flicker', text = 'Flicker', toggle = True)
                         row.prop(context.active_object, 'lighting_invert', text = 'Invert', toggle = True)
                         row.prop(context.active_object, 'lighting_persistent', text = 'Persist', toggle = True)
