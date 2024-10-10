@@ -160,6 +160,7 @@ class SelectedPanel(bpy.types.Panel):
         spline = False
         mesh = False
         light = False
+        trigger = False
         collidable = True
         collidable_data = True
         visible = True
@@ -176,6 +177,8 @@ class SelectedPanel(bpy.types.Panel):
                 spline = obj.data.splines.active
             if obj.type == 'LIGHT':
                 light = obj.data
+            if obj.type == 'EMPTY' and obj.empty_display_type == 'CUBE':
+                trigger = obj
                 
         if mesh:
 
@@ -363,6 +366,21 @@ class SelectedPanel(bpy.types.Panel):
         elif light:
             layout.prop(light, "color", text = "Color")
             layout.prop(light, 'LStr', text = 'Light Streak')
+            
+        elif trigger:
+            row = layout.row()
+            col = row.column()
+            col.prop(trigger, "Disabled", text = 'Disabled')
+            col.prop(trigger, "IgnoreAI", text = 'Ignore AI')
+            col.prop(trigger, "SpeedCheck150", text = '>150 Speed')
+            col = row.column()
+            col.prop(trigger, "SkipLap1", text = 'Skip Lap 1')
+            col.prop(trigger, "SkipLap2", text = 'Skip Lap 2')
+            col.prop(trigger, "SkipLap3", text = 'Skip Lap 3')
+            row = layout.row()
+            row.prop(trigger, 'trigger_id', text = 'ID')
+            row.prop(trigger, 'trigger_settings', text = 'Settings')
+            layout.prop(trigger, 'target')
     
         
 

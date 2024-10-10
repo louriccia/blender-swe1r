@@ -173,6 +173,7 @@ class TriggerFlagEnum():
 class TriggerFlag(DataStruct):
     def __init__(self):
         super().__init__('>H')
+        # These flags are set in the exe for the tracks, not in modelblock
         self.flags = ['Disabled', 'SpeedCheck150', 'SkipLap1', 'SkipLap2', 'SkipLap3', 'IgnoreAI']
         self.data = 0
         self.settings = 0
@@ -189,13 +190,13 @@ class TriggerFlag(DataStruct):
         return self
     
     def make(self, obj):
-        obj['settings'] = self.settings
+        obj.trigger_settings = self.settings
         for attr in self.flags:
             obj[attr] = getattr(self, attr)
     
     def unmake(self, obj):
         if 'settings' in obj:
-            self.settings = obj['settings']
+            self.settings = obj.trigger_settings
         for attr in self.flags:
             if attr in obj:
                 setattr(self, attr, obj[attr])
@@ -215,8 +216,8 @@ class CollisionTrigger(DataStruct):
         self.model = model
         self.position = FloatPosition()
         self.rotation = FloatVector()
-        self.width = 0.01
-        self.height = 0.01
+        self.width = 100
+        self.height = 100
         self.target = 0
         self.id = 0
         self.flags = TriggerFlag()
@@ -238,7 +239,7 @@ class CollisionTrigger(DataStruct):
         trigger_empty.location = self.position.data
         trigger_empty.rotation_euler = [math.asin(self.rotation.data[2]), 0, math.atan2(self.rotation.data[1], self.rotation.data[0])]
         trigger_empty.scale = [self.width/2, self.width/2, self.height/2]
-        trigger_empty['id'] = self.id
+        trigger_empty['trigger_id'] = self.id
         
         
         self.flags.make(trigger_empty)

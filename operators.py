@@ -207,7 +207,15 @@ class AddTrigger(bpy.types.Operator):
             if selected_object.name in collection.objects:
                 selected_collection = collection
         
-        trigger = CollisionTrigger(None, None).make(selected_object, selected_collection)
+        trigger = CollisionTrigger(None, None)
+        
+        # find center of mass
+        center = center_of_mass(selected_object)
+        trigger.position.data = center
+        new_empty = trigger.make(selected_object, selected_collection)
+        bpy.ops.object.select_all(action='DESELECT')
+        new_empty.select_set(True)
+        bpy.context.view_layer.objects.active = new_empty
         return {'FINISHED'}
     
 

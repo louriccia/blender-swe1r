@@ -289,3 +289,21 @@ def check_flipped(o):
         flipped = not(flipped) if [n < 0 for n in o.scale].count(True) % 2 else flipped
         o = o.parent
     return flipped
+
+def center_of_mass(o):
+    mesh = o.data
+    total = mathutils.Vector((0, 0, 0))
+    num_verts = len(mesh.vertices)
+
+    # Sum all vertex coordinates
+    for vert in mesh.vertices:
+        total += o.matrix_world @ vert.co
+
+    # Average the positions to get the center of mass in local coordinates
+    center_of_mass_local = total / num_verts
+
+    # Convert to world coordinates
+    
+    
+    
+    return [mass / o.scale[i] for i, mass in enumerate(center_of_mass_local)]

@@ -130,6 +130,13 @@ def register():
     
     bpy.types.Light.LStr = bpy.props.BoolProperty(name = 'LStr', default=False, update = utils.create_update_function("LStr"))
     
+    for flag in dir(swe1r.modelblock.TriggerFlagEnum):
+        if not flag.startswith("__"):
+            setattr(bpy.types.Object, flag, bpy.props.BoolProperty(name = flag, default=False, update = utils.create_update_function(flag)))
+            
+    bpy.types.Object.trigger_id = bpy.props.IntProperty(name='trigger_id', update = utils.create_update_function("trigger_id"))
+    bpy.types.Object.trigger_settings = bpy.props.IntProperty(name='trigger_settings', update = utils.create_update_function("trigger_settings"))
+    
     operators.register()
     panels.register()
     
