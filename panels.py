@@ -112,7 +112,7 @@ class ExportPanel(bpy.types.Panel):
         row.prop(context.scene, "is_export_model", text="Model", icon='MESH_CUBE', toggle=True, icon_only=True)
         row.prop(context.scene, "is_export_texture", text="Texture", icon='MATERIAL', toggle=True, icon_only=True)
         row.prop(context.scene, "is_export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
-        layout.prop(context.scene, "is_export_separate", text = "Save to individual .bin file(s)")
+        layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
         row = layout.row()
         row.scale_y = 1.5
         row.operator("view3d.export_operator", text="Export")
@@ -138,7 +138,7 @@ class ToolPanel(bpy.types.Panel):
         row.label(text = "New", icon = "FILE_NEW")
         icon = 'DOWNARROW_HLT' if context.scene.new_expanded else 'RIGHTARROW'
         row.prop(context.scene, "new_type", text="")
-        row.operator("view3d.select_collidable", text = "", icon = "ADD")
+        row.operator("view3d.new_model", text = "", icon = "ADD")
         
         box = layout.box()
         row = box.row(align = True)

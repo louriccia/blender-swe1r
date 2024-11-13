@@ -5,6 +5,7 @@ from .swe1r.splineblock import Spline
 from .swe1r.textureblock import Texture
 from .swe1r.block import Block
 from .swe1r.general import *
+from datetime import datetime
     
 scale = 100
 
@@ -14,6 +15,7 @@ def export_model(col, file_path, exports):
         for obj in child.objects:
             types.append(obj.type)
     model_export, texture_export, spline_export = exports
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     if not len(exports):
         show_custom_popup(bpy.context, "No Export", f"Please select an element to export")
@@ -38,21 +40,20 @@ def export_model(col, file_path, exports):
             with open(file_path + 'out_textureblock.bin', 'wb') as file:
                 file.write(textureblock.write())
             
-        #debug write
-        with open(file_path + 'model_' + str(model.id)+'.bin', 'wb') as file:
-            file.write(model_buffer)
+        if bpy.context.scene.is_export_separate:
+            with open(file_path + 'model_' + str(model.id) + '_' + timestamp +'.bin', 'wb') as file:
+                file.write(model_buffer)
+            with open(file_path + 'offset_' + str(model.id) + '_' + timestamp +'.bin', 'wb') as file:
+                file.write(offset_buffer)
             
-        with open(file_path + 'offset_' + str(model.id)+'.bin', 'wb') as file:
-            file.write(offset_buffer)
+        # debug_text = ["float, int32, int16_1, int16_2, int8_1, int8_2, int8_3, int8_4, local_offset, pointer"]
+        # for i in range(0, len(model_buffer), 4):
+        #     debug_string = f"{readFloatBE(model_buffer, i)}, {readUInt32BE(model_buffer, i)}, {readUInt16BE(model_buffer, i)}, {readUInt16BE(model_buffer, i+2)}, {readUInt8(model_buffer, i)}, {readUInt8(model_buffer, i + 1)}, {readUInt8(model_buffer, i + 2)}, {readUInt8(model_buffer, i + 3)}, {i}, {readUInt8(offset_buffer, i//32)}, {(readUInt8(offset_buffer, i//32) >> (7-((i//4)%8)) )& 1 }"
+        #     debug_text.append(debug_string)
             
-        debug_text = ["float, int32, int16_1, int16_2, int8_1, int8_2, int8_3, int8_4, local_offset, pointer"]
-        for i in range(0, len(model_buffer), 4):
-            debug_string = f"{readFloatBE(model_buffer, i)}, {readUInt32BE(model_buffer, i)}, {readUInt16BE(model_buffer, i)}, {readUInt16BE(model_buffer, i+2)}, {readUInt8(model_buffer, i)}, {readUInt8(model_buffer, i + 1)}, {readUInt8(model_buffer, i + 2)}, {readUInt8(model_buffer, i + 3)}, {i}, {readUInt8(offset_buffer, i//32)}, {(readUInt8(offset_buffer, i//32) >> (7-((i//4)%8)) )& 1 }"
-            debug_text.append(debug_string)
-            
-        with open(file_path + 'debug.txt', 'a') as file:
-            for string in debug_text:
-                file.write(string + '\n')
+        # with open(file_path + 'debug.txt', 'a') as file:
+        #     for string in debug_text:
+        #         file.write(string + '\n')
     
     if 'CURVE' in types and spline_export:
         splineblock = Block(file_path + 'out_splineblock.bin', [[]]).read()
@@ -68,9 +69,9 @@ def export_model(col, file_path, exports):
         with open(file_path + 'out_splineblock.bin', 'wb') as file:
             file.write(splineblock.write())
         
-        #debug write
-        with open(file_path + 'spline_' + str(spline.id)+'.bin', 'wb') as file:
-            file.write(spline_buffer)
+        if bpy.context.scene.is_export_separate:
+            with open(file_path + 'spline_' + str(spline.id) + '_' + timestamp + '.bin', 'wb') as file:
+                file.write(spline_buffer)
     
     # if texture_export:
     #     already = []

@@ -28,7 +28,7 @@ import copy
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture
 from ..popup import show_custom_popup
-from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short
+from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short, get_model_type, model_types, header_sizes
 
 name_attr_uvmap = data_name_format_short.format(label='uv_map')
 name_attr_colors = data_name_format_short.format(label='colors')
@@ -1110,6 +1110,13 @@ class Material(DataStruct):
             if hasattr(parent, 'skybox'):
                 self.skybox = True 
             parent = parent.parent
+            
+        # TODO: Implement this:
+        # collections = obj.users_collection
+        # if collections:
+        #     print(f"{obj.name} is part of the following collections:")
+        #     for collection in collections:
+        #         print(collection.name)
         
     def read(self, buffer, cursor):
         self.id = cursor
@@ -1245,16 +1252,12 @@ class Material(DataStruct):
                     material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
                     material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
 
-            if self.texture_image is None:
-                b_tex = bpy.data.images.get(tex_name)
-                if b_tex is None:
-                    b_tex = self.texture.make()
-
-                material['texture_image'] = b_tex
-                self.texture_image = b_tex
+            b_tex = bpy.data.images.get(tex_name)
+            if b_tex is None:
+                b_tex = self.texture.make()
             
             image_node = material.node_tree.nodes["Image Texture"]
-            image_node.image = self.texture_image
+            image_node.image = b_tex
             
             if self.texture_anim:
                 bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
@@ -1294,7 +1297,7 @@ class Material(DataStruct):
             if material.use_backface_culling == False:
                 self.format &= 0b11110111
 
-            self.texture_image = material.get('texture_image')
+            
             self.scroll_x = material.get('scroll_x')
             self.scroll_y = material.get('scroll_y')
             self.texture_anim = material.get('texture_anim')
@@ -1303,7 +1306,12 @@ class Material(DataStruct):
 
             self.id = material.get('id')
             self.format = material.get('format')
-            self.texture = MaterialTexture(self, self.model).unmake(self.texture_image, self.id, self.format)
+            
+            for node in material.node_tree.nodes:
+                if node.type == 'TEX_IMAGE':
+                    force_id = material.get(name_tex_override_id)
+                    force_fmt = material.get(name_tex_override_format)
+                    self.texture = MaterialTexture(self, self.model).unmake(node.image, force_id, force_fmt)
 
             if material.get(name_mat_flip_x, False):
                 self.texture.chunks[0].unk1 |= 0x01
@@ -1909,7 +1917,7 @@ class Node(DataStruct):
         
         if cursor in self.model.header.offsets:
             self.header = [i for i, h in enumerate(self.model.header.offsets) if h == cursor]
-            if self.model.ext == 'Trak' and 2 in self.header:
+            if self.model.type == '7' and 2 in self.header:
                 self.skybox = True
 
         if not self.model.ref_map.get(self.id):
@@ -1939,13 +1947,15 @@ class Node(DataStruct):
     def make(self, parent=None, collection = None):
         name = '{:07d}'.format(self.id)
         
-        if self.model.ext == 'Trak':
+        if self.model.type == '7':
             if 0 in self.header:
                 track_collection = bpy.data.collections.new('Track')
+                track_collection.collection_type = "0"
                 collection.children.link(track_collection)
                 collection = track_collection
             elif 2 in self.header:
                 skybox_collection = bpy.data.collections.new('Skybox')
+                skybox_collection.collection_type = "1"
                 collection.children.link(skybox_collection)
                 collection = skybox_collection
         
@@ -2014,7 +2024,7 @@ class Node(DataStruct):
         if 'header' in node:
             self.header = node['header']
         
-        if self.model.ext == 'Trak' and 2 in self.header:
+        if self.model.type == '7' and 2 in self.header:
             self.skybox = True
         
         if not unmake_children:
@@ -2716,10 +2726,11 @@ class ModelHeader():
         self.model = model
 
     def read(self, buffer, cursor):
-        self.model.ext = readString(buffer, cursor)
-        if self.model.ext not in ['Podd', 'MAlt', 'Trak', 'Part', 'Modl', 'Pupp', 'Scen']:
-            show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.model.ext}")
-            raise ValueError("Unexpected model extension", self.model.ext)
+        type = readString(buffer, cursor)
+        self.model.type = get_model_type(type)
+        if self.model.type is None:
+            show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {type}")
+            raise ValueError("Unexpected model extension", type)
         cursor = 4
         header = readInt32BE(buffer, cursor)
 
@@ -2750,7 +2761,7 @@ class ModelHeader():
     def make(self):
         self.model.collection['header'] = self.offsets
         self.model.collection.export_model = str(self.model.id)
-        self.model.collection['ext'] = self.model.ext
+        self.model.collection.export_type = self.model.type
         
         if self.model.Data:
             self.model.Data.make()
@@ -2761,16 +2772,15 @@ class ModelHeader():
         return
     
     def unmake(self, collection):
-        self.offsets = collection['header']
         self.model.id = collection.export_model
-        self.model.ext = collection['ext']
+        self.model.type = collection.export_type
         self.model.Data = ModelData(self, self.model).unmake()
         self.model.Anim = AnimList(self, self.model).unmake()
     
     def write(self, buffer, cursor):
-        cursor = writeString(buffer,  self.model.ext, cursor)
+        cursor = writeString(buffer,  model_types[int(self.model.type)][1], cursor)
 
-        for header_value in self.offsets:
+        for header_value in range(header_sizes[int(self.model.type)]):
             self.model.highlight(cursor)
             cursor += 4  # writeInt32BE(buffer, header_value, cursor)
 
@@ -2846,7 +2856,7 @@ class Model():
         self.modelblock = None
         self.collection = None
         self.texture_index = 800#1648
-        self.ext = None
+        self.type = None
         self.id = id
         self.scale = 0.01
         self.fps = 60
@@ -2872,9 +2882,9 @@ class Model():
         cursor = 0
         cursor = self.header.read(buffer, cursor)
         if cursor is None:
-            show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.header.model.ext}")
+            show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.header.model.type}")
             return None
-        if self.AltN and self.ext != 'Podd':
+        if self.AltN and self.type != 'Podd':
             AltN = list(set(self.header.AltN))
             for i in range(len(AltN)):
                 node_type = readUInt32BE(buffer, cursor)
@@ -2888,9 +2898,9 @@ class Model():
         return self
 
     def make(self):
-        collection = bpy.data.collections.new(f"model_{self.id}_{self.ext}")
+        collection = bpy.data.collections.new(f"model_{self.id}_{self.type}")
+        collection.export_type = self.type
         
-        collection['type'] = 'MODEL'
         bpy.context.scene.collection.children.link(collection)
         self.collection = collection
         
@@ -2909,7 +2919,7 @@ class Model():
     def unmake(self, collection, texture_export, textureblock):
         self.textureblock = textureblock
         self.written_textures = {}
-        self.ext = collection['ext']
+        self.type = collection.export_type
         self.id = collection.export_model
         self.nodes = []
         self.texture_export = texture_export
@@ -2919,7 +2929,8 @@ class Model():
         meshes = []
         root = Group20580(self, self, 20580)
         
-        if self.ext == 'Part':
+        
+        if self.type == '3':
             root = Group53349(self, self, 53349)
             root.header = [0]
             root.col_flags &= 0xFFFFFFFD
@@ -2927,7 +2938,7 @@ class Model():
         self.nodes.append(root)
         
         for child_collection in collection.children:
-            if child_collection.name == 'Track':
+            if child_collection.collection_type == '0':
                 
                 #define a node that acts as the root for the entire model
                 root_node = Group20580(root, self, 20580)
@@ -2995,7 +3006,10 @@ class Model():
                 root_node.header = [0, 1]         
                 root.children.append(root_node)
                 
-            if child_collection.name == 'Skybox':
+            if child_collection.collection_type == '1':
+                skybox_objects = [obj for obj in child_collection.objects if obj.type == 'MESH']
+                
+                
                 sky_group = Group20580(root, self, 20580)
                 sky_empty = Group53349(sky_group, self, 53349)
                 sky_empty.header = [2]
@@ -3008,13 +3022,15 @@ class Model():
                         mesh.material.shader.render_mode_2 = 0b11000000100010000000001000
                         sky_mesh.children.append(mesh)
                         mesh.parent = sky_mesh
-                sky_mesh.calc_bounding()
-                sky_to_camera.children.append(sky_mesh)
+                
+                if skybox_objects:
+                    sky_mesh.calc_bounding()
+                    sky_to_camera.children.append(sky_mesh)
                 sky_empty.children.append(sky_to_camera)
                 sky_group.children.append(sky_empty)
                 root.children.append(sky_group)
         
-        if self.ext == 'Part':
+        if self.type == '3':
             for o in collection.objects:
                 if o.type == 'MESH':
                     assign_meshes_to_node_by_type(Mesh(None,self).unmake(o), root, self)

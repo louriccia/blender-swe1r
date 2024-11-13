@@ -22,6 +22,8 @@ data_name_format_long_len = 15
 
 SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
 
+
+
 model_types = [
     ('0', 'All', 'View all models'),
     ('1', 'MAlt', 'High LOD pods'),
@@ -32,6 +34,14 @@ model_types = [
     ('6', 'Scen', 'Animated scenes'),
     ('7', 'Trak', 'Tracks'),
     ]
+
+header_sizes = [-1,300, 1,2,300,9, 83,6]
+
+def get_model_type(name):
+    for code, model_name, description in model_types:
+        if model_name == name:
+            return code
+    return None 
 
 def update_model_dropdown(self, context):
     model_type = model_types[int(context.scene.import_type)][1]

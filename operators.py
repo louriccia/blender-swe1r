@@ -87,6 +87,44 @@ class ExportOperator(bpy.types.Operator):
         
         export_model(selected_collection, folder_path, [context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline])
         return {'FINISHED'}
+    
+class NewModelOperator(bpy.types.Operator):
+    """Create a new model"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.new_model"
+    
+    def execute(self, context):
+        type = context.scene.new_type
+        type_name = model_types[int(type)][1]
+        main_collection = bpy.data.collections.new("New " + type_name + " Model")
+        
+        valid_models = [model for model in model_list if model['extension'] == type_name]
+        
+        if type_name == 'Trak':
+            track_collection = bpy.data.collections.new("Track")
+            track_collection.collection_type = "0"
+            skybox_collection = bpy.data.collections.new("Skybox")
+            skybox_collection.collection_type = "1"
+            main_collection.children.link(track_collection)
+            main_collection.children.link(skybox_collection)
+            
+            curve_data = bpy.data.curves.new("SplineCurve", type="CURVE")
+            curve_data.dimensions = '3D'
+            curve_data.splines.new('BEZIER')
+            spline_object = bpy.data.objects.new("spline", curve_data)
+            
+            main_collection.objects.link(spline_object)
+            
+
+        
+        
+        
+        main_collection.export_type = type
+        main_collection.export_model = str(valid_models[0]['index'])
+        
+        context.scene.collection.children.link(main_collection)
+        
+        return {'FINISHED'}
 
 # WARN: the way this is actually used is more like "reset visuals"; could be
 # merged with VisibleOperator
@@ -461,6 +499,7 @@ def draw_OUTLINER_MT_collection(self, context):
 register_classes = (
     ImportOperator,
     ExportOperator,
+    NewModelOperator,
     VertexColorOperator,
     VisibleOperator,
     CollidableOperator,

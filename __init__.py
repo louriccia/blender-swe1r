@@ -89,10 +89,26 @@ def register():
     bpy.types.Scene.is_export_texture = bpy.props.BoolProperty(name="Texture", update=utils.save_settings, default=utils.get_setting('is_export_texture', True))
     bpy.types.Scene.is_export_spline = bpy.props.BoolProperty(name="Spline", update=utils.save_settings, default=utils.get_setting('is_export_spline', True))
     bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =utils.save_settings, default=utils.get_setting('export_separate', False), description = "Save a copy of the exported elements as individual .bin files")
+    
     bpy.types.Collection.export_model = bpy.props.EnumProperty(
         items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list)],
         name = "Model",
         description = "The model this collection will be exported as",
+        default = 0
+    )
+    bpy.types.Collection.export_type = bpy.props.EnumProperty(
+        items=utils.model_types[1:],
+        name="Model Type",
+        description="The type of model to export",
+        default=0
+    )
+    bpy.types.Collection.collection_type = bpy.props.EnumProperty(
+        items=[
+            ("0", "Track", "A Track Model Collection"),
+            ("1", "Skybox", "A Track Skybox Collection")
+        ],
+        name = "Collection Type",
+        description="The type of collection",
         default = 0
     )
    
