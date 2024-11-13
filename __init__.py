@@ -58,34 +58,48 @@ import bpy
 
 def register():
  
-    bpy.types.Scene.import_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=utils.save_settings, default =utils.get_setting('import_folder', ""), description="Select the lev01 folder (or any folder containing the .bin files)")
+    bpy.types.Scene.import_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=utils.save_settings, default =utils.get_setting('import_folder', ""), description="Select the lev01 folder in Star Wars Episode I Racer/data/lev01 (or any folder containing the .bin files)")
     bpy.types.Scene.import_type = bpy.props.EnumProperty(
         items=utils.model_types,
         name="Model Type",
-        description="Select model type",
+        description="Filter model selection by model type",
         default=utils.get_setting('import_type', 0), 
         update=utils.update_model_dropdown
     )
+    
+    bpy.types.Scene.new_type = bpy.props.EnumProperty(
+        items=utils.model_types[1:],
+        name="New Model Type",
+        description="Create a new template for the selected model type",
+        default=utils.get_setting('new_type', 0)
+    )
+    
     import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list) if model['extension'] == utils.model_types[int(utils.get_setting('import_type', 0))][1]]
     if not len(import_items):
         import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list)]
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
         items=import_items,
         name="Model",
-        description="Select model",
+        description="Select a model to import",
         default=0, #utils.get_setting('import_model', 0), 
         update=utils.save_settings
     )
-    bpy.types.Scene.export_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=utils.save_settings, default=utils.get_setting('export_folder', ""), description="Select the lev01 folder (or any folder you wish to export to)")
-    bpy.types.Scene.export_model = bpy.props.BoolProperty(name="Model", update=utils.save_settings, default=utils.get_setting('export_model', True))
-    bpy.types.Scene.export_texture = bpy.props.BoolProperty(name="Texture", update=utils.save_settings, default=utils.get_setting('export_texture', True))
-    bpy.types.Scene.export_spline = bpy.props.BoolProperty(name="Spline", update=utils.save_settings, default=utils.get_setting('export_spline', True))
-    bpy.types.Scene.export_spawn = bpy.props.BoolProperty(name="Spawn", update=utils.save_settings, default=utils.get_setting('export_spawn', True))
+    bpy.types.Scene.export_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=utils.save_settings, default=utils.get_setting('export_folder', ""), description="Select the lev01 folder in Star Wars Episode I Racer/data/lev01 (or any folder you wish to export to)")
+    bpy.types.Scene.is_export_model = bpy.props.BoolProperty(name="Model", update=utils.save_settings, default=utils.get_setting('is_export_model', True))
+    bpy.types.Scene.is_export_texture = bpy.props.BoolProperty(name="Texture", update=utils.save_settings, default=utils.get_setting('is_export_texture', True))
+    bpy.types.Scene.is_export_spline = bpy.props.BoolProperty(name="Spline", update=utils.save_settings, default=utils.get_setting('is_export_spline', True))
+    bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =utils.save_settings, default=utils.get_setting('export_separate', False), description = "Save a copy of the exported elements as individual .bin files")
+    bpy.types.Collection.export_model = bpy.props.EnumProperty(
+        items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list)],
+        name = "Model",
+        description = "The model this collection will be exported as",
+        default = 0
+    )
    
-    bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'collision_visible', update =utils.UpdateVisibleSelectable, default=True)
-    bpy.types.Scene.collision_selectable = bpy.props.BoolProperty(name = 'collision_selectable', update =utils.UpdateVisibleSelectable, default=True)
-    bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'visuals_visible', update =utils.UpdateVisibleSelectable, default=True)
-    bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'visuals_selectable', update =utils.UpdateVisibleSelectable, default=True)
+    bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'collision_visible', update =utils.UpdateVisibleSelectable, default=True, description = "Show/hide all collidable mesh")
+    bpy.types.Scene.collision_selectable = bpy.props.BoolProperty(name = 'collision_selectable', update =utils.UpdateVisibleSelectable, default=True, description = "Set all collidable mesh as selectable/unselectable")
+    bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'visuals_visible', update =utils.UpdateVisibleSelectable, default=True, description = "Set all visible mesh as selectable/unselectable")
+    bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'visuals_selectable', update =utils.UpdateVisibleSelectable, default=True, description = "Set all visible mesh as selectable/unselectable")
     bpy.types.Scene.spline_cyclic = bpy.props.BoolProperty(name = 'cyclic', update =utils.save_settings, default=utils.get_setting('spline_cyclic', True))
     
     bpy.types.Scene.light_falloff = bpy.props.FloatProperty(name = 'falloff', min=0.0, max=10.0, update =utils.save_settings, default=utils.get_setting('light_falloff', 1.0))
@@ -98,6 +112,9 @@ def register():
     bpy.types.Scene.trigger_expanded = bpy.props.BoolProperty(name = 'trigger_expanded', default=False)
     bpy.types.Scene.lights_expanded = bpy.props.BoolProperty(name = 'lights_expanded', default=False)
     bpy.types.Scene.textures_expanded = bpy.props.BoolProperty(name = 'texture_expanded', default=False)
+    bpy.types.Scene.new_expanded = bpy.props.BoolProperty(name = 'new_expanded', default=False)
+    bpy.types.Scene.visuals_expanded = bpy.props.BoolProperty(name = 'visuals_expanded', default=False)
+    bpy.types.Scene.collision_expanded = bpy.props.BoolProperty(name = 'collision_expanded', default=False)
     
     bpy.types.Object.visible = bpy.props.BoolProperty(name ='visible', default=False, update = utils.create_update_function("visible"))
     bpy.types.Object.collidable = bpy.props.BoolProperty(name ='collidable', default=False, update = utils.create_update_function("collidable"))

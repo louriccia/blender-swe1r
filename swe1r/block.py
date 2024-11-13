@@ -81,6 +81,7 @@ class Block():
         return b''.join(block)
     
     def inject(self, data, index):
+        index = int(index)
         for j in range(self.sub_chunks):
             if index > len(self.data[j]) - 1:
                 self.data[j].append(data[j])

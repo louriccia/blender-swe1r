@@ -48,13 +48,18 @@ class InfoPanel(bpy.types.Panel):
     
     def draw(self, context):
         layout = self.layout
-        layout.label(text = bl_info['name'])
-        layout.label(text = "Version: " + ".".join(map(str, bl_info['version'])))
-        row = layout.row(align=True)
-        row.operator("view3d.open_url", text="Discord", icon_value=preview_collections["main"]["discord"].icon_id).url = URL_DISCORD
-        row.operator("view3d.open_url", text="Github", icon_value=preview_collections["main"]["github"].icon_id).url = URL_GITHUB
-        row.operator("view3d.open_url", text="ko-fi", icon_value=preview_collections["main"]["kofi"].icon_id).url = URL_KOFI
-
+        row = layout.row()
+        row.label(text = bl_info['name'])
+        row.operator("view3d.open_url", text="", icon = "QUESTION", emboss = False).url = URL_WIKI
+        row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["discord"].icon_id, emboss = False).url = URL_DISCORD
+        row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["github"].icon_id, emboss = False).url = URL_GITHUB
+        row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["kofi"].icon_id, emboss = False).url = URL_KOFI
+        
+        row = layout.row()
+        row.label(text = "Version: " + ".".join(map(str, bl_info['version'])))
+        row.operator("view3d.open_url", text="Update").url = ""
+        
+        
 # Global variable to store icons
 preview_collections = {}
 
@@ -95,14 +100,19 @@ class ExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
             
+        collection = bpy.context.view_layer.active_layer_collection
+        if collection:
+            collection = collection.collection
+            
+            
         # Export
-        layout.prop(context.scene, "export_folder", text="",  full_event=False)
+        layout.prop(context.scene, "export_folder", text="", full_event=False)
+        layout.prop(collection, 'export_model', text = "Model")
         row = layout.row(align=True)
-        row.prop(context.scene, "export_model", text="Model", icon='MESH_CUBE', toggle=True, icon_only=True)
-        row.prop(context.scene, "export_texture", text="Texture", icon='MATERIAL', toggle=True, icon_only=True)
-        row.prop(context.scene, "export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
-        # row = layout.row()
-        # row.prop(context.scene, "export_spawn", text="Spawn at cursor", icon='CURSOR')
+        row.prop(context.scene, "is_export_model", text="Model", icon='MESH_CUBE', toggle=True, icon_only=True)
+        row.prop(context.scene, "is_export_texture", text="Texture", icon='MATERIAL', toggle=True, icon_only=True)
+        row.prop(context.scene, "is_export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
+        layout.prop(context.scene, "is_export_separate", text = "Save to individual .bin file(s)")
         row = layout.row()
         row.scale_y = 1.5
         row.operator("view3d.export_operator", text="Export")
@@ -121,22 +131,54 @@ class ToolPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         
-        row =layout.row()
+        box = layout.box()
+        
+        
+        row = box.row()
+        row.label(text = "New", icon = "FILE_NEW")
+        icon = 'DOWNARROW_HLT' if context.scene.new_expanded else 'RIGHTARROW'
+        row.prop(context.scene, "new_type", text="")
+        row.operator("view3d.select_collidable", text = "", icon = "ADD")
+        
+        box = layout.box()
+        row = box.row(align = True)
         row.label(text = "Visuals", icon = 'MATERIAL_DATA')
+        icon = 'DOWNARROW_HLT' if context.scene.visuals_expanded else 'RIGHTARROW'
         
+        # if context.scene.visuals_expanded:
+        #     row.prop(context.scene, "visuals_expanded", icon = icon, text = "", emboss = False)
+            
+        #     row = box.row()
+        #     row.prop(context.scene, "visuals_selectable", toggle =True, text = "", icon = 'RESTRICT_SELECT_OFF' if context.scene.visuals_selectable else 'RESTRICT_SELECT_ON') 
+        #     row.prop(context.scene, "visuals_visible", toggle=True, text = "", icon = 'HIDE_OFF' if context.scene.visuals_visible else 'HIDE_ON')
+        #     row.operator("view3d.select_visible", text = "Select")
+        # else:
+        row.prop(context.scene, "visuals_selectable", toggle =True, text = "", icon = 'RESTRICT_SELECT_OFF' if context.scene.visuals_selectable else 'RESTRICT_SELECT_ON') 
+        row.prop(context.scene, "visuals_visible", toggle=True, text = "", icon = 'HIDE_OFF' if context.scene.visuals_visible else 'HIDE_ON')
         row.operator("view3d.select_visible", text = "Select")
-        row =layout.row(align = True)
-        row.prop(context.scene, "visuals_selectable", toggle =True, text = "Selectable", icon = 'RESTRICT_SELECT_OFF' if context.scene.visuals_selectable else 'RESTRICT_SELECT_ON') 
-        row.prop(context.scene, "visuals_visible", toggle=True, text = "Visible", icon = 'HIDE_OFF' if context.scene.visuals_visible else 'HIDE_ON')
-        
-        
-        row =layout.row()
+        #row.prop(context.scene, "visuals_expanded", icon = icon, text = "", emboss = False)
+            
+        box = layout.box()
+        row = box.row(align = True)
+        icon = 'DOWNARROW_HLT' if context.scene.collision_expanded else 'RIGHTARROW'
         row.label(text = "Collision", icon = 'MOD_PHYSICS')
         
+        # if context.scene.collision_expanded:
+        #     row.prop(context.scene, "collision_expanded", icon = icon, text = "", emboss = False)
+        
+        #     row = box.row()
+        #     row.prop(context.scene, "collision_selectable", toggle =True, text = "", icon = 'RESTRICT_SELECT_OFF' if context.scene.collision_selectable else 'RESTRICT_SELECT_ON') 
+        #     row.prop(context.scene, "collision_visible", toggle=True, text = "", icon = 'HIDE_OFF' if context.scene.collision_visible else 'HIDE_ON')
+        #     row.operator("view3d.select_collidable", text = "Select")
+        # else:
+            
+        row.prop(context.scene, "collision_selectable", toggle =True, text = "", icon = 'RESTRICT_SELECT_OFF' if context.scene.collision_selectable else 'RESTRICT_SELECT_ON') 
+        row.prop(context.scene, "collision_visible", toggle=True, text = "", icon = 'HIDE_OFF' if context.scene.collision_visible else 'HIDE_ON')
         row.operator("view3d.select_collidable", text = "Select")
-        row =layout.row(align = True)
-        row.prop(context.scene, "collision_selectable", toggle =True, text = "Selectable", icon = 'RESTRICT_SELECT_OFF' if context.scene.collision_selectable else 'RESTRICT_SELECT_ON') 
-        row.prop(context.scene, "collision_visible", toggle=True, text = "Visible", icon = 'HIDE_OFF' if context.scene.collision_visible else 'HIDE_ON')
+            #row.prop(context.scene, "collision_expanded", icon = icon, text = "", emboss = False)
+        
+        
+        
         
         
 class SelectedPanel(bpy.types.Panel):
@@ -181,23 +223,20 @@ class SelectedPanel(bpy.types.Panel):
                 trigger = obj
                 
         if mesh:
-
+            parent_box = layout.box()
+            row = parent_box.row()
+            row.scale_y = 1.5
+            row.label(text = 'Visuals', icon = 'MATERIAL_DATA')
+            
             if not visible:
-                row = layout.row()
-                row.operator("view3d.set_visible", text= "Add visuals", icon = 'ADD')
-                row.scale_y = 1.5
+                row.operator("view3d.set_visible", text= "", icon = 'CHECKBOX_DEHLT', emboss = False)
             else:
-                parent_box = layout.box()
-                col = parent_box.column(align=True)
-                
-                row = col.row(align=True)
-                row.scale_y = 1.5
-                row.label(text = 'Visuals', icon = 'MATERIAL_DATA')
-                row.operator("view3d.v_color", text="Reset", emboss=False) # TODO: formalize reset fn
-                row.operator("view3d.set_nonvisible", text = "", icon = "TRASH", emboss = False)
+                row.operator("view3d.v_color", text="", emboss=False, icon = 'FILE_REFRESH') # TODO: formalize reset fn
+                row.operator("view3d.set_nonvisible", text = "", icon = "CHECKBOX_HLT", emboss = False)
+
 
                 # baked lighting panel
-
+                
                 box = parent_box.box()
                 row = box.row()
                 row.label(text='Baked Lighting', icon='LIGHT_SUN')
@@ -230,19 +269,17 @@ class SelectedPanel(bpy.types.Panel):
                     row= box.row()
                     row.label(text = 'Flip X/Y')
             
+            parent_box = layout.box()
+            row = parent_box.row()
+            row.scale_y = 1.5
+            row.label(text = 'Collision', icon = 'MOD_PHYSICS')
+            
             if not collidable:
-                row = layout.row()
-                row.operator("view3d.set_collidable", text= "Add collision", icon = 'ADD')
-                row.scale_y = 1.5
+                row.operator("view3d.set_collidable", text= "", icon = 'CHECKBOX_DEHLT', emboss = False)
             else:
-
-                parent_box = layout.box()
-                row = parent_box.row(align=True)
-                row.scale_y = 1.5
-                row.label(text = 'Collision', icon = 'MOD_PHYSICS')
-                row.operator("view3d.reset_collision_data", text = "Reset", emboss = False)
-                row.operator("view3d.set_noncollidable", text = "", icon = "TRASH", emboss = False)
-                
+                row.operator("view3d.reset_collision_data", text = "", emboss = False, icon = 'FILE_REFRESH')
+                row.operator("view3d.set_noncollidable", text= "", icon = 'CHECKBOX_HLT', emboss = False)
+               
                 if not collidable_data:
                     row = parent_box.row()
                     row.operator("view3d.add_collision_data", text= "Add surface tags, fog, etc.", icon = "ADD")
@@ -252,7 +289,9 @@ class SelectedPanel(bpy.types.Panel):
                     row = box.row()
                     row.label(text = "Terrain Flags", icon = "AUTO")
                     icon = "DOWNARROW_HLT" if context.scene.flags_expanded else "RIGHTARROW"
-                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                    surfaces = [f for f in dir(SurfaceEnum) if not f.startswith("__") and not f.startswith("Surface")]
+                    if any([context.active_object[prop] for prop in surfaces]):
+                        row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
                     row.prop(context.scene, "flags_expanded", icon = icon, text = "", emboss = False)
                     
                     if context.scene.flags_expanded:
@@ -295,7 +334,7 @@ class SelectedPanel(bpy.types.Panel):
                     
                     box = parent_box.box()
                     row = box.row()
-                    row.label(text = "Fog", icon = "FORCE_FORCE")
+                    row.label(text = "Level Fog", icon = "FORCE_FORCE")
                     icon = "DOWNARROW_HLT" if context.scene.fog_expanded else "RIGHTARROW"
                     row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
                     row.prop(context.scene, "fog_expanded", icon = icon, text = "", emboss = False)
@@ -325,7 +364,7 @@ class SelectedPanel(bpy.types.Panel):
                     
                     box = parent_box.box()
                     row = box.row()
-                    row.label(text = "Lighting", icon = "LIGHT_SUN")
+                    row.label(text = "Pod Lighting", icon = "LIGHT_SUN")
                     icon = "DOWNARROW_HLT" if context.scene.lighting_expanded else "RIGHTARROW"
                     row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
                     row.prop(context.scene, "lighting_expanded", icon = icon, text = "", emboss = False)

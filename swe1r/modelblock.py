@@ -216,7 +216,7 @@ class CollisionTrigger(DataStruct):
         self.model = model
         self.position = FloatPosition()
         self.rotation = FloatVector()
-        self.width = 100
+        self.width = 100 # FIX: Not scale dependant 
         self.height = 100
         self.target = 0
         self.id = 0
@@ -2749,7 +2749,7 @@ class ModelHeader():
     
     def make(self):
         self.model.collection['header'] = self.offsets
-        self.model.collection['ind'] = self.model.id
+        self.model.collection.export_model = str(self.model.id)
         self.model.collection['ext'] = self.model.ext
         
         if self.model.Data:
@@ -2762,7 +2762,7 @@ class ModelHeader():
     
     def unmake(self, collection):
         self.offsets = collection['header']
-        self.model.id = collection['ind']
+        self.model.id = collection.export_model
         self.model.ext = collection['ext']
         self.model.Data = ModelData(self, self.model).unmake()
         self.model.Anim = AnimList(self, self.model).unmake()
@@ -2910,7 +2910,7 @@ class Model():
         self.textureblock = textureblock
         self.written_textures = {}
         self.ext = collection['ext']
-        self.id = collection['ind']
+        self.id = collection.export_model
         self.nodes = []
         self.texture_export = texture_export
         

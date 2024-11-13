@@ -82,7 +82,7 @@ def UpdateVisibleSelectable(self, context = None):
             
     
 def save_settings(self, context):
-    keys = ['import_folder', 'import_type', 'import_model', 'export_folder', 'export_model', 'export_texture', 'export_spline']
+    keys = ['import_folder', 'import_type', 'import_model', 'export_folder', 'is_export_model', 'is_export_texture', 'is_export_spline']
     settings = load_settings()
     for key in [key for key in keys if context.scene.get(key) is not None]:
         settings[key] = context.scene.get(key)

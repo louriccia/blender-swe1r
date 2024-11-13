@@ -38,8 +38,10 @@ from .swr_export import *
 from .utils import *
 
 class ImportOperator(bpy.types.Operator):
+    """Import the selected model to the Blender scene"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.import_operator"
+    bl_info = "Import the selected model"
     
 
     def execute(self, context):
@@ -57,6 +59,7 @@ class ImportOperator(bpy.types.Operator):
         return {'FINISHED'}
 
 class ExportOperator(bpy.types.Operator):
+    """Export the selected collection to the game files"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.export_operator"
 
@@ -72,7 +75,7 @@ class ExportOperator(bpy.types.Operator):
                 
         folder_path = context.scene.export_folder if context.scene.export_folder else context.scene.import_folder
         
-        if 'ind' not in selected_collection:
+        if selected_collection.export_model is None:
             show_custom_popup(bpy.context, "Invalid collection selected", "Please select a model collection to export")
             return {'CANCELLED'}
         if folder_path == "":
@@ -82,7 +85,7 @@ class ExportOperator(bpy.types.Operator):
             show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
             return {'CANCELLED'}
         
-        export_model(selected_collection, folder_path, [context.scene.export_model, context.scene.export_texture, context.scene.export_spline])
+        export_model(selected_collection, folder_path, [context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline])
         return {'FINISHED'}
 
 # WARN: the way this is actually used is more like "reset visuals"; could be
@@ -99,6 +102,7 @@ class VertexColorOperator(bpy.types.Operator):
         return {'FINISHED'}
   
 class VisibleOperator(bpy.types.Operator):
+    """Make selected mesh visible in game"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.set_visible"
     
@@ -110,6 +114,7 @@ class VisibleOperator(bpy.types.Operator):
         return {'FINISHED'}
     
 class NonVisibleOperator(bpy.types.Operator):
+    """Make selected mesh invisible in game"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.set_nonvisible"
     
@@ -120,6 +125,7 @@ class NonVisibleOperator(bpy.types.Operator):
         return {'FINISHED'}
 
 class CollidableOperator(bpy.types.Operator):
+    """Make selected mesh collidable in game"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.set_collidable"
     
@@ -130,6 +136,7 @@ class CollidableOperator(bpy.types.Operator):
         return {'FINISHED'}    
 
 class NonCollidableOperator(bpy.types.Operator):
+    """Make selected mesh non-collidable in game"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.set_noncollidable"
     
@@ -140,6 +147,7 @@ class NonCollidableOperator(bpy.types.Operator):
         return {'FINISHED'}
     
 class VisibleSelect(bpy.types.Operator):
+    """Select all visible mesh"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.select_visible"
     
@@ -158,6 +166,7 @@ class VisibleSelect(bpy.types.Operator):
         return {'FINISHED'}
     
 class CollidableSelect(bpy.types.Operator):
+    """Select all collidable mesh"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.select_collidable"
     
@@ -175,6 +184,7 @@ class CollidableSelect(bpy.types.Operator):
         return {'FINISHED'}
     
 class AddCollisionData(bpy.types.Operator):
+    """Add collision data such as fog/lighting/gameplay effects"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.add_collision_data"
 
@@ -186,6 +196,7 @@ class AddCollisionData(bpy.types.Operator):
         return {'FINISHED'}
     
 class ResetCollisionData(bpy.types.Operator):
+    """Clear collision data such as fog/lighting/gameplay effects"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.reset_collision_data"
 
@@ -195,7 +206,20 @@ class ResetCollisionData(bpy.types.Operator):
             CollisionTags(None, None).make(obj)
         return {'FINISHED'}
     
+class ResetVisuals(bpy.types.Operator):
+    """Reset visual data"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.reset_visuals"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            reset_vertex_colors(obj)
+            # TODO: reset animation
+        return {'FINISHED'}
+    
 class AddTrigger(bpy.types.Operator):
+    """Add a gameplay trigger to the selected collision"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.add_trigger"
 
@@ -220,6 +244,7 @@ class AddTrigger(bpy.types.Operator):
     
 
 class InvertSpline(bpy.types.Operator):
+    """Invert the selected spline"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.invert_spline"
 
@@ -244,6 +269,7 @@ class InvertSpline(bpy.types.Operator):
         return {"FINISHED"}
     
 class SplineCyclic(bpy.types.Operator):
+    """Toggle the selected spline between open (rally) and closed (circuit)"""
     bl_idname = "view3d.toggle_cyclic"
     bl_label = "Toggle Spline Cyclic"
     
@@ -262,6 +288,7 @@ class SplineCyclic(bpy.types.Operator):
         return {'FINISHED'}
     
 class ReconstructSpline(bpy.types.Operator):
+    """Set selected point as start/finish line"""
     bl_idname = "view3d.reconstruct_spline"
     bl_label = "Reconstruct Spline with Selected Point as First"
 
@@ -304,6 +331,7 @@ class ReconstructSpline(bpy.types.Operator):
         return {'FINISHED'}
     
 class OpenUrl(bpy.types.Operator):
+    """Open link"""
     bl_idname = "view3d.open_url"
     bl_description = "Open URL"
     bl_label = "Open URL"

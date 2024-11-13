@@ -22,7 +22,7 @@ def export_model(col, file_path, exports):
         modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
         textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
         
-        model = Model(col['ind']).unmake(col, texture_export, textureblock)
+        model = Model(col.export_model).unmake(col, texture_export, textureblock)
         id = model.id
         if model is None:
             show_custom_popup(bpy.context, "Model Error", "There was an issue while exporting the model")
@@ -92,5 +92,5 @@ def export_model(col, file_path, exports):
     #     with open(file_path + 'out_textureblock.bin', 'wb') as file:
     #         file.write(textureblock.write())
             
-    show_custom_popup(bpy.context, "Exported!", f"Model {col['ind']} was successfully exported")
+    show_custom_popup(bpy.context, "Exported!", f"Model {col.export_model} was successfully exported")
     
