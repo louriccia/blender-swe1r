@@ -231,7 +231,7 @@ class SelectedPanel(bpy.types.Panel):
             if not visible:
                 row.operator("view3d.set_visible", text= "", icon = 'CHECKBOX_DEHLT', emboss = False)
             else:
-                row.operator("view3d.v_color", text="", emboss=False, icon = 'FILE_REFRESH') # TODO: formalize reset fn
+                row.operator("view3d.v_color", text="", emboss=False, icon = 'LOOP_BACK') # TODO: formalize reset fn
                 row.operator("view3d.set_nonvisible", text = "", icon = "CHECKBOX_HLT", emboss = False)
 
 
@@ -241,7 +241,7 @@ class SelectedPanel(bpy.types.Panel):
                 row = box.row()
                 row.label(text='Baked Lighting', icon='LIGHT_SUN')
                 icon = 'DOWNARROW_HLT' if context.scene.lights_expanded else 'RIGHTARROW'
-                #row.operator('view3d.bake_vcolors', text='', emboss=False, icon='FILE_REFRESH')
+                row.operator('view3d.bake_vcolors', text='', emboss=False, icon='LOOP_BACK')
                 row.prop(context.scene, 'lights_expanded', icon = icon, text = '', emboss = False)
 
                 if context.scene.lights_expanded:
@@ -253,7 +253,7 @@ class SelectedPanel(bpy.types.Panel):
                     row = box.row()
                     row.scale_y = 1.5
                     row.operator('view3d.bake_vcolors', text='Bake')
-                    row.operator('view3d.bake_vcolors_clear', text='', icon='TRASH', emboss=False)
+                    #row.operator('view3d.bake_vcolors_clear', text='', icon='TRASH', emboss=False)
 
                 # texture panel
 
@@ -261,13 +261,21 @@ class SelectedPanel(bpy.types.Panel):
                 row = box.row()
                 row.label(text = "Texture", icon = "TEXTURE")
                 icon = "DOWNARROW_HLT" if context.scene.textures_expanded else "RIGHTARROW"
-                #row.operator('', text='', emboss=False, icon='FILE_REFRESH')
+                #row.operator('', text='', emboss=False, icon='LOOP_BACK')
                 row.prop(context.scene, "textures_expanded", icon = icon, text = "", emboss = False)
-                if context.scene.textures_expanded:
+                mats = [slot.material for slot in obj.material_slots]
+                if context.scene.textures_expanded and len(mats):
                     row = box.row()
-                    row.label(text = 'Scroll animation')
+                    row.label(text = 'Scroll')
+                    row.prop(mats[0], 'scroll_x', text = "x")
+                    row.prop(mats[0], 'scroll_y', text = "y")
                     row= box.row()
-                    row.label(text = 'Flip X/Y')
+                    row.label(text = 'Flip')
+                    row.prop(mats[0], 'flip_x', text = "x")
+                    row.prop(mats[0], 'flip_y', text = "y")
+                    row = box.row()
+                    row.operator('view3d.bake_vcolors', text='Apply')
+                    
             
             parent_box = layout.box()
             row = parent_box.row()
@@ -277,7 +285,7 @@ class SelectedPanel(bpy.types.Panel):
             if not collidable:
                 row.operator("view3d.set_collidable", text= "", icon = 'CHECKBOX_DEHLT', emboss = False)
             else:
-                row.operator("view3d.reset_collision_data", text = "", emboss = False, icon = 'FILE_REFRESH')
+                row.operator("view3d.reset_collision_data", text = "", emboss = False, icon = 'LOOP_BACK')
                 row.operator("view3d.set_noncollidable", text= "", icon = 'CHECKBOX_HLT', emboss = False)
                
                 if not collidable_data:
@@ -291,7 +299,7 @@ class SelectedPanel(bpy.types.Panel):
                     icon = "DOWNARROW_HLT" if context.scene.flags_expanded else "RIGHTARROW"
                     surfaces = [f for f in dir(SurfaceEnum) if not f.startswith("__") and not f.startswith("Surface")]
                     if any([context.active_object[prop] for prop in surfaces]):
-                        row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                        row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'LOOP_BACK')
                     row.prop(context.scene, "flags_expanded", icon = icon, text = "", emboss = False)
                     
                     if context.scene.flags_expanded:
@@ -336,7 +344,7 @@ class SelectedPanel(bpy.types.Panel):
                     row = box.row()
                     row.label(text = "Level Fog", icon = "FORCE_FORCE")
                     icon = "DOWNARROW_HLT" if context.scene.fog_expanded else "RIGHTARROW"
-                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'LOOP_BACK')
                     row.prop(context.scene, "fog_expanded", icon = icon, text = "", emboss = False)
                     
                     if context.scene.fog_expanded:
@@ -366,7 +374,7 @@ class SelectedPanel(bpy.types.Panel):
                     row = box.row()
                     row.label(text = "Pod Lighting", icon = "LIGHT_SUN")
                     icon = "DOWNARROW_HLT" if context.scene.lighting_expanded else "RIGHTARROW"
-                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'LOOP_BACK')
                     row.prop(context.scene, "lighting_expanded", icon = icon, text = "", emboss = False)
                     
                     if context.scene.lighting_expanded:
@@ -383,7 +391,7 @@ class SelectedPanel(bpy.types.Panel):
                     row = box.row()
                     row.label(text = "Load Trigger", icon = "MOD_BUILD")
                     icon = "DOWNARROW_HLT" if context.scene.trigger_expanded else "RIGHTARROW"
-                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'FILE_REFRESH')
+                    row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'LOOP_BACK')
                     row.prop(context.scene, "trigger_expanded", icon = icon, text = "", emboss = False)
                     
                     if context.scene.trigger_expanded:
@@ -391,7 +399,7 @@ class SelectedPanel(bpy.types.Panel):
                         row.prop(context.active_object, 'load_trigger', text = '', icon = 'RENDERLAYERS')
                     
                     row = parent_box.row()
-                    row.operator("view3d.add_trigger", text = "Add trigger", icon = 'ADD')
+                    row.operator("view3d.add_trigger", text = "Add event trigger", icon = 'ADD')
                 
         elif spline:
             is_cyclic = spline.use_cyclic_u

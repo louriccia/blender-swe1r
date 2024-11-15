@@ -576,7 +576,7 @@ model_list = [
  },
  {
    "index": 115,
-   "name": "Boonta Training Course",
+   "name": "The Boonta Training Course",
    "extension": "Trak"
  },
  {

@@ -91,16 +91,16 @@ def register():
     bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =utils.save_settings, default=utils.get_setting('export_separate', False), description = "Save a copy of the exported elements as individual .bin files")
     
     bpy.types.Collection.export_model = bpy.props.EnumProperty(
-        items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list)],
+        items = utils.export_model_items,
         name = "Model",
         description = "The model this collection will be exported as",
         default = 0
     )
     bpy.types.Collection.export_type = bpy.props.EnumProperty(
-        items=utils.model_types[1:],
+        items=[i for i in utils.model_types[1:]],
         name="Model Type",
         description="The type of model to export",
-        default=0
+        default=0,
     )
     bpy.types.Collection.collection_type = bpy.props.EnumProperty(
         items=[
@@ -134,6 +134,8 @@ def register():
     
     bpy.types.Object.visible = bpy.props.BoolProperty(name ='visible', default=False, update = utils.create_update_function("visible"))
     bpy.types.Object.collidable = bpy.props.BoolProperty(name ='collidable', default=False, update = utils.create_update_function("collidable"))
+    
+    bpy.types.Object.collision_data = bpy.props.BoolProperty(name ='collision_data', default=False, update = utils.create_update_function("collision_data"))
     
     for flag in dir(swe1r.modelblock.SurfaceEnum):
         if not flag.startswith("__"):
@@ -169,6 +171,12 @@ def register():
             
     bpy.types.Object.trigger_id = bpy.props.IntProperty(name='trigger_id', update = utils.create_update_function("trigger_id"))
     bpy.types.Object.trigger_settings = bpy.props.IntProperty(name='trigger_settings', update = utils.create_update_function("trigger_settings"))
+    
+    bpy.types.Material.scroll_x = bpy.props.FloatProperty(name = 'scroll_x', default = 0.0)
+    bpy.types.Material.scroll_y = bpy.props.FloatProperty(name = 'scroll_y', default = 0.0)
+    bpy.types.Material.flip_x = bpy.props.BoolProperty(name = 'flip_x', default = False)
+    bpy.types.Material.flip_y = bpy.props.BoolProperty(name = 'flip_y', default = False)
+    
     
     operators.register()
     panels.register()

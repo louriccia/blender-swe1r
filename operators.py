@@ -382,67 +382,69 @@ class OpenUrl(bpy.types.Operator):
 
 # BAKE LIGHTING TO VERTEX COLORS
 
-def bake_vertex_colors(b_context, b_obj_list):
-    errlist_mismatch = []
-    errlist_nodata = []
+# def bake_vertex_colors(b_context, b_obj_list):
+#     errlist_mismatch = []
+#     errlist_nodata = []
 
-    for obj in b_obj_list:
-        if obj.type != 'MESH' or not obj.get('visible', False):
-            continue
+#     for obj in b_obj_list:
+#         if obj.type != 'MESH' or not obj.get('visible', False):
+#             continue
 
-        d = obj.data
+#         d = obj.data
 
-        if len(d.color_attributes) == 0:
-            reset_vertex_colors(obj)
+#         if len(d.color_attributes) == 0:
+#             reset_vertex_colors(obj)
 
-        if d.attributes.default_color_name == name_attr_baked:
-            errlist_mismatch.append(obj.name)
-            continue
+#         if d.attributes.default_color_name == name_attr_baked:
+#             errlist_mismatch.append(obj.name)
+#             continue
 
-        color_base = d.attributes[d.attributes.default_color_name].data
-        if len(color_base) == 0:
-            errlist_nodata.append(obj.name)
-            continue
+#         color_base = d.attributes[d.attributes.default_color_name].data
+#         if len(color_base) == 0:
+#             errlist_nodata.append(obj.name)
+#             continue
 
-        # Calculate the total light for each vertex of the selected object
-        total_lights = calculate_total_light_for_object(obj, b_context.scene.light_falloff, b_context.scene.ambient_light_intensity, b_context.scene.ambient_light)
+#         # Calculate the total light for each vertex of the selected object
+#         total_lights = calculate_total_light_for_object(obj, b_context.scene.light_falloff, b_context.scene.ambient_light_intensity, b_context.scene.ambient_light)
         
-        color_layer = d.attributes.get(name_attr_baked)
-        if color_layer is not None:
-            color_layer = color_layer.data
-        else:
-            d.color_attributes.new(name_attr_baked, 'BYTE_COLOR', 'CORNER') 
-            color_layer = d.attributes[name_attr_baked].data
+#         color_layer = d.attributes.get(name_attr_baked)
+#         if color_layer is not None:
+#             color_layer = color_layer.data
+#         else:
+#             d.color_attributes.new(name_attr_baked, 'BYTE_COLOR', 'CORNER') 
+#             color_layer = d.attributes[name_attr_baked].data
 
-        for poly in d.polygons:
-            for p in range(len(poly.vertices)):
-                color = total_lights[poly.vertices[p]]
-                a_col = color_base[poly.loop_indices[p]].color # old color
-                for i, b in enumerate([*color, 1.0]):
-                    color_layer[poly.loop_indices[p]].color[i] = blend_multiply(a_col[i], b)
+#         for poly in d.polygons:
+#             for p in range(len(poly.vertices)):
+#                 color = total_lights[poly.vertices[p]]
+#                 a_col = color_base[poly.loop_indices[p]].color # old color
+#                 for i, b in enumerate([*color, 1.0]):
+#                     color_layer[poly.loop_indices[p]].color[i] = blend_multiply(a_col[i], b)
 
-    if len(errlist_mismatch) > 0:
-        show_custom_popup(bpy.context, 'ERROR', 'Baking target was base color map. Choose another Render Color or rename. Affected objects: {}'.format(', '.join(errlist_mismatch)))
+#     if len(errlist_mismatch) > 0:
+#         show_custom_popup(bpy.context, 'ERROR', 'Baking target was base color map. Choose another Render Color or rename. Affected objects: {}'.format(', '.join(errlist_mismatch)))
 
-    if len(errlist_nodata) > 0:
-        show_custom_popup(bpy.context, 'ERROR', 'Base color map has no color data. Data may have been purged. Affected objects: {}'.format(', '.join(errlist_nodata)))
+#     if len(errlist_nodata) > 0:
+#         show_custom_popup(bpy.context, 'ERROR', 'Base color map has no color data. Data may have been purged. Affected objects: {}'.format(', '.join(errlist_nodata)))
 
-def bake_vertex_colors_clear(b_context, b_obj_list):
-    errlist_mismatch = []
-    for obj in b_obj_list:
-        if obj.type != 'MESH' or not obj.get('visible', False):
-            continue
 
-        color_layer = obj.data.attributes.get(name_attr_baked)
-        if color_layer is not None:
-            if obj.data.attributes.default_color_name == name_attr_baked:
-                errlist_mismatch.append(obj.name)
-                continue
+# def bake_vertex_colors_clear(b_context, b_obj_list):
+#     errlist_mismatch = []
+#     for obj in b_obj_list:
+#         if obj.type != 'MESH' or not obj.get('visible', False):
+#             continue
 
-            obj.data.attributes.remove(color_layer)
+#         color_layer = obj.data.attributes.get(name_attr_baked)
+#         if color_layer is not None:
+#             if obj.data.attributes.default_color_name == name_attr_baked:
+#                 errlist_mismatch.append(obj.name)
+#                 continue
 
-    if len(errlist_mismatch) > 0:
-        show_custom_popup(bpy.context, 'ERROR', 'Baked lighting was in base color map. Skipped deleting bake. Affected objects: {}'.format(', '.join(errlist_mismatch)))
+#             obj.data.attributes.remove(color_layer)
+
+#     if len(errlist_mismatch) > 0:
+#         show_custom_popup(bpy.context, 'ERROR', 'Baked lighting was in base color map. Skipped deleting bake. Affected objects: {}'.format(', '.join(errlist_mismatch)))
+
 
 class BakeVColors(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors"
@@ -450,7 +452,20 @@ class BakeVColors(bpy.types.Operator):
     bl_description = "Bake lighting into dedicated color map, while preserving Render Color"
     
     def execute(self, context):
-        bake_vertex_colors(context, context.selected_objects)
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            # Calculate the total light for each vertex of the selected object
+            total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
+               
+            reset_vertex_colors(obj)
+            
+            color_layer = obj.data.vertex_colors.active.data   
+                
+            for poly in obj.data.polygons:
+                for p in range(len(poly.vertices)):
+                    color = total_lights[poly.vertices[p]]
+                    color_layer[poly.loop_indices[p]].color = [*color, 1.0]
+        #bake_vertex_colors(context, context.selected_objects)
         return {"FINISHED"}
     
 class BakeVColorsClear(bpy.types.Operator):

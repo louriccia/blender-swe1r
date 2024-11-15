@@ -59,6 +59,11 @@ def update_model_dropdown(self, context):
     )
     save_settings(self, context)
     
+def export_model_items(self, context):
+    model_type = model_types[int(self.export_type)][1]
+    items_for_selected_category = [(str(i), f"{model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_type]
+    return items_for_selected_category
+    
 def SplineVis(self, context = None):
     for obj in bpy.context.scene.objects:
         if obj.type == "CURVE":
