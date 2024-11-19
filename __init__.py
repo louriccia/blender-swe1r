@@ -158,6 +158,8 @@ def register():
     bpy.types.Object.skybox_show = bpy.props.BoolProperty(name ='skybox_show', default=False, update = utils.create_update_function("skybox_show"))
     bpy.types.Object.skybox_hide = bpy.props.BoolProperty(name ='skybox_hide', default=False, update = utils.create_update_function("skybox_hide"))
     
+    bpy.types.Object.id = bpy.props.StringProperty(name = "id", default = "")
+    
     bpy.types.Object.load_trigger = bpy.props.EnumProperty(
         name="View Layer",
         items= utils.populate_enum
