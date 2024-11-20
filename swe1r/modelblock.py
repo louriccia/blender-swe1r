@@ -497,7 +497,7 @@ class CollisionVertBuffer(DataStruct):
     def unmake(self, mesh):
         self.length = len(mesh.data.vertices)
         for vert in mesh.data.vertices:
-            co = mesh.matrix_world @ vert.co
+            co = vert.co #mesh.matrix_world @ 
             co = [round(c/self.model.scale) for c in co]
             self.data.append(ShortPosition().from_array(co))
         super().__init__(f'>{len(self.data)*3}h')
@@ -642,7 +642,7 @@ class VisualsVertBuffer():
                 vert_index = d.loops[loop_index].vertex_index
                 uv = None if not uv_data else uv_data[loop_index].uv
                 color = None if not color_data else color_data[loop_index].color
-                self.data[vert_index].unmake(mesh.matrix_world @ d.vertices[vert_index].co, uv, color)
+                self.data[vert_index].unmake(d.vertices[vert_index].co, uv, color) #mesh.matrix_world @ 
                 
         self.length = len(self.data)
         return self
@@ -1339,11 +1339,11 @@ class Material(DataStruct):
                 if material.scroll_x:
                     poses = [0, 1] if material.scroll_x < 0 else [1, 0]
                     times = [0, abs(material.scroll_x) * self.model.fps]
-                    self.model.animations.append(Anim(self, self.model).unmake(times, poses, 'uv_x'))
+                    self.model.animations.append(Anim(self, self.model).unmake(times, poses, 'uv_x', loop = True))
                 if material.scroll_y:
                     poses = [0, 1] if material.scroll_y < 0 else [1, 0]
                     times = [0, abs(material.scroll_y) * self.model.fps]
-                    self.model.animations.append(Anim(self, self.model).unmake(times, poses, 'uv_y'))
+                    self.model.animations.append(Anim(self, self.model).unmake(times, poses, 'uv_y', loop = True))
         
         if self.model: 
             self.model.materials[material_name] = self
@@ -2237,7 +2237,7 @@ class Group53349(Node):
         return empty
     def unmake(self, node, make_children = False):
         super().unmake(node, False)
-        matrix = node.matrix_world
+        matrix = node.matrix_local
         #need to transpose the matrix
         matrix = list(map(list, zip(*matrix)))
         self.matrix.unmake(matrix, self.model.scale)
@@ -2474,7 +2474,7 @@ class RotationPose(DataStruct):
     def unmake(self, pose):
         q = mathutils.Quaternion(pose)
         axis, angle = q.to_axis_angle()    
-        self.data = [*axis, angle]
+        self.data = [*axis, angle*180/math.pi]
     
         return self
     
@@ -2554,47 +2554,42 @@ def get_animations(obj, model, entity):
     obj.rotation_mode = 'QUATERNION'
     
     #get all unique keyframes for each fcurve and data path
-    keyframe_times = {}
-    keyframe_poses = {}
+    keyframes = {}
     for fcurve in obj.animation_data.action.fcurves:
         array_index = fcurve.array_index
         data_path = fcurve.data_path
         
-        if data_path not in  keyframe_times:
-            keyframe_times[data_path] = []
+        if data_path not in  keyframes:
+            keyframes[data_path] = {"times": [], "poses": {}, "loop": False}
         
-        if data_path not in  keyframe_poses:
-            keyframe_poses[data_path] = {}
-            
+        if fcurve.modifiers:
+            for mod in fcurve.modifiers:
+                if mod.type == 'CYCLES':
+                    keyframes[data_path]["loop"] = True
+         
         for keyframe in fcurve.keyframe_points:
             frame, value = keyframe.co
-            if frame not in keyframe_times[data_path]: 
-                keyframe_times[data_path].append(frame)
+            if frame not in keyframes[data_path]['times']: 
+                keyframes[data_path]['times'].append(frame)
                 if data_path == 'location':
-                    keyframe_poses[data_path][frame] = [None, None, None]
+                    keyframes[data_path]['poses'][frame] = [None, None, None]
                 elif data_path == 'rotation_quaternion':
-                    keyframe_poses[data_path][frame] = [None, None, None, None]
+                    keyframes[data_path]['poses'][frame] = [None, None, None, None]
                 
     # for each keyframe, evaluate values
     for fcurve in obj.animation_data.action.fcurves:
         array_index = fcurve.array_index
         data_path = fcurve.data_path
-        for keyframe in keyframe_times[data_path]:
+        for keyframe in keyframes[data_path]['times']:
             if data_path in ['location', 'rotation_quaternion']:
-                keyframe_poses[data_path][keyframe][array_index] = fcurve.evaluate(keyframe)
-                
-    
+                keyframes[data_path]['poses'][keyframe][array_index] = fcurve.evaluate(keyframe)
                 
     # unmake animations
-    for path in keyframe_poses:
-        times = keyframe_times[path]
-        poses = keyframe_poses[path].values()
-        if path == 'location':
-            model.animations.append(Anim(entity, model).unmake(times, poses, path))
-        if path == 'rotation_quaternion':
-            model.animations.append(Anim(entity, model).unmake(times, poses, path))
-            
-        
+    for path in keyframes:
+        times = keyframes[path]['times']
+        poses = keyframes[path]['poses'].values()
+        if path in ['location', 'rotation_quaternion']:
+            model.animations.append(Anim(entity, model).unmake(times, poses, path, loop = keyframes[path]['loop']))
     
 class Anim(DataStruct):
     def __init__(self, parent, model):
@@ -2619,6 +2614,9 @@ class Anim(DataStruct):
         self.target = 0
         self.unk32 = 1 #1, 4, 5, 6, 34, 52, 58
         
+    def to_array(self):
+        return [self.float1,self.float2,self.float3,self.flag1,self.flag2,self.num_keyframes,self.float4,self.float5,self.float6,self.float7,self.float8,self.keyframes,self.keyframe_times,self.keyframe_poses,self.target,self.unk32]
+    
     def read(self, buffer, cursor):
         self.float1, self.float2, self.float3, self.flag1, self.flag2, self.num_keyframes, self.float4, self.float5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target, self.unk2 = struct.unpack_from(self.format_string, buffer, cursor)
         if self.flag2 in [2, 18]:
@@ -2632,14 +2630,16 @@ class Anim(DataStruct):
         for f in range(self.num_keyframes):
             self.keyframe_times.append(readFloatBE(buffer, keyframe_times_addr + f * 4))
 
-            if self.flag2 in [8, 24, 40, 56, 4152]:  # rotation (4)
+            print('flag', self.flag2)
+
+            if self.flag2 & 0b111 == 0b000:  # rotation (4)
                 pose = RotationPose(self, self.model).read(buffer, cursor)
-            elif self.flag2 in [25, 41, 57, 4153]:  # position (3)
+            elif self.flag2 & 0b111 == 0b001:  # position (3)
                 pose = LocationPose(self, self.model).read(buffer, cursor)
-            elif self.flag2 in [27, 28]:  # uv_x/uv_y (1)
-                pose = UVPose(self, self.model).read(buffer, cursor)
-            elif self.flag2 in [2, 18]:  # texture
+            elif self.flag2 & 0b111 == 0b010:  # texture
                 pose = TexturePose(self, self.model).read(buffer, cursor)
+            elif self.flag2 & 0b111 == 0b011 or self.flag2 & 0b111 == 0b100:  # uv_x/uv_y (1)
+                pose = UVPose(self, self.model).read(buffer, cursor)
                 
             self.keyframe_poses.append(pose)
             cursor += pose.size
@@ -2648,6 +2648,8 @@ class Anim(DataStruct):
                     
     def make(self):
         #assume we have an object or material to apply animations to
+        
+        self.loop = self.flag2 & 0x10 > 0
         
         if self.flag2 in [27, 28]: #uv
             target = get_mat_by_id(self.target)
@@ -2707,12 +2709,15 @@ class Anim(DataStruct):
         #make linear
         if target.animation_data is not None and target.animation_data.action is not None:
             for fcurve in target.animation_data.action.fcurves:
+                if self.loop:
+                    fcurve.modifiers.new(type='CYCLES')
                 for keyframe in fcurve.keyframe_points:
                     keyframe.interpolation = 'LINEAR'
     
         
     
-    def unmake(self, times, poses, path):
+    
+    def unmake(self, times, poses, path, loop = True):
         self.target = self.parent
         
         self.keyframe_times = [x/self.model.fps for x in times]
@@ -2725,14 +2730,17 @@ class Anim(DataStruct):
         self.float5 = anim_length
         
         if path == 'location':
-            self.flag2 = 57
+            self.flag2 |= 0b1001
             self.keyframe_poses = [LocationPose(self, self.model).unmake(pose) for pose in poses]
         elif path == 'rotation_quaternion':
-            self.flag2 = 8
+            self.flag2 |= 0b1000
             self.keyframe_poses = [RotationPose(self, self.model).unmake(pose) for pose in poses] 
         elif path in ['uv_x', 'uv_y']:
-            self.flag2 = 27 if path == 'uv_x' else 28
+            self.flag2 |= 0b1011 if path == 'uv_x' else 0b1100
             self.keyframe_poses = [UVPose(self, self.model).unmake(pose) for pose in poses]
+            
+        if loop:
+            self.flag2 |= 0x10
             
         return self
     
@@ -2959,8 +2967,13 @@ def deep_unmake(obj, parent, model, target_map):
     
     children = []
     
-    if obj.animation_data or obj.name in target_map.keys(): # cases in which we need to retain hierarchy
+    if ('node_type' in obj and obj['node_type'] == 53349) or obj.animation_data or obj.name in target_map.keys(): # cases in which we need to retain hierarchy
         empty = Group53349(parent, model, 53349).unmake(obj)
+        # empty.matrix = FloatMatrix()
+        # empty.matrix.data[0].data[0] = 1.0
+        # empty.matrix.data[1].data[1] = 1.0
+        # empty.matrix.data[2].data[2] = 1.0
+        
         empty_children = []
         
         if obj.name in target_map.keys():
@@ -2994,6 +3007,13 @@ def split_meshes_by_material(collection):
     bpy.ops.mesh.separate(type='MATERIAL')
     bpy.ops.object.mode_set(mode='OBJECT')
     bpy.ops.object.select_all(action='DESELECT')
+    
+def apply_scale(collection):
+    bpy.ops.object.select_all(action = 'DESELECT')
+    
+    deep_select_objects(collection)
+    
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
 class Model():    
     def __init__(self, id):
@@ -3082,9 +3102,8 @@ class Model():
         
         target_map = {}
         
-        # separate any meshes with multiple materials
         split_meshes_by_material(collection)
-        
+        apply_scale(collection)
         
         for child_collection in collection.children:
             if child_collection.collection_type == '0': #Track
