@@ -1067,6 +1067,17 @@ class MaterialShader(DataStruct):
             self.render_mode_1 = 0b1100000010000010000000001000 #fixes small stitching issues
             self.render_mode_2 = 0b11000000100010000000001000
             
+        # alternate way to detect if this material is on a skybox mesh
+        mat = self.parent
+        mesh = mat.parent
+        if mat.parent:
+            obj = mesh.original_object
+            for collection in obj.users_collection:
+                if collection.collection_type == '1':
+                    self.render_mode_1 = 0b1100000010000010000000001000
+                    self.render_mode_2 = 0b11000000100010000000001000
+                    break
+            
         return self
     
     def to_array(self):
@@ -1120,14 +1131,8 @@ class Material(DataStruct):
         while parent is not None:
             if hasattr(parent, 'skybox'):
                 self.skybox = True 
+                self.format = 12
             parent = parent.parent
-            
-        # TODO: Implement this:
-        # collections = obj.users_collection
-        # if collections:
-        #     print(f"{obj.name} is part of the following collections:")
-        #     for collection in collections:
-        #         print(collection.name)
         
     def read(self, buffer, cursor):
         self.id = cursor
@@ -1135,7 +1140,7 @@ class Material(DataStruct):
             
         self.texture = MaterialTexture(self, self.model).read(buffer, texture_addr)
         
-        # there should always be a shader_addr
+        # there should always be a shader_addr otherwise game will crash
         assert shader_addr > 0, "Material should have shader"
         self.shader.read(buffer, shader_addr)
         
@@ -2089,8 +2094,8 @@ class Node(DataStruct):
             self.unk1 =  node['unk1']
         if 'unk2' in node:
             self.unk2 = node['unk2']
-        if 'header' in node:
-            self.header = node['header']
+        # if 'header' in node:
+        #     self.header = node['header']
         
         if self.model.type == '7' and 2 in self.header:
             self.skybox = True
@@ -2630,8 +2635,6 @@ class Anim(DataStruct):
         for f in range(self.num_keyframes):
             self.keyframe_times.append(readFloatBE(buffer, keyframe_times_addr + f * 4))
 
-            print('flag', self.flag2)
-
             if self.flag2 & 0b111 == 0b000:  # rotation (4)
                 pose = RotationPose(self, self.model).read(buffer, cursor)
             elif self.flag2 & 0b111 == 0b001:  # position (3)
@@ -2968,6 +2971,8 @@ def deep_unmake(obj, parent, model, target_map):
     children = []
     
     if ('node_type' in obj and obj['node_type'] == 53349) or obj.animation_data or obj.name in target_map.keys(): # cases in which we need to retain hierarchy
+        # empty = create_node(obj['node_type'] if 'node_type' in obj else 53349, parent, model)
+        # empty.unmake(obj)
         empty = Group53349(parent, model, 53349).unmake(obj)
         # empty.matrix = FloatMatrix()
         # empty.matrix.data[0].data[0] = 1.0
@@ -2997,6 +3002,13 @@ def deep_unmake(obj, parent, model, target_map):
         children.extend(deep_unmake(child, parent, model, target_map))
             
     return children
+
+def get_all_objects_in_collection(collection):
+    """Recursively get all objects in a collection and its subcollections."""
+    objects = set(collection.objects)  # Start with objects directly in the collection
+    for child_collection in collection.children:
+        objects.update(get_all_objects_in_collection(child_collection))  # Add objects from subcollections
+    return objects
 
 def split_meshes_by_material(collection):
     bpy.ops.object.select_all(action='DESELECT')
@@ -3105,52 +3117,43 @@ class Model():
         split_meshes_by_material(collection)
         apply_scale(collection)
         
-        for child_collection in collection.children:
-            if child_collection.collection_type == '0': #Track
-                
-                # define a node that acts as the root for all track mesh
-                r_root_node = Group20580(root, self, 20580)
-                
-                # get all target objects
-                target_map = {b_obj.target.name: None for b_obj in child_collection.objects if b_obj.trigger_id and b_obj.target}
-                
-                # get immediate children and traverse hierarchy
-                immediate_children = get_immediate_children(child_collection)
-                unmade = []
-                for obj in immediate_children:
-                    unmade.extend(deep_unmake(obj, r_root_node, self, target_map))
-                
-                assign_objs_to_node_by_type(unmade, r_root_node, self)
+        # get all target objects
+        target_map = {b_obj.target.name: None for b_obj in get_all_objects_in_collection(collection) if b_obj.trigger_id and b_obj.target}
         
-                r_root_node.header = [0, 1]         
+        for child_collection in collection.children:
+            
+            r_root_node = Group20580(root, self, 20580)
+            
+            if child_collection.collection_type == '0': #Track
+                r_root_node.header = [0, 1]
+                append_root = r_root_node
                 root.children.append(r_root_node)
-                
-                
-                
-            if child_collection.collection_type == '1': #skybox
-                skybox_objects = [obj for obj in child_collection.objects if obj.type == 'MESH']
-                
-                
-                sky_group = Group20580(root, self, 20580)
-                sky_empty = Group53349(sky_group, self, 53349)
+            
+            elif child_collection.collection_type == '1': #skybox
+                sky_empty = Group53349(r_root_node, self, 53349)
                 sky_empty.header = [2]
                 sky_to_camera = Group53350(sky_empty, self, 53350)
-                sky_mesh = MeshGroup12388(sky_to_camera, self, 12388)
+                append_root = sky_to_camera
                 
-                for b_obj in [obj for obj in child_collection.objects if obj.type == 'MESH']:
-                    mesh = Mesh(sky_mesh, self).unmake(b_obj)
-                    mesh.material.shader.render_mode_1 = 0b1100000010000010000000001000
-                    mesh.material.shader.render_mode_2 = 0b11000000100010000000001000
-                    sky_mesh.children.append(mesh)
-                    mesh.parent = sky_mesh
                 
-                if skybox_objects:
-                    sky_mesh.calc_bounding()
-                    sky_to_camera.children.append(sky_mesh)
+                
                 sky_empty.children.append(sky_to_camera)
-                sky_group.children.append(sky_empty)
-                root.children.append(sky_group)
-        
+                r_root_node.children.append(sky_empty)
+                root.children.append(r_root_node)
+            else:
+                root.children.append(r_root_node)
+                append_root = r_root_node
+            
+            # get immediate children and traverse hierarchy
+            immediate_children = get_immediate_children(child_collection)
+            unmade = []
+            for obj in immediate_children:
+                unmade.extend(deep_unmake(obj, append_root, self, target_map))
+            assign_objs_to_node_by_type(unmade, append_root, self)
+            
+            print('root node', append_root, append_root.type, append_root.children)
+            
+       
         if self.type == '3': #part
             for o in collection.objects:
                 if o.type == 'MESH':
