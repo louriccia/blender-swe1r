@@ -5,7 +5,6 @@ from .swe1r.splineblock import Spline
 from .swe1r.textureblock import Texture
 from .swe1r.block import Block
 from .swe1r.general import *
-from .utils import exporting_progress, exporting_status
 from datetime import datetime
     
 scale = 100

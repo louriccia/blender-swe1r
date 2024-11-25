@@ -7,7 +7,6 @@ from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum
 from .operators import *
 from .constants import *
-from .utils import importing_progress, exporting_progress, importing_status, exporting_status
 from . import bl_info
 import os
 from bpy.utils import previews
