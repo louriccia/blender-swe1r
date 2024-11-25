@@ -104,12 +104,14 @@ def register():
     )
     bpy.types.Collection.collection_type = bpy.props.EnumProperty(
         items=[
+            ("NONE", "None", "Unspecified type"),
+            ("MODEL", "Model", "A Model Collection"),
             ("0", "Track", "A Track Model Collection"),
             ("1", "Skybox", "A Track Skybox Collection")
         ],
         name = "Collection Type",
         description="The type of collection",
-        default = 0
+        default = "NONE"
     )
    
     bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'collision_visible', update =utils.UpdateVisibleSelectable, default=True, description = "Show/hide all collidable mesh")
@@ -179,6 +181,10 @@ def register():
     bpy.types.Material.flip_x = bpy.props.BoolProperty(name = 'flip_x', default = False)
     bpy.types.Material.flip_y = bpy.props.BoolProperty(name = 'flip_y', default = False)
     
+    bpy.types.Scene.import_progress = bpy.props.FloatProperty(name="Import Progress", default=0.0, min=0.0, max=1.0)
+    bpy.types.Scene.import_status = bpy.props.StringProperty(name="Import Status", default="")
+    bpy.types.Scene.export_progress = bpy.props.FloatProperty(name="Export Progress", default=0.0, min=0.0, max=1.0)
+    bpy.types.Scene.export_status = bpy.props.StringProperty(name="Export Status", default="")
     
     operators.register()
     panels.register()

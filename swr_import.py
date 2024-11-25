@@ -42,13 +42,14 @@ from .utils import UpdateVisibleSelectable, data_name_prefix_short
 
 scale = 0.01
 
-def import_model(file_path, selector=None):
+def import_model(file_path, selector=None, update_progress=None):
     if selector is None:
         selector = range(324)
         
     # cleanup
 
     mats_removed = 0
+    update_progress(0.2, "Deleting unused materials")    
     for mat in bpy.data.materials:
         if mat.name.startswith(data_name_prefix_short) and (mat.users == 0 or int(mat.name[11:14]) in selector):
             bpy.data.materials.remove(mat)
@@ -56,6 +57,9 @@ def import_model(file_path, selector=None):
 
     if mats_removed > 0:
         print(f'Removed {mats_removed} unused materials.')
+
+
+    update_progress(0.3, "Deleting unused images")    
 
     imgs_removed = 0
     for img in bpy.data.images:
@@ -67,7 +71,9 @@ def import_model(file_path, selector=None):
         print(f'Removed {imgs_removed} unused images.')
         
     # setup
-
+    
+    update_progress(0.4, "Parsing .bin files")
+    
     modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
     textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
     splineblock = Block(file_path + 'out_splineblock.bin', [[]]).read()
@@ -78,17 +84,24 @@ def import_model(file_path, selector=None):
     # unpacking
 
     for model_id in selector:
+        update_progress(0.5, f'Reading model {model_id}')
+
         model_buffer = modelblock.fetch(model_id)[1]
         model = Model(model_id).read(model_buffer)
         if model is None:
             print("There was an error while parsing the model")
             return 
         model.modelblock = modelblock
+        update_progress(0.75, f'Making model {model_id}')
+
         collection = model.make()
         if model_id in spline_map:
             spline_id = spline_map[model_id]
             spline_buffer = splineblock.fetch(spline_id)[0]
+            update_progress(0.9, f'Reading spline {spline_id}')
+            
             spline = Spline(spline_id).read(spline_buffer)
+            update_progress(0.95, f'Making spline {spline_id}')
             collection.objects.link(spline.make(model.scale))
             
     # toggle visible/selectable

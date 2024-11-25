@@ -3026,6 +3026,7 @@ def apply_scale(collection):
     deep_select_objects(collection)
     
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bpy.ops.object.select_all(action='DESELECT')
 
 class Model():    
     def __init__(self, id):
@@ -3077,6 +3078,7 @@ class Model():
     def make(self):
         collection = bpy.data.collections.new(f"model_{self.id}_{self.type}")
         collection.export_type = self.type
+        collection.collection_type = "MODEL"
         
         bpy.context.scene.collection.children.link(collection)
         self.collection = collection
@@ -3151,9 +3153,6 @@ class Model():
                 unmade.extend(deep_unmake(obj, append_root, self, target_map))
             assign_objs_to_node_by_type(unmade, append_root, self)
             
-            print('root node', append_root, append_root.type, append_root.children)
-            
-       
         if self.type == '3': #part
             for o in collection.objects:
                 if o.type == 'MESH':

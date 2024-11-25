@@ -7,6 +7,7 @@ from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum
 from .operators import *
 from .constants import *
+from .utils import importing_progress, exporting_progress, importing_status, exporting_status
 from . import bl_info
 import os
 from bpy.utils import previews
@@ -77,14 +78,17 @@ class ImportPanel(bpy.types.Panel):
     
     def draw(self, context):
         layout = self.layout
-            
+        
         # Import
         layout.prop(context.scene, "import_folder", text = '', full_event=False)
         layout.prop(context.scene, "import_type", text="Type")
         layout.prop(context.scene, "import_model", text="Model")
         row = layout.row()
         row.scale_y = 1.5
-        row.operator("view3d.import_operator", text="Import")
+        if context.scene.import_progress > 0.0 and context.scene.import_progress < 1.0:
+            row.progress(factor = context.scene.import_progress, type = 'BAR', text = context.scene.import_status)
+        else:
+            row.operator("view3d.import_operator", text="Import")
         
 class ExportPanel(bpy.types.Panel):
     bl_label = "Export"
@@ -104,7 +108,6 @@ class ExportPanel(bpy.types.Panel):
         if collection:
             collection = collection.collection
             
-            
         # Export
         layout.prop(context.scene, "export_folder", text="", full_event=False)
         layout.prop(collection, 'export_model', text = "Model")
@@ -114,9 +117,20 @@ class ExportPanel(bpy.types.Panel):
         row.prop(context.scene, "is_export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
         layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
         row = layout.row()
+            
         row.scale_y = 1.5
-        row.operator("view3d.export_operator", text="Export")
+        if context.scene.export_progress > 0.0 and context.scene.export_progress < 1.0:
+            row.progress(factor = context.scene.export_progress, type = 'BAR', text = context.scene.export_status)
+        else:
+            row.operator("view3d.export_operator", text="Export")
         
+        if not any([context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline]) or collection.collection_type != "MODEL":
+            row.enabled = False
+            if collection.collection_type != "MODEL":
+                row = layout.row()
+                row.label(text = "Please select a model collection")
+
+            
 class ToolPanel(bpy.types.Panel):
     bl_label = "Tools"
     bl_idname = "PT_ToolPanel"

@@ -1,6 +1,7 @@
 import bpy
 import sys
 import importlib
+import time
 
 modules = [
     'swr_import',
@@ -45,6 +46,8 @@ class ImportOperator(bpy.types.Operator):
     
 
     def execute(self, context):
+        context.scene.import_progress = 0.01
+        context.scene.import_status = 'Importing...'
         folder_path = context.scene.import_folder
         if folder_path == "":
             show_custom_popup(bpy.context, "No set import folder", "Select your folder containing the .bin files")
@@ -55,8 +58,26 @@ class ImportOperator(bpy.types.Operator):
             show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
             return {'CANCELLED'}
 
-        import_model(folder_path, [int(context.scene.import_model)])
+        def update_progress(p, status):
+            context.scene.import_progress = p
+            context.scene.import_status = status
+            
+            # manually redraw since blender doesn't while in operation
+            # this is not recommended according to https://docs.blender.org/api/current/info_gotcha.html
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+           
+        try: 
+            import_model(folder_path, [int(context.scene.import_model)], update_progress)
+        except Exception as e:
+            context.scene.import_progress = 1.0
+            context.scene.import_status = ""
+            show_custom_popup(bpy.context, "An error occurred during import", e)
+            return {'CANCELLED'}
+            
+        context.scene.import_progress = 1.0
+        context.scene.import_status = ""
         return {'FINISHED'}
+    
 
 class ExportOperator(bpy.types.Operator):
     """Export the selected collection to the game files"""
@@ -85,7 +106,24 @@ class ExportOperator(bpy.types.Operator):
             show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
             return {'CANCELLED'}
         
-        export_model(selected_collection, folder_path, [context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline])
+        def update_progress(p, status):
+            context.scene.export_progress = p
+            context.scene.export_status = status
+            
+            # manually redraw since blender doesn't while in operation
+            # this is not recommended according to https://docs.blender.org/api/current/info_gotcha.html
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+            
+        try:
+            export_model(selected_collection, folder_path, [context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline], update_progress)
+        except Exception as e:
+            show_custom_popup(bpy.context, "An error occurred during export", e)
+            context.scene.export_progress = 1.0
+            context.scene.export_status = ""
+            return {'CANCELLED'}
+        
+        context.scene.export_progress = 1.0
+        context.scene.export_status = ""
         return {'FINISHED'}
     
 class NewModelOperator(bpy.types.Operator):
@@ -97,6 +135,7 @@ class NewModelOperator(bpy.types.Operator):
         type = context.scene.new_type
         type_name = model_types[int(type)][1]
         main_collection = bpy.data.collections.new("New " + type_name + " Model")
+        main_collection.collection_type = "MODEL"
         
         valid_models = [model for model in model_list if model['extension'] == type_name]
         

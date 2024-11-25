@@ -5,11 +5,12 @@ from .swe1r.splineblock import Spline
 from .swe1r.textureblock import Texture
 from .swe1r.block import Block
 from .swe1r.general import *
+from .utils import exporting_progress, exporting_status
 from datetime import datetime
     
 scale = 100
 
-def export_model(col, file_path, exports):
+def export_model(col, file_path, exports, update_progress):
     # prepare blender scene for export
     bpy.context.scene.frame_set(0)
     
@@ -24,14 +25,21 @@ def export_model(col, file_path, exports):
         show_custom_popup(bpy.context, "No Export", f"Please select an element to export")
         
     if 'MESH' in types and model_export:
+        
+        update_progress(0.1, "Parsing .bin files...")
+        
         modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
         textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
+        
+        update_progress(0.2, f'Unmaking {col.name}...')
         
         model = Model(col.export_model).unmake(col, texture_export, textureblock)
         id = model.id
         if model is None:
             show_custom_popup(bpy.context, "Model Error", "There was an issue while exporting the model")
             return
+        
+        update_progress(0.5, f'Writing {col.name}...')
         
         offset_buffer, model_buffer = model.write()
         modelblock.inject([offset_buffer, model_buffer], id)
@@ -40,10 +48,14 @@ def export_model(col, file_path, exports):
             file.write(modelblock.write())
             
         if texture_export:
+            update_progress(0.8, f'Writing textures...')
+            
             with open(file_path + 'out_textureblock.bin', 'wb') as file:
                 file.write(textureblock.write())
             
         if bpy.context.scene.is_export_separate:
+            update_progress(0.9, f'Writing separate .bin file...')
+            
             with open(file_path + 'model_' + str(model.id) + '_' + timestamp +'.bin', 'wb') as file:
                 file.write(model_buffer)
             with open(file_path + 'offset_' + str(model.id) + '_' + timestamp +'.bin', 'wb') as file:
@@ -60,12 +72,16 @@ def export_model(col, file_path, exports):
         #         file.write(string + '\n')
     
     if 'CURVE' in types and spline_export:
+        update_progress(0.95, f'Unmaking spline...')
+        
         splineblock = Block(file_path + 'out_splineblock.bin', [[]]).read()
         spline = Spline().unmake(col)
         
         if spline is None:
             show_custom_popup(bpy.context, "Spline Error", "There was an issue while exporting the spline")
             return
+        
+        update_progress(0.99, f'Writing spline...')
         
         spline_buffer = spline.write()
         splineblock.inject([spline_buffer], spline.id)
