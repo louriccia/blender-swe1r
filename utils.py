@@ -30,7 +30,7 @@ model_types = [
     ('2', 'Modl', 'Misc animated elements'),
     ('3', 'Part', 'Misc props'),
     ('4', 'Podd', 'Pod models'),
-    ('5', 'Pupp', 'Animated racers'),
+    ('5', 'Pupp', 'Animated characters'),
     ('6', 'Scen', 'Animated scenes'),
     ('7', 'Trak', 'Tracks'),
     ]

@@ -1292,7 +1292,7 @@ class Material(DataStruct):
                         #new_modifier = fcurves_f.modifiers.new(type='CYCLES')
                         for k in fcurves_f.keyframe_points:
                             k.interpolation = 'CONSTANT'
-            
+            material.preview_render_type = 'FLAT'
             return material
         else:
             
@@ -1302,8 +1302,7 @@ class Material(DataStruct):
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             node_0.inputs["Specular IOR Level"].default_value = 0
             material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
-            #node_0.inputs["Emission Strength"].default_value = 1.0
-            #material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Emission Color"])
+            material.preview_render_type = 'FLAT'
             return material
 
     def unmake(self, material):
