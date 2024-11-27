@@ -1300,6 +1300,7 @@ class Material(DataStruct):
             # colors = [0, 0, 0, 0] if self.unk is None else self.unk.color
             # material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
+            node_0.inputs["Specular IOR Level"].default_value = 0
             material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
             #node_0.inputs["Emission Strength"].default_value = 1.0
             #material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Emission Color"])
@@ -3156,7 +3157,7 @@ class Model():
         if self.type == '3': #part
             for o in collection.objects:
                 if o.type == 'MESH':
-                    assign_objs_to_node_by_type(Mesh(None,self).unmake(o), root, self)
+                    assign_objs_to_node_by_type([Mesh(None,self).unmake(o)], root, self)
                 
         #update trigger targets
         for trigger in self.triggers:

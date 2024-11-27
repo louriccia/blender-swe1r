@@ -1,6 +1,7 @@
 import bpy
 import sys
 import importlib
+import traceback
 import time
 
 modules = [
@@ -71,7 +72,9 @@ class ImportOperator(bpy.types.Operator):
         except Exception as e:
             context.scene.import_progress = 1.0
             context.scene.import_status = ""
-            show_custom_popup(bpy.context, "An error occurred during import", e)
+            print("Complete exception details:")
+            traceback.print_exception(type(e), e, e.__traceback__)
+            show_custom_popup(bpy.context, "An error occurred during import", str(e))
             return {'CANCELLED'}
             
         context.scene.import_progress = 1.0
@@ -117,7 +120,9 @@ class ExportOperator(bpy.types.Operator):
         try:
             export_model(selected_collection, folder_path, [context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline], update_progress)
         except Exception as e:
-            show_custom_popup(bpy.context, "An error occurred during export", e)
+            print("Complete exception details:")
+            traceback.print_exception(type(e), e, e.__traceback__)
+            show_custom_popup(bpy.context, "An error occurred during export", str(e))
             context.scene.export_progress = 1.0
             context.scene.export_status = ""
             return {'CANCELLED'}
