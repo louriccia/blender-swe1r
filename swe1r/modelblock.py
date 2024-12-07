@@ -287,8 +287,6 @@ class CollisionTrigger(DataStruct):
         struct.pack_into(self.format_string, buffer, cursor, *self.position.to_array(), *self.rotation.to_array(), self.width, self.height, target, self.id, 0, 0)
         self.flags.write(buffer, cursor + 38)
         self.model.highlight(cursor + 32)
-        #if self.target:
-            #self.model.outside_ref(cursor + 32, self.target)
         return cursor + self.size
 
 class SurfaceEnum():
@@ -1900,7 +1898,6 @@ class Mesh(DataStruct):
         return self
 
     def write(self, buffer, cursor):
-        self.model.map_ref(cursor, self.id)
         self.write_location = cursor
         #initialize addresses
         mat_addr = 0
@@ -2137,7 +2134,6 @@ class Node(DataStruct):
         return self
     
     def write(self, buffer, cursor):
-        self.model.map_ref(cursor, self.id)
         self.write_location = cursor
         
         #write references to this node in the model header
@@ -3208,29 +3204,10 @@ class Model():
         for i, anim in enumerate(self.Anim.data):
             writeUInt32BE(buffer, cursor, self.anim_list + i*4)
             cursor = anim.write(buffer, cursor)
-
-        # write all outside references
-        # refs = [ref for ref in self.ref_keeper if ref != '0']
-        # for ref in refs:
-        #     for offset in self.ref_keeper[ref]:
-        #         writeUInt32BE(buffer, self.ref_map[ref], offset)
                 
         crop = math.ceil(cursor / (32 * 4)) * 4
         
         return [self.hl[:crop], buffer[:cursor]]
-    
-    def outside_ref(self, cursor, ref):
-        # Used when writing modelblock to keep track of references to offsets outside of the given section
-        #ref = str(ref)
-        if ref not in self.ref_keeper:
-            self.ref_keeper[ref] = []
-        self.ref_keeper[ref].append(cursor)
-        
-    def map_ref(self, cursor, id):
-        # Used when writing modelblock to map original ids of nodes to their new ids
-        #id = str(id)
-        if id not in self.ref_map:
-            self.ref_map[id] = cursor
             
     def highlight(self, cursor):
         # This function is called whenever an address needs to be 'highlighted' because it is a pointer
