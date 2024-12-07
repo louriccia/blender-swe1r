@@ -1021,17 +1021,17 @@ model_list = [
  },
  {
    "index": 204,
-   "name": "R-20 Repulsorgirp",
+   "name": "R-20 Repulsorgrip",
    "extension": "Part"
  },
  {
    "index": 205,
-   "name": "R-60 Repulsorgirp",
+   "name": "R-60 Repulsorgrip",
    "extension": "Part"
  },
  {
    "index": 206,
-   "name": "R-80 Repulsorgirp",
+   "name": "R-80 Repulsorgrip",
    "extension": "Part"
  },
  {
@@ -1151,7 +1151,7 @@ model_list = [
  },
  {
    "index": 230,
-   "name": "R-100 Repulsorgirp",
+   "name": "R-100 Repulsorgrip",
    "extension": "Part"
  },
  {
@@ -1206,12 +1206,12 @@ model_list = [
  },
  {
    "index": 241,
-   "name": "R-300 Repulsorgirp",
+   "name": "R-300 Repulsorgrip",
    "extension": "Part"
  },
  {
    "index": 242,
-   "name": "R-600 Repulsorgirp",
+   "name": "R-600 Repulsorgrip",
    "extension": "Part"
  },
  {

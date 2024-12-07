@@ -47,8 +47,7 @@ class ImportOperator(bpy.types.Operator):
     
 
     def execute(self, context):
-        context.scene.import_progress = 0.01
-        context.scene.import_status = 'Importing...'
+        
         folder_path = context.scene.import_folder
         if folder_path == "":
             show_custom_popup(bpy.context, "No set import folder", "Select your folder containing the .bin files")
@@ -58,6 +57,9 @@ class ImportOperator(bpy.types.Operator):
         if not os.path.exists(folder_path  + 'out_modelblock.bin'):
             show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
             return {'CANCELLED'}
+
+        context.scene.import_progress = 0.01
+        context.scene.import_status = 'Importing...'
 
         def update_progress(p, status):
             context.scene.import_progress = p
@@ -109,6 +111,9 @@ class ExportOperator(bpy.types.Operator):
             show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
             return {'CANCELLED'}
         
+        context.scene.export_progress = 0.01
+        context.scene.export_status = 'Importing...'
+        
         def update_progress(p, status):
             context.scene.export_progress = p
             context.scene.export_status = status
@@ -129,6 +134,7 @@ class ExportOperator(bpy.types.Operator):
         
         context.scene.export_progress = 1.0
         context.scene.export_status = ""
+        
         return {'FINISHED'}
     
 class NewModelOperator(bpy.types.Operator):

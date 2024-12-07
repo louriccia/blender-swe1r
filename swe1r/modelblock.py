@@ -1053,6 +1053,17 @@ class MaterialShader(DataStruct):
         self.color.read(buffer, cursor + 34)
     
     def make(self, material):
+        material['unk1'] = self.unk1 = 0
+        material['unk2'] = self.unk2 = 2
+        
+        material['color_combine_mode_cycle1'] = str(self.color_combine_mode_cycle1)
+        material['alpha_combine_mode_cycle1'] = str(self.alpha_combine_mode_cycle1)
+        material['color_combine_mode_cycle2'] = str(self.color_combine_mode_cycle2)
+        material['alpha_combine_mode_cycle2'] = str(self.alpha_combine_mode_cycle2 )
+        
+        material['render_mode_1'] = str(self.render_mode_1)
+        material['render_mode_2'] = str(self.render_mode_2)
+        
         if self.unk1 == 8:
             material.show_transparent_back = True
             material.blend_method = 'BLEND'
@@ -1060,12 +1071,12 @@ class MaterialShader(DataStruct):
     def unmake(self, material):
         if material.blend_method == 'BLEND':
             self.unk1 = 8
-            self.render_mode_2 =  0b000000000100000011000   #0b100000100100101111001
-            #use alpha bit                   100000000000
-            #goes from alpha blend to alpha clip    10000
+            self.render_mode_2 =        0b000000000100000011000   #0b100000100100101111001
+            #use alpha bit                         100000000000
+            #goes from alpha blend to alpha clip          10000
         if hasattr(self.parent, 'skybox') and self.parent.skybox:
             self.render_mode_1 = 0b1100000010000010000000001000 #fixes small stitching issues
-            self.render_mode_2 = 0b11000000100010000000001000
+            self.render_mode_2 =   0b11000000100010000000001000
             
         # alternate way to detect if this material is on a skybox mesh
         mat = self.parent
@@ -1077,6 +1088,16 @@ class MaterialShader(DataStruct):
                     self.render_mode_1 = 0b1100000010000010000000001000
                     self.render_mode_2 = 0b11000000100010000000001000
                     break
+        
+        #self.unk1 = material.get('unk1', 0)
+        #self.unk2 = material.get('unk2', 0)
+        #self.color_combine_mode_cycle1 = int(material.get('color_combine_mode_cycle1', 0))
+        #self.alpha_combine_mode_cycle1 = int(material.get('alpha_combine_mode_cycle1', 0))
+        #self.color_combine_mode_cycle2 = int(material.get('color_combine_mode_cycle2', 0))
+        #self.alpha_combine_mode_cycle2 = int(material.get('alpha_combine_mode_cycle2', 0))
+        self.render_mode_1 = int(material.get('render_mode_1', 0))
+        self.render_mode_2 = int(material.get('render_mode_2', 0))
+        
             
         return self
     
@@ -1278,7 +1299,7 @@ class Material(DataStruct):
             image_node = material.node_tree.nodes["Image Texture"]
             image_node.image = b_tex
             
-            if self.texture_anim:
+            if self.texture_anim: # TODO
                 bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
                 image_node.image = bpy.data.images.get('0.png')
                 bpy.data.images["0.png"].source = 'SEQUENCE'
@@ -1349,6 +1370,8 @@ class Material(DataStruct):
                     poses = [0, 1] if material.scroll_y < 0 else [1, 0]
                     times = [0, abs(material.scroll_y) * self.model.fps]
                     self.model.animations.append(Anim(self, self.model).unmake(times, poses, 'uv_y', loop = True))
+        
+            self.format = material.get('format')
         
         if self.model: 
             self.model.materials[material_name] = self
@@ -2910,6 +2933,7 @@ def r_get_family(node):
     return objects
 
 def assign_objs_to_node_by_type(objects, root, model):
+    # TODO: Make a way for this to respsect the shown order in the outliner for the sake of depth order in some cases (like skyboxes)
     viscol = []
     col = []
     vis = []
@@ -2924,17 +2948,19 @@ def assign_objs_to_node_by_type(objects, root, model):
         elif obj.has_visuals():
             vis.append(obj)
         
-    for node in other:
-        root.children.append(node)
         
     for arr in [viscol, vis, col]:
         if len(arr):
-            node = MeshGroup12388(root, model, 12388)
+            mesh_group = MeshGroup12388(root, model, 12388)
             for child in arr: 
-                child.parent = node
-                node.children.append(child)
-            node.calc_bounding()
-            root.children.append(node)
+                child.parent = mesh_group
+                mesh_group.children.append(child)
+            mesh_group.calc_bounding()
+            root.children.append(mesh_group)
+            
+    # this is added last as a hack since hierarchies sometimes need to be drawn last (oovo skybox)
+    for node in other:
+        root.children.append(node)
 
 def get_obj_by_id(id):
     for obj in bpy.data.objects:
@@ -2970,7 +2996,7 @@ def deep_unmake(obj, parent, model, target_map):
     
     children = []
     
-    if ('node_type' in obj and obj['node_type'] == 53349) or obj.animation_data or obj.name in target_map.keys(): # cases in which we need to retain hierarchy
+    if (obj.get('node_type') == 53349) or obj.animation_data or obj.name in target_map.keys(): # cases in which we need to retain hierarchy
         # empty = create_node(obj['node_type'] if 'node_type' in obj else 53349, parent, model)
         # empty.unmake(obj)
         empty = Group53349(parent, model, 53349).unmake(obj)
@@ -2989,7 +3015,7 @@ def deep_unmake(obj, parent, model, target_map):
             empty_children.append(mesh)
         
         for child in obj.children:
-            empty_children.extend(deep_unmake(child, empty, model, target_map))
+            empty_children = empty_children + deep_unmake(child, empty, model, target_map)
         assign_objs_to_node_by_type(empty_children, empty, model)
         children.append(empty)
             

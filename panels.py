@@ -14,7 +14,6 @@ from bpy.utils import previews
 models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
 classes = []    
     
-bpy.types.Object.target = bpy.props.PointerProperty(type=bpy.types.Object)
 
 #https://blenderartists.org/t/bpy-types-pointerproperty-fpr-view-layer/1446387
 # For anyone who stumbles upon this topic in the future, you can create a custom enum like this:

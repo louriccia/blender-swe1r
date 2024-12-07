@@ -138,6 +138,7 @@ def register():
     bpy.types.Object.collidable = bpy.props.BoolProperty(name ='collidable', default=False, update = utils.create_update_function("collidable"))
     
     bpy.types.Object.collision_data = bpy.props.BoolProperty(name ='collision_data', default=False, update = utils.create_update_function("collision_data"))
+    bpy.types.Object.target = bpy.props.PointerProperty(type=bpy.types.Object)
     
     for flag in dir(swe1r.modelblock.SurfaceEnum):
         if not flag.startswith("__"):
