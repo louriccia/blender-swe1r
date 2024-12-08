@@ -212,7 +212,7 @@ class TriggerFlag(DataStruct):
 
 class CollisionTrigger(DataStruct):
     def __init__(self, parent, model):
-        super().__init__('>8fi2hi')
+        super().__init__('>8fI2hI')
         self.parent = parent
         self.model = model
         self.position = FloatPosition()
@@ -244,10 +244,9 @@ class CollisionTrigger(DataStruct):
         
         
         self.flags.make(trigger_empty)
-        trigger_empty['target_id'] = self.target
-        # TODO: this needs to be able to select targets that aren't made yet
-        # if self.target and '{:07d}'.format(self.target) in bpy.data.objects:
-        #     trigger_empty.target = bpy.data.objects['{:07d}'.format(self.target)]
+        # store a ref to the target id so we can properly connect it later
+        # we store as string because the int is too large for c
+        trigger_empty['target_id'] = str(self.target)
         
         if parent is not None:
             trigger_empty.parent = parent
@@ -281,13 +280,15 @@ class CollisionTrigger(DataStruct):
         return self
     
     def write(self, buffer, cursor):
-        target = 0
-        if self.target and hasattr(self.target, 'write_location'):
-            target = self.target.write_location
-        struct.pack_into(self.format_string, buffer, cursor, *self.position.to_array(), *self.rotation.to_array(), self.width, self.height, target, self.id, 0, 0)
+        self.write_location = cursor
+        struct.pack_into(self.format_string, buffer, cursor, *self.position.to_array(), *self.rotation.to_array(), self.width, self.height, 0, self.id, 0, 0)
         self.flags.write(buffer, cursor + 38)
         self.model.highlight(cursor + 32)
         return cursor + self.size
+    
+    def write_target(self, buffer):
+        if self.target:
+            struct.pack_into('>I', buffer, self.write_location + 32, self.target.write_location)
 
 class SurfaceEnum():
     ZOn = (1 << 0)
@@ -3159,8 +3160,6 @@ class Model():
                 sky_to_camera = Group53350(sky_empty, self, 53350)
                 append_root = sky_to_camera
                 
-                
-                
                 sky_empty.children.append(sky_to_camera)
                 r_root_node.children.append(sky_empty)
                 root.children.append(r_root_node)
@@ -3204,6 +3203,10 @@ class Model():
         for i, anim in enumerate(self.Anim.data):
             writeUInt32BE(buffer, cursor, self.anim_list + i*4)
             cursor = anim.write(buffer, cursor)
+            
+        # write trigger targets
+        for trigger in self.triggers:
+            trigger.write_target(buffer)
                 
         crop = math.ceil(cursor / (32 * 4)) * 4
         
