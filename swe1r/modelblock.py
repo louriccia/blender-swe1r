@@ -28,7 +28,7 @@ import copy
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture
 from ..popup import show_custom_popup
-from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short, get_model_type, model_types, header_sizes
+from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short, get_model_type, model_types, header_sizes, showbytes
 
 name_attr_uvmap = data_name_format_short.format(label='uv_map')
 name_attr_colors = data_name_format_short.format(label='colors')
@@ -2201,6 +2201,13 @@ class MeshGroup12388(Node):
         return self
     
     def make(self, parent = None, collection = None):
+        #avoid making visuals and collision that is not used in game
+        showbyte = showbytes[str(self.model.id)]
+        unused = showbyte != None and (showbyte & self.col_flags == 0)
+        
+        if unused:
+            return None
+        
         return super().make(parent, collection)
     
     def unmake(self, node):
