@@ -62,13 +62,13 @@ class Lights(DataStruct):
     def make(self, obj):
         
         if self.flag & 0x3 > 0:
-            existing_light = find_existing_light(mathutils.Color(self.color.make()), mathutils.Vector([a * self.model.scale for a in self.pos.make()]),  mathutils.Euler(self.rot.make()))
+            objects = get_all_objects_in_collection(self.model.collection)
+            existing_light = find_existing_light(objects, mathutils.Color(self.color.make()), mathutils.Vector([a * self.model.scale for a in self.pos.make()]),  mathutils.Euler(self.rot.make()))
             if existing_light is None:
                 # Create a new light if no existing light is found
                 
                 new_light = bpy.data.lights.new(type='POINT', name='pod_lighting')
                 new_light.color = self.color.make()
-                obj.lighting_light = new_light
                 
                 light_object = bpy.data.objects.new(name="pod_lighting", object_data=new_light)
                 self.model.collection.objects.link(light_object)
@@ -76,6 +76,8 @@ class Lights(DataStruct):
                 # Set the location and rotation
                 light_object.location = [a * self.model.scale for a in self.pos.make()]
                 light_object.rotation_euler = self.rot.make()
+                
+                obj.lighting_light = new_light
             else: 
                 obj.lighting_light = existing_light.data
         obj.lighting_color = self.ambient.make()
@@ -86,7 +88,6 @@ class Lights(DataStruct):
     def unmake(self, obj):
         if obj.lighting_light is not None:
             light_object = bpy.data.objects.get(obj.lighting_light.name)
-            
             self.flag |= 0x3
             
             if light_object:
@@ -106,7 +107,7 @@ class Lights(DataStruct):
         return self
     
     def to_array(self):
-        return [self.flag, *self.ambient.to_array(), *self.color.to_array(),self.unk1, self.unk2, *self.pos.to_array(), *self.rot.to_array()]
+        return [self.flag, *self.ambient.to_array(), *self.color.to_array(), self.unk1, self.unk2, *self.pos.to_array(), *self.rot.to_array()]
         
     def from_array(self, arr):
         self.flag, ambient_r, ambient_g, ambient_b,color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, a, b, c = arr

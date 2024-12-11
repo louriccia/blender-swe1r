@@ -287,9 +287,9 @@ def populate_enum(scene, context):
  
     return current_view_layers
 
-def find_existing_light(color, location, rotation):
-    for light in bpy.data.objects:
-        if light.type == 'LIGHT' and light.data.color == color and (light.location - location).length < 0.001:
+def find_existing_light(objects, color, location, rotation):
+    for light in objects:
+        if light.type == 'LIGHT' and light.data.color == color and (light.location - location).length < 0.001 and light.users:
             # Check rotation (convert both to Euler for comparison)
             existing_rotation = light.rotation_euler
             if existing_rotation == rotation:
