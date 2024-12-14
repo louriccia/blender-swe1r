@@ -26,7 +26,7 @@ import math
 import mathutils
 import copy
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
-from .textureblock import Texture
+from .textureblock import Texture, compute_image_hash
 from ..popup import show_custom_popup
 from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short, get_model_type, model_types, header_sizes, showbytes
 
@@ -1006,6 +1006,9 @@ class MaterialTexture(DataStruct):
             self.tex_index = image.name[data_name_prefix_len:]
             self.id = image.name[data_name_prefix_len:]
         elif self.model.texture_export:
+            hash = compute_image_hash(image)
+            if hash == image.get('hash'):
+                return self
             texture = Texture(self.id, self.format).unmake(image, self.format)
             pixel_buffer = texture.pixels.write()
             palette_buffer = texture.palette.write()
