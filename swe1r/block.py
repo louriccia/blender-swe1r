@@ -83,10 +83,12 @@ class Block():
     def inject(self, data, index):
         index = int(index)
         for j in range(self.sub_chunks):
-            if index > len(self.data[j]) - 1:
-                self.data[j].append(data[j])
-            else:
-                self.data[j][index] = data[j]
+            if index >= len(self.data[j]):
+                for k in range(len(self.data[j]) - 1, index):
+                    self.data[j].append(0)
+                    print('new length', len(self.data[j]))
+            print('writing to', index)
+            self.data[j][index] = data[j]
         return self
             
     def fetch(self, index):

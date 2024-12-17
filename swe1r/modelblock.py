@@ -26,7 +26,7 @@ import math
 import mathutils
 import copy
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
-from .textureblock import Texture, compute_image_hash
+from .textureblock import Texture, compute_image_hash, compute_hash
 from ..popup import show_custom_popup
 from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short, get_model_type, model_types, header_sizes, showbytes
 
@@ -980,10 +980,6 @@ class MaterialTexture(DataStruct):
         elif 'id' in image:
             self.tex_index = int(image['id'])
             self.id = int(image['id'])
-        else:
-            self.tex_index = self.model.texture_index
-            self.id = self.model.texture_index
-            self.model.texture_index += 1
 
         if override_format is not None:
             self.format = int(override_format)
@@ -1003,17 +999,36 @@ class MaterialTexture(DataStruct):
             return self
 
         if image.name in self.model.written_textures:
-            self.tex_index = image.name[data_name_prefix_len:]
-            self.id = image.name[data_name_prefix_len:]
+            self.tex_index = image['id']
+            self.id = image['id']
         elif self.model.texture_export:
             hash = compute_image_hash(image)
+            
+            #if it matches what was imported, do nothing
             if hash == image.get('hash'):
-                return self
-            texture = Texture(self.id, self.format).unmake(image, self.format)
+                return self    
+            
+            id = len(self.model.textureblock.data[0])
+            self.id = id
+            self.tex_index = id
+            image['id'] = id
+            texture = Texture(id, self.format).unmake(image, self.format)
             pixel_buffer = texture.pixels.write()
             palette_buffer = texture.palette.write()
-            self.model.textureblock.inject([pixel_buffer, palette_buffer], self.id)
-            self.model.written_textures[image.name] = self.tex_index
+            
+            #see if this texture is already in block
+            buffer = pixel_buffer + palette_buffer
+            buffer_hash = compute_hash(buffer)
+            for i, texture_hash in enumerate(self.model.textureblock.hash_table):
+                if texture_hash == buffer_hash:
+                    print('got existing', i)
+                    self.id = i
+                    self.tex_index = i
+                    image['id'] = i
+                    return self
+            
+            self.model.textureblock.inject([pixel_buffer, palette_buffer], id)
+            self.model.written_textures[image.name] = id
 
         return self
 
@@ -3067,7 +3082,6 @@ class Model():
         self.parent = None
         self.modelblock = None
         self.collection = None
-        self.texture_index = 800#1648
         self.type = None
         self.id = id
         self.scale = 0.01

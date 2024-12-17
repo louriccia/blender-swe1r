@@ -3,6 +3,7 @@ import sys
 import importlib
 import traceback
 import time
+from bpy_extras.io_utils import ImportHelper
 
 modules = [
     'swr_import',
@@ -430,6 +431,43 @@ class OpenUrl(bpy.types.Operator):
         open_url(self.url)
         return {"FINISHED"}
 
+# Custom operator to load and assign an image
+class OpenImageTexture(bpy.types.Operator, ImportHelper):
+    """Open Image and Assign to Texture Node"""
+    bl_idname = "view3d.open_image"
+    bl_label = "Open Image"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filename_ext = ".png;.jpg;.jpeg;.bmp;.tiff;.tga;.exr;.hdr"
+    filter_glob: bpy.props.StringProperty(
+        default="*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.tga;*.exr;*.hdr;*.gif",
+        options={'HIDDEN'},
+        maxlen=255
+    )
+    
+    def invoke(self, context, event):
+        # Open the file browser
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        print("Selected file:", self.filepath)
+        # Validate the file path
+        if not self.filepath:
+            self.report({'WARNING'}, "No file selected.")
+            return {'CANCELLED'}
+        
+        image = bpy.data.images.load(self.filepath, check_existing=True)
+        for obj in context.selected_objects:
+            if obj and obj.type == 'MESH':
+                mats = [slot.material for slot in obj.material_slots]
+                if len(mats) and mats[0].node_tree:
+                    for node in mats[0].node_tree.nodes:
+                        if node.type == 'TEX_IMAGE':
+                            node.image = image
+                            self.report({'INFO'}, f"Assigned {image.name} to {node.name}")
+        return {'FINISHED'}
+        
 # BAKE LIGHTING TO VERTEX COLORS
 
 # def bake_vertex_colors(b_context, b_obj_list):
@@ -583,6 +621,7 @@ register_classes = (
     BakeVColorsClear,
     BakeVColorsCollection,
     BakeVColorsCollectionClear,
+    OpenImageTexture
 )
 
 def register():

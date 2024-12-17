@@ -13,7 +13,6 @@ from bpy.utils import previews
 
 models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
 classes = []    
-    
 
 #https://blenderartists.org/t/bpy-types-pointerproperty-fpr-view-layer/1446387
 # For anyone who stumbles upon this topic in the future, you can create a custom enum like this:
@@ -113,14 +112,22 @@ class ExportPanel(bpy.types.Panel):
         row.prop(context.scene, "is_export_model", text="Model", icon='MESH_CUBE', toggle=True, icon_only=True)
         row.prop(context.scene, "is_export_texture", text="Texture", icon='MATERIAL', toggle=True, icon_only=True)
         row.prop(context.scene, "is_export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
+        
+        if context.scene.is_export_texture:
+            row = layout.row()
+            row.label(text = "New custom textures may require game restart")
+            row.enabled = False
+            
         layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
         row = layout.row()
+            
             
         row.scale_y = 1.5
         if context.scene.export_progress > 0.0 and context.scene.export_progress < 1.0:
             row.progress(factor = context.scene.export_progress, type = 'BAR', text = context.scene.export_status)
         else:
             row.operator("view3d.export_operator", text="Export")
+        
         
         if not any([context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline]) or collection.collection_type != "MODEL":
             row.enabled = False
@@ -276,7 +283,15 @@ class SelectedPanel(bpy.types.Panel):
                 #row.operator('', text='', emboss=False, icon='LOOP_BACK')
                 row.prop(context.scene, "textures_expanded", icon = icon, text = "", emboss = False)
                 mats = [slot.material for slot in obj.material_slots]
+                
                 if context.scene.textures_expanded and len(mats):
+                    
+                    for node in mats[0].node_tree.nodes:
+                        if node.type == 'TEX_IMAGE':
+                            row = box.row(align = True)
+                            row.prop(node, "image", text = "")
+                            row.operator("view3d.open_image", text="", icon='FILEBROWSER')
+                            break
                     row = box.row()
                     row.label(text = 'Scroll')
                     row.prop(mats[0], 'scroll_x', text = "x")

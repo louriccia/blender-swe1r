@@ -25,11 +25,14 @@ import bpy
 from ..utils import euclidean_distance, data_name_format
 from .modelblock import DataStruct
 
+def compute_hash(buffer):
+    return hashlib.md5(buffer).hexdigest()
+
 def compute_image_hash(image):
     # Assume 'image' is a Blender image object
     pixels = image.pixels[:]  # Get pixel data
     pixel_bytes = bytes([int(p * 255) for p in pixels])  # Convert to 0-255 range
-    return hashlib.md5(pixel_bytes).hexdigest()
+    return compute_hash(pixel_bytes)
 
 class Texture():
     def __init__(self, id, format = 513, width = 32, height = 32):

@@ -5,6 +5,7 @@ from .swe1r.splineblock import Spline
 from .swe1r.textureblock import Texture
 from .swe1r.block import Block
 from .swe1r.general import *
+from .swe1r.textureblock import compute_hash
 from datetime import datetime
     
 scale = 100
@@ -29,6 +30,15 @@ def export_model(col, file_path, exports, update_progress):
         
         modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
         textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
+        
+        if texture_export:
+            textureblock.hash_table = []
+            for i, block in enumerate(textureblock.data[0]):
+                buffer = block
+                if textureblock.data[1][i]:
+                    buffer += textureblock.data[1][i]
+                hash = compute_hash(buffer)
+                textureblock.hash_table.append(hash)
         
         update_progress(0.2, f'Unmaking {col.name}...')
         
