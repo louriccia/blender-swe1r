@@ -842,6 +842,7 @@ class VisualsIndexBuffer():
         
         index_buffer = []
         # TODO: this should not pair faces that have indices more than 63 apart in the same chunk
+        # TODO: Investigate missing tris
         while len(faces) > 1:
             chunk_type = 6
             chunk_class = self.map.get(chunk_type)
@@ -2919,6 +2920,7 @@ class ModelHeader():
         self.model.collection['header'] = self.offsets
         self.model.collection.export_type = self.model.type
         # TODO: FIX LATER
+        # TODO: Investigate podds with missing anim poses, also bumpy with only engines
         #self.model.collection.export_model = str(self.model.id)
         
         if self.model.Data:
