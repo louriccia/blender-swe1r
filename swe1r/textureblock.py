@@ -21,6 +21,7 @@
 
 import struct
 import hashlib
+import numpy as np
 import bpy
 from ..utils import euclidean_distance, data_name_format
 from .modelblock import DataStruct
@@ -134,6 +135,8 @@ class RGBA5551(DataStruct):
         color = (((r | g) | b) | a)
         struct.pack_into(self.format_string, buffer, cursor, color)
         return cursor + self.size
+    def distance(self, other):
+        return sum([abs(self.r - other.r), abs(self.g - other.g), abs(self.b - other.b)])
     def __eq__(self, other):
         return self.r == other.r and self.g == other.g and self.b == other.b and self.a == other.a
     
@@ -141,14 +144,9 @@ class Palette():
     def __init__(self, texture):
         self.texture = texture
         self.data = []
+        self.map = {}
     
     def read(self, buffer):
-        format = self.texture.format
-        format_map = {
-            512: 16,
-            513: 256
-        }
-
         if not buffer:
             return []
 
@@ -167,15 +165,28 @@ class Palette():
             threshold = 256
         else:
             threshold = 16 if int(image['format']) == 512 else 256
-        pixels = image.pixels
-        
+    
         # TODO: replace with color quantization solution
-        for i in range(0, len(pixels), 4):
-            color = RGBA5551().from_array([ int(j*255) for j in pixels[i: i+4]])
-            if not color in self.data:
-                self.data.append(color)
-            if len(self.data) == threshold:
-                break
+        image_data = np.array(image.pixels[:])  # Convert pixel data to a NumPy array
+
+        step = threshold / 3
+        quantized = np.round(image_data / step) * step
+        quantized.astype(np.uint8)
+        
+    
+        pixels = quantized.astype(np.uint8).reshape(-1, 4)
+
+        # unique_pixels = np.unique(pixels, axis=0)
+        # for pixel in unique_pixels[:threshold]:
+        #     #detect if we need format 3
+        #     if pixel[3] > 0 and pixel[3] < 1:
+        #         #abandon palettization since we don't need it for format 3
+        #         image['format'] = 3
+        #         self.texture.format = 3
+        #         return self
+        #     color = RGBA5551().from_array([ max(0, min(int(j*255), 255)) for j in pixel])
+        #     self.data.append(color)
+        
         return self
     
     def write(self):
@@ -189,15 +200,17 @@ class Palette():
     
     def closest(self, target):
         
-        
-        min_distance = float('inf')
-        closest = None
+        closest_color = None
+        closest_distance = 0
         for i, color in enumerate(self.data):
-            distance = euclidean_distance(target.to_array()[:3], color.to_array()[:3])  # Consider only RGB components for distance calculation
-            if distance < min_distance:
-                min_distance = distance
-                closest = i
-        return closest
+            if color == target:
+                return i
+            distance = target.distance(color)
+            if closest_color is None or distance < closest_distance:
+                closest_color = i
+                closest_distance = distance
+        
+        return closest_color
     
 class Pixels():
     def __init__(self, texture):
@@ -255,17 +268,19 @@ class Pixels():
         palette = None
         if format in [512, 513]:
             palette = self.texture.palette
-            
-        for i in range(0, len(image.pixels), 4):
-            pixel = image.pixels[i: i+4]
-            if format == 3:
-                self.data.append([c for c in pixel])
-            elif format in [512, 513]:
+        
+        if format == 3:
+            self.data = image.pixels    
+        elif format in [1024, 1025]:
+            for i in range(0, len(image.pixels), 4):
+                pixel = image.pixels[i: i+4]
+                self.data.append(sum(pixel[:3])/3)
+        elif format in [512, 513]:
+            for i in range(0, len(image.pixels), 4):
+                pixel = image.pixels[i: i+4]
                 color = RGBA5551().from_array([int(p*255) for p in pixel])
                 closest = palette.closest(color)
                 self.data.append(closest)
-            elif format in [1024, 1025]:
-                self.data.append(sum(pixel[:3])/3)
         return self
 
     def write(self):
@@ -286,14 +301,14 @@ class Pixels():
                 elif format == 1024:
                     struct.pack_into('>B', buffer, cursor, (self.data[i] // 0x11 << 4) | (self.data[i + 1] // 0x11))
                 cursor += 1
+        elif format == 3:
+            for pixel in self.data:
+                struct.pack_into('>B', buffer, cursor, int(pixel*255))
+                cursor += 1
         elif format in [513, 1025, 3]:
             for i in range(len(self.data)):
                 pixel = self.data[i]
-                if format == 3:
-                    struct.pack_into('>4B', buffer, cursor, *[int(p*255) for p in pixel])
-                    cursor += 4
-                else:
-                    buffer[cursor] = pixel
-                    cursor += 1
+                buffer[cursor] = pixel
+                cursor += 1
 
         return buffer

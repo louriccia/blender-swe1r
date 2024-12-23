@@ -86,8 +86,6 @@ class Block():
             if index >= len(self.data[j]):
                 for k in range(len(self.data[j]) - 1, index):
                     self.data[j].append(0)
-                    print('new length', len(self.data[j]))
-            print('writing to', index)
             self.data[j][index] = data[j]
         return self
             

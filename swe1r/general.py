@@ -152,7 +152,7 @@ class FloatMatrix(DataStruct):
         if data is None:
             self.data = [FloatVector(), FloatVector(), FloatVector(), FloatPosition()]
         else:
-            self.from_array([FloatVector().from_array(data[:3]), FloatVector().from_array(data[3:6]), FloatVector().from_array(data[6:9]), FloatPosition().from_array(data[9:])])
+            self.from_array(data)
 
     def read(self, buffer, cursor):
         super().read(buffer, cursor)

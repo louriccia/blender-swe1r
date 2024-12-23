@@ -87,11 +87,12 @@ def import_model(file_path, selector=None, update_progress=None):
         update_progress(0.5, f'Reading model {model_id}')
 
         model_buffer = modelblock.fetch(model_id)[1]
-        model = Model(model_id).read(model_buffer)
+        model = Model(model_id)
+        model.modelblock = modelblock
+        model = model.read(model_buffer)
         if model is None:
             print("There was an error while parsing the model")
             return 
-        model.modelblock = modelblock
         update_progress(0.75, f'Making model {model_id}')
 
         collection = model.make()

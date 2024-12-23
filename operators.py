@@ -272,16 +272,16 @@ class CollidableSelect(bpy.types.Operator):
                 obj.select_set(True)
         return {'FINISHED'}
     
-class AddCollisionData(bpy.types.Operator):
-    """Add collision data such as fog/lighting/gameplay effects"""
+class RemoveCollisionData(bpy.types.Operator):
+    """Removes collision data such as fog/lighting/gameplay effects"""
     bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.add_collision_data"
+    bl_idname = "view3d.remove_collision_data"
 
     def execute(self, context):
+        context.scene.collision_data = False
         selected_objects = context.selected_objects
         for obj in selected_objects:
-            if 'collision_data' not in obj or not obj['collision_data']:
-                CollisionTags(None, None).make(obj)
+            obj.collision_data = False
         return {'FINISHED'}
     
 class ResetCollisionData(bpy.types.Operator):
@@ -431,6 +431,16 @@ class OpenUrl(bpy.types.Operator):
         open_url(self.url)
         return {"FINISHED"}
 
+class AddImageTexture(bpy.types.Operator):
+    """Open link"""
+    bl_idname = "view3d.open_url"
+    bl_description = "Open URL"
+    bl_label = "Open URL"
+
+    def execute(self, context):
+        open_url(self.url)
+        return {"FINISHED"}
+
 # Custom operator to load and assign an image
 class OpenImageTexture(bpy.types.Operator, ImportHelper):
     """Open Image and Assign to Texture Node"""
@@ -534,6 +544,21 @@ class OpenImageTexture(bpy.types.Operator, ImportHelper):
 #         show_custom_popup(bpy.context, 'ERROR', 'Baked lighting was in base color map. Skipped deleting bake. Affected objects: {}'.format(', '.join(errlist_mismatch)))
 
 
+class RemakeMaterials(bpy.types.Operator):
+    bl_idname = "view3d.remake_materials"
+    bl_label = "Remake Materials"
+    bl_description = "Remake materials for all selected objects"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            if obj.type == 'MESH' and obj.material_slots:
+                mats = [slot.material for slot in obj.material_slots]
+                material = Material.unmake(mats[0])
+                remake = material.make(remake = True)
+                obj.material_slots[0].material = remake
+        return {"FINISHED"}
+
 class BakeVColors(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors"
     bl_label = "Bake Vertex Colors"
@@ -608,7 +633,7 @@ register_classes = (
     CollidableOperator,
     VisibleSelect,
     CollidableSelect,
-    AddCollisionData,
+    RemoveCollisionData,
     ResetCollisionData,
     NonVisibleOperator,
     NonCollidableOperator,

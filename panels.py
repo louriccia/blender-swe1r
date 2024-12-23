@@ -4,7 +4,7 @@ from .swr_export import *
 from .popup import *
 import bpy
 from .swe1r.model_list import model_list
-from .swe1r.modelblock import SurfaceEnum
+from .swe1r.modelblock import SurfaceEnum, Material
 from .operators import *
 from .constants import *
 from . import bl_info
@@ -31,6 +31,109 @@ classes = []
 #         current_view_layers.append((view_layer[0],view_layer[0], ""),)
  
 #     return current_view_layers
+
+def get_default(holder, prop_name):
+    prop = holder.bl_rna.properties[prop_name]
+    if hasattr(prop, 'default_array') and prop.default_array:
+        return [v for v in prop.default_array]
+    elif hasattr(prop, 'default'):
+        return prop.default
+    return False
+
+def get_frozen_value(value):
+    # Check if the value is a mutable Color
+    if isinstance(value, Color) and not value.is_frozen:
+        frozen_copy = value.copy()
+        frozen_copy.freeze()
+        return frozen_copy
+    return value
+
+def get_obj_prop_value(context, prop_name):
+    selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+    if not selected_meshes:
+        return None
+    values = set()
+    for obj in selected_meshes:
+        if prop_name in obj:
+            if isinstance(obj[prop_name], Color):
+                frozen_copy = obj[prop_name].copy()
+                frozen_copy.freeze()
+                values.add(frozen_copy)
+            else:
+                values.add(obj[prop_name])
+    if len(values) == 1:
+        return values.pop()  # All values are the same
+    return get_default(bpy.context.scene, prop_name)
+
+def get_mat_prop_value(context, prop_name):
+    selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+    if not selected_meshes:
+        return None
+    
+    mats = []
+    for obj in selected_meshes:
+        if len(obj.material_slots):
+            mats.append(obj.material_slots[0].material)
+    values = {getattr(mat, prop_name, None) for mat in mats}
+    if len(values) == 1:
+        return values.pop()  # All values are the same
+    return get_default(bpy.context.scene, prop_name)
+
+obj_props = ['visible', 
+            'lighting_color', 
+            'lighting_light',
+            'visible',
+            'collidable',
+            'collision_data',
+            'magnet',
+            'lighting_light',
+            'lighting_color',
+            'lighting_invert',
+            'lighting_flicker',
+            'lighting_persistent',
+            'fog_color_update',
+            'fog_color',
+            'fog_range_update',
+            'fog_min',
+            'fog_max',
+            'fog_clear',
+            'skybox_show',
+            'skybox_hide']
+
+for flag in dir(SurfaceEnum):
+    if not flag.startswith("__"):
+        obj_props.append(flag)
+        
+mat_props = [
+    'use_backface_culling',
+    'scroll_x',
+    'scroll_y',
+    'flip_x',
+    'flip_y'
+]
+
+@bpy.app.handlers.persistent
+def on_object_selection(context):
+    for prop in obj_props:
+        val = get_obj_prop_value(bpy.context, prop)
+        context[prop] = val
+    for prop in mat_props:
+        val = get_mat_prop_value(bpy.context, prop)
+        context[prop] = val
+    textures = set()
+    for obj in bpy.context.selected_objects:
+        if obj.type == 'MESH':
+            mats = [slot.material for slot in obj.material_slots]
+            for mat in mats:
+                if mat.node_tree:
+                    for node in mat.node_tree.nodes:
+                        if node.type == 'TEX_IMAGE':
+                            textures.add(node.image)
+    if len(textures) == 1:
+        val = textures.pop()
+        context['texture'] = val
+    else:
+        context['texture'] = None
 
 class InfoPanel(bpy.types.Panel):
     bl_label = "Info"
@@ -196,10 +299,6 @@ class ToolPanel(bpy.types.Panel):
         row.operator("view3d.select_collidable", text = "Select")
             #row.prop(context.scene, "collision_expanded", icon = icon, text = "", emboss = False)
         
-        
-        
-        
-        
 class SelectedPanel(bpy.types.Panel):
     bl_label = "Selected"
     bl_idname = "PT_SelectedPanel"
@@ -222,17 +321,8 @@ class SelectedPanel(bpy.types.Panel):
         mesh = False
         light = False
         trigger = False
-        collidable = True
-        collidable_data = True
-        visible = True
         for obj in context.selected_objects:
             if obj.type == 'MESH':
-                if 'collidable'  not in obj or not obj['collidable']:
-                    collidable = False
-                if 'collision_data' not in obj or not obj['collision_data']:
-                    collidable_data = False
-                if 'visible'  not in obj or not obj['visible']:
-                    visible = False
                 mesh = True
             if obj.type == 'CURVE':
                 spline = obj.data.splines.active
@@ -242,17 +332,12 @@ class SelectedPanel(bpy.types.Panel):
                 trigger = obj
                 
         if mesh:
-            parent_box = layout.box()
+            parent_box = layout.box()            
             row = parent_box.row()
             row.scale_y = 1.5
-            row.label(text = 'Visuals', icon = 'MATERIAL_DATA')
-            
-            if not visible:
-                row.operator("view3d.set_visible", text= "", icon = 'CHECKBOX_DEHLT', emboss = False)
-            else:
+            row.prop(context.scene, 'visible', text = 'Visible')
+            if context.scene.visible:
                 row.operator("view3d.v_color", text="", emboss=False, icon = 'LOOP_BACK') # TODO: formalize reset fn
-                row.operator("view3d.set_nonvisible", text = "", icon = "CHECKBOX_HLT", emboss = False)
-
 
                 # baked lighting panel
                 
@@ -284,61 +369,52 @@ class SelectedPanel(bpy.types.Panel):
                 row.prop(context.scene, "textures_expanded", icon = icon, text = "", emboss = False)
                 mats = [slot.material for slot in obj.material_slots]
                 
-                if context.scene.textures_expanded and len(mats):
-                    
-                    for node in mats[0].node_tree.nodes:
-                        if node.type == 'TEX_IMAGE':
-                            row = box.row(align = True)
-                            row.prop(node, "image", text = "")
-                            row.operator("view3d.open_image", text="", icon='FILEBROWSER')
-                            break
-                    row = box.row()
-                    row.label(text = 'Scroll')
-                    row.prop(mats[0], 'scroll_x', text = "x")
-                    row.prop(mats[0], 'scroll_y', text = "y")
-                    row= box.row()
-                    row.label(text = 'Flip')
-                    row.prop(mats[0], 'flip_x', text = "x")
-                    row.prop(mats[0], 'flip_y', text = "y")
-                    row = box.row()
-                    row.operator('view3d.bake_vcolors', text='Apply')
-                    
+                if context.scene.textures_expanded:
+                    if len(mats):
+                        row = box.row(align=True)
+                        row.prop(context.scene, "texture", text = "")
+                        row.operator("view3d.open_image", text="", icon='FILEBROWSER')
+                        row = box.row()
+                        row.prop(context.scene, 'use_backface_culling', text = 'Backface Culling')
+                        row = box.row()
+                        row.label(text = 'Scroll')
+                        row.prop(context.scene, 'scroll_x', text = "x")
+                        row.prop(context.scene, 'scroll_y', text = "y")
+                        row= box.row()
+                        row.label(text = 'Flip')
+                        row.prop(context.scene, 'flip_x', text = "x")
+                        row.prop(context.scene, 'flip_y', text = "y")
+                        row = box.row()
+                        row.operator('view3d.bake_vcolors', text='Apply')
+                    else:
+                        row = box.row()
+                        row.operator('material.new', text = "Add material")
             
             parent_box = layout.box()
             row = parent_box.row()
             row.scale_y = 1.5
-            row.label(text = 'Collision', icon = 'MOD_PHYSICS')
             
-            if not collidable:
-                row.operator("view3d.set_collidable", text= "", icon = 'CHECKBOX_DEHLT', emboss = False)
-            else:
-                row.operator("view3d.reset_collision_data", text = "", emboss = False, icon = 'LOOP_BACK')
-                row.operator("view3d.set_noncollidable", text= "", icon = 'CHECKBOX_HLT', emboss = False)
+            row.prop(context.scene, 'collidable', text= "Collidable")
+                
+            if context.scene.collidable:
+                if context.scene.collision_data:
+                    row.operator("view3d.remove_collision_data", text = "", emboss = False, icon = 'LOOP_BACK')
                
-                if not collidable_data:
+                if not context.scene.collision_data:
                     row = parent_box.row()
-                    row.operator("view3d.add_collision_data", text= "Add surface tags, fog, etc.", icon = "ADD")
-                elif collidable:
+                    row.prop(context.scene, "collision_data", text = "Add surface tags, fog, etc.",icon = "ADD")
+                elif context.scene.collidable:
                     
                     box = parent_box.box()
                     row = box.row()
                     row.label(text = "Terrain Flags", icon = "AUTO")
                     icon = "DOWNARROW_HLT" if context.scene.flags_expanded else "RIGHTARROW"
                     surfaces = [f for f in dir(SurfaceEnum) if not f.startswith("__") and not f.startswith("Surface")]
-                    if any([context.active_object[prop] for prop in surfaces]):
-                        row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'LOOP_BACK')
+                    # if any([context.scene[prop] for prop in surfaces]):
+                    #     row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'LOOP_BACK')
                     row.prop(context.scene, "flags_expanded", icon = icon, text = "", emboss = False)
                     
-                    if context.scene.flags_expanded:
-                        # surfaces = [f for f in dir(SurfaceEnum) if not f.startswith("__") and not f.startswith("Surface")]
-                        # flag_count = len(surfaces)
-                        # row = box.row()
-                        # for i in range(2):
-                        #     col = row.column()
-                        #     for j in range(int(i*flag_count/2), (i+1)*int(flag_count/2)):
-                        #         col.prop(context.active_object, surfaces[j])
-                        # row = box.row()
-                        
+                    if context.scene.flags_expanded:                        
                         gameplay = ["Fast", "Slow", "Swst", "Slip", "Lava", "ZOn", "ZOff", "Fall", "NRsp"]
                         effects = ["Dust", "Wet", "Swmp", "Snow", "NSnw", "Mirr", "Side"]
                         feedback = ["Ruff", "Soft", "Flat"]
@@ -346,23 +422,23 @@ class SelectedPanel(bpy.types.Panel):
                         row = box.row()
                         col = row.column()
                         for flag in gameplay:
-                            col.prop(context.active_object, flag)
+                            col.prop(context.scene, flag)
                         
                         r = col.row()
                         r.label(text = "")
                         r.scale_y = 0.5
                         r = col.row()
-                        r.prop(context.active_object, "magnet", text = '', icon = 'SNAP_ON')
+                        r.prop(context.scene, "magnet", text = '', icon = 'SNAP_ON')
                             
                         col = row.column()
                         for flag in effects:
-                            col.prop(context.active_object, flag)
+                            col.prop(context.scene, flag)
                             
                         r = col.row()
                         r.label(text = "")
                         r.scale_y = 0.5
                         for flag in feedback:
-                            col.prop(context.active_object, flag)
+                            col.prop(context.scene, flag)
                         
                         
                         
@@ -377,24 +453,24 @@ class SelectedPanel(bpy.types.Panel):
                     if context.scene.fog_expanded:
                         row = box.row()
                         col = row.column()
-                        col.prop(context.active_object, 'fog_color_update', text = 'Set color')
+                        col.prop(context.scene, 'fog_color_update', text = 'Set color')
                         col = row.column()
-                        col.prop(context.active_object, 'fog_color', text = '')
-                        col.enabled = context.active_object.fog_color_update
+                        col.prop(context.scene, 'fog_color', text = '')
+                        col.enabled = context.scene.fog_color_update
                         
                         row = box.row()
                         col = row.column()
-                        col.prop(context.active_object, 'fog_range_update', text = 'Set range')
+                        col.prop(context.scene, 'fog_range_update', text = 'Set range')
                         col = row.column()
-                        col.prop(context.active_object, 'fog_min', text = 'Min', slider = True)
-                        col.prop(context.active_object, 'fog_max', text = 'Max', slider = True)
-                        col.enabled = context.active_object.fog_range_update
+                        col.prop(context.scene, 'fog_min', text = 'Min', slider = True)
+                        col.prop(context.scene, 'fog_max', text = 'Max', slider = True)
+                        col.enabled = context.scene.fog_range_update
                         
                         row = box.row()
-                        row.prop(context.active_object, 'fog_clear', text = 'Clear Fog', icon = 'SHADERFX')
+                        row.prop(context.scene, 'fog_clear', text = 'Clear Fog', icon = 'SHADERFX')
                         row = box.row()
-                        row.prop(context.active_object, 'skybox_show', text = 'Show Skybox', icon = 'HIDE_OFF')
-                        row.prop(context.active_object, 'skybox_hide', text = 'Hide Skybox', icon = 'HIDE_ON')
+                        row.prop(context.scene, 'skybox_show', text = 'Show Skybox', icon = 'HIDE_OFF')
+                        row.prop(context.scene, 'skybox_hide', text = 'Hide Skybox', icon = 'HIDE_ON')
                         
                     
                     box = parent_box.box()
@@ -406,13 +482,13 @@ class SelectedPanel(bpy.types.Panel):
                     
                     if context.scene.lighting_expanded:
                         row = box.row()
-                        row.prop(context.active_object, 'lighting_light', text = '')
+                        row.prop(context.scene, 'lighting_light', text = '')
                         row = box.row()
-                        row.prop(context.active_object, 'lighting_color', text = 'Ambient Color')
+                        row.prop(context.scene, 'lighting_color', text = 'Ambient Color')
                         row = box.row(align = True)
-                        row.prop(context.active_object, 'lighting_flicker', text = 'Flicker', toggle = True)
-                        row.prop(context.active_object, 'lighting_invert', text = 'Invert', toggle = True)
-                        row.prop(context.active_object, 'lighting_persistent', text = 'Persist', toggle = True)
+                        row.prop(context.scene, 'lighting_flicker', text = 'Flicker', toggle = True)
+                        row.prop(context.scene, 'lighting_invert', text = 'Invert', toggle = True)
+                        row.prop(context.scene, 'lighting_persistent', text = 'Persist', toggle = True)
                     
                     box = parent_box.box()
                     row = box.row()
@@ -421,9 +497,9 @@ class SelectedPanel(bpy.types.Panel):
                     row.operator("view3d.bake_vcolors", text = "", emboss = False, icon = 'LOOP_BACK')
                     row.prop(context.scene, "trigger_expanded", icon = icon, text = "", emboss = False)
                     
-                    if context.scene.trigger_expanded:
-                        row = box.row()
-                        row.prop(context.active_object, 'load_trigger', text = '', icon = 'RENDERLAYERS')
+                    # if context.scene.trigger_expanded:
+                    #     row = box.row()
+                    #     row.prop(context.scene, 'load_trigger', text = '', icon = 'RENDERLAYERS')
                     
                     row = parent_box.row()
                     row.operator("view3d.add_trigger", text = "Add event trigger", icon = 'ADD')
@@ -466,12 +542,13 @@ def register():
         ("discord", "discord.png"),
         ("github", "github.png"),
         ("kofi", "kofi.png"),
+        ("indeterminate", "indeterminate.png")
     ]
     
     for name, file in icon_files:
         pcoll.load(name, os.path.join(icons_dir, file), 'IMAGE')
     preview_collections["main"] = pcoll
-
+    bpy.app.handlers.depsgraph_update_post.append(on_object_selection)
     bpy.utils.register_class(InfoPanel)
     bpy.utils.register_class(ImportPanel)
     bpy.utils.register_class(ExportPanel)
@@ -479,6 +556,7 @@ def register():
     bpy.utils.register_class(SelectedPanel)
     
 def unregister():
+    bpy.app.handlers.depsgraph_update_post.remove(on_object_selection)
     bpy.utils.unregister_class(InfoPanel)
     bpy.utils.unregister_class(ImportPanel)
     bpy.utils.unregister_class(ExportPanel)

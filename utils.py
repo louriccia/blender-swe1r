@@ -19,14 +19,11 @@ data_name_prefix_len = 11
 data_name_format_long = 'bswe1r_{data_type}_{group_id}_{label}'
 data_name_format_long_len = 15
 
-
 SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
-
-
 
 model_types = [
     ('0', 'All', 'View all models'),
-    ('1', 'MAlt', 'High LOD pods'),
+    ('1', 'MAlt', 'High LOD Pod Models'),
     ('2', 'Modl', 'Misc animated elements'),
     ('3', 'Part', 'Misc props'),
     ('4', 'Podd', 'Pod models'),
@@ -36,6 +33,34 @@ model_types = [
     ]
 
 header_sizes = [-1,300, 1,2,300,9, 83,6]
+
+Podd_MAlt = {
+    "2": 0,
+    "4": 3,
+    "6": 5,
+    "8": 7,
+    "9": 10,
+    "12": 11,
+    "13": 14,
+    "15": 17,
+    "16": 18,
+    "20": 19,
+    "22": 21,
+    "24": 23,
+    "26": 25,
+    "28": 27,
+    "30": 29,
+    "32": 31,
+    "34": 33,
+    "36": 35,
+    "38": 37,
+    "40": 39,
+    "42": 41,
+    "44": 43,
+    "46": 45,
+    "299": 298,
+    "301": 300
+}
 
 showbytes = {
     "115": 16,
@@ -91,6 +116,29 @@ def export_model_items(self, context):
     model_type = model_types[int(self.export_type)][1]
     items_for_selected_category = [(str(i), f"{model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_type]
     return items_for_selected_category
+
+def update_selected(prop_name, update_mat = False, update_tex = False):
+    def update_function(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                if update_mat:
+                    mats = [slot.material for slot in obj.material_slots]
+                    for mat in mats:
+                        if update_tex and mat.node_tree:
+                            for node in mat.node_tree.nodes:
+                                if node.type == 'TEX_IMAGE':
+                                    node.image = context.scene[prop_name]
+                        elif update_tex is False:
+                            if hasattr(mat, prop_name):
+                                setattr(mat, prop_name, getattr(context.scene, prop_name))
+                            elif hasattr(mat.data, prop_name):
+                                setattr(mat.data, prop_name, getattr(context.scene, prop_name))
+                else:
+                    if hasattr(obj, prop_name):
+                        setattr(obj, prop_name, getattr(context.scene, prop_name))
+                    elif hasattr(obj.data, prop_name):
+                        setattr(obj.data, prop_name, getattr(context.scene, prop_name))
+    return update_function
     
 def SplineVis(self, context = None):
     for obj in bpy.context.scene.objects:

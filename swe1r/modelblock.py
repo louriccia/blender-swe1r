@@ -28,13 +28,11 @@ import copy
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture, compute_image_hash, compute_hash
 from ..popup import show_custom_popup
-from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short, get_model_type, model_types, header_sizes, showbytes
+from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short, get_model_type, model_types, header_sizes, showbytes, Podd_MAlt
 
 name_attr_uvmap = data_name_format_short.format(label='uv_map')
 name_attr_colors = data_name_format_short.format(label='colors')
 name_attr_baked = data_name_format_short.format(label='colors_baked')
-
-
 
 class Lights(DataStruct):
     def __init__(self, model):
@@ -637,6 +635,8 @@ class VisualsVertBuffer():
             
         #there's probably a better way to do this but this works for now
         #https://docs.blender.org/api/current/bpy.types.Mesh.html
+
+        # TODO: remake tri for each unique loop index (uv)
         for poly in d.polygons:
             for loop_index in poly.loop_indices:
                 vert_index = d.loops[loop_index].vertex_index
@@ -863,7 +863,7 @@ class VisualsIndexBuffer():
             if len(partition):
                 min_index = min([chunk.min_index() for chunk in partition])
             max_index = chunk.max_index()
-            if max_index - min_index > 40:
+            if max_index - min_index > 39:
                 partition_push = partition[:]
                 partitions.append(partition_push)
                 partition = []
@@ -1013,22 +1013,25 @@ class MaterialTexture(DataStruct):
             self.tex_index = id
             image['id'] = id
             texture = Texture(id, self.format).unmake(image, self.format)
+            self.format = texture.format
+            self.width = texture.width
+            self.height = texture.height
             pixel_buffer = texture.pixels.write()
             palette_buffer = texture.palette.write()
+            self.model.written_textures[image.name] = id
             
             #see if this texture is already in block
             buffer = pixel_buffer + palette_buffer
             buffer_hash = compute_hash(buffer)
             for i, texture_hash in enumerate(self.model.textureblock.hash_table):
                 if texture_hash == buffer_hash:
-                    print('got existing', i)
                     self.id = i
                     self.tex_index = i
                     image['id'] = i
                     return self
             
             self.model.textureblock.inject([pixel_buffer, palette_buffer], id)
-            self.model.written_textures[image.name] = id
+            
 
         return self
 
@@ -1087,7 +1090,15 @@ class MaterialShader(DataStruct):
             material.blend_method = 'BLEND'
     
     def unmake(self, material):
-        if material.blend_method == 'BLEND':
+        self.render_mode_1 = int(material.get('render_mode_1', 0))
+        self.render_mode_2 = int(material.get('render_mode_2', 0b10000))
+        
+        transparency = False
+        for node in material.node_tree.nodes:
+                if node.type == 'BSDF_PRINCIPLED':
+                    if node.inputs['Alpha'].is_linked:
+                        transparency = True
+        if transparency:
             self.unk1 = 8
             self.render_mode_2 =        0b000000000100000011000   #0b100000100100101111001
             #use alpha bit                         100000000000
@@ -1097,6 +1108,7 @@ class MaterialShader(DataStruct):
             self.render_mode_2 =   0b11000000100010000000001000
             
         # alternate way to detect if this material is on a skybox mesh
+        # TODO: debug if this works for template track
         mat = self.parent
         mesh = mat.parent
         if mat.parent:
@@ -1113,10 +1125,7 @@ class MaterialShader(DataStruct):
         #self.alpha_combine_mode_cycle1 = int(material.get('alpha_combine_mode_cycle1', 0))
         #self.color_combine_mode_cycle2 = int(material.get('color_combine_mode_cycle2', 0))
         #self.alpha_combine_mode_cycle2 = int(material.get('alpha_combine_mode_cycle2', 0))
-        self.render_mode_1 = int(material.get('render_mode_1', 0))
-        self.render_mode_2 = int(material.get('render_mode_2', 0))
         
-            
         return self
     
     def to_array(self):
@@ -1354,23 +1363,21 @@ class Material(DataStruct):
             if self.model and material_name in self.model.materials:
                 return self.model.materials[material_name]
 
-            if material.use_backface_culling == False:
-                self.format &= 0b11110111
-
+            
             
             self.scroll_x = material.get('scroll_x')
             self.scroll_y = material.get('scroll_y')
             self.texture_anim = material.get('texture_anim')
-
-            self.shader.unmake(material)
-
-            self.id = material.get('id')
             
             for node in material.node_tree.nodes:
                 if node.type == 'TEX_IMAGE':
                     force_id = material.get(name_tex_override_id)
                     force_fmt = material.get(name_tex_override_format)
                     self.texture = MaterialTexture(self, self.model).unmake(node.image, force_id, force_fmt)
+
+            self.shader.unmake(material)
+
+            self.id = material.get('id')
 
             if material.flip_x:
                 self.texture.chunks[0].unk1 |= 0x01
@@ -1390,6 +1397,11 @@ class Material(DataStruct):
                     self.model.animations.append(Anim(self, self.model).unmake(times, poses, 'uv_y', loop = True))
         
             self.format = material.get('format')
+            if self.format is None:
+                self.format = 14
+                
+            if material.use_backface_culling == False:
+                self.format &= 0b11110111
         
         if self.model: 
             self.model.materials[material_name] = self
@@ -2073,6 +2085,13 @@ class Node(DataStruct):
                 skybox_collection.collection_type = "1"
                 collection.children.link(skybox_collection)
                 collection = skybox_collection
+        elif self.model.type == "4":
+            if self.header:
+                header_id = self.header[0]
+                podd_collection = bpy.data.collections.new(str(header_id))
+                #podd_collection.collection_type = str(2 + header_id)
+                collection.children.link(podd_collection)
+                collection = podd_collection
         
         if self.type in [53349, 53350]:
             new_node = bpy.data.objects.new(name, None)
@@ -2220,11 +2239,12 @@ class MeshGroup12388(Node):
     
     def make(self, parent = None, collection = None):
         #avoid making visuals and collision that is not used in game
-        showbyte = showbytes[str(self.model.id)]
-        unused = showbyte != None and (showbyte & self.col_flags == 0)
-        
-        if unused:
-            return None
+        if str(self.model.id) in showbytes:
+            showbyte = showbytes[str(self.model.id)]
+            unused = showbyte != None and (showbyte & self.col_flags == 0)
+            
+            if unused:
+                return None
         
         return super().make(parent, collection)
     
@@ -2255,7 +2275,7 @@ class Group53348(Node):
         return self
     def make(self, parent = None, collection = None):
         empty = super().make(parent, collection)
-        empty.matrix_world = self.matrix.get()
+        empty.matrix_world = self.matrix.make(self.model.scale)
         return empty
     def unmake(self, node):
         return super().unmake(node)
@@ -2853,6 +2873,7 @@ class ModelHeader():
     def __init__(self, parent, model):
         self.parent = parent
         self.offsets = []
+        self.AltN = []
         self.model = model
 
     def read(self, buffer, cursor):
@@ -2882,7 +2903,13 @@ class ModelHeader():
                 cursor = self.model.Anim.read(buffer, cursor)
                 header_string = readString(buffer, cursor)
             elif header_string == 'AltN':
-                cursor = read_AltN(buffer, cursor + 4, model)
+                cursor += 4
+                AltN = readInt32BE(buffer, cursor)
+                while AltN:
+                    self.AltN.append(AltN)
+                    cursor += 4
+                    AltN = readInt32BE(buffer, cursor)
+                cursor += 4
                 header_string = readString(buffer, cursor)
             elif header_string != 'HEnd':
                 raise ValueError('unexpected header string', header_string)
@@ -2890,8 +2917,9 @@ class ModelHeader():
     
     def make(self):
         self.model.collection['header'] = self.offsets
-        self.model.collection.export_model = str(self.model.id)
         self.model.collection.export_type = self.model.type
+        # TODO: FIX LATER
+        #self.model.collection.export_model = str(self.model.id)
         
         if self.model.Data:
             self.model.Data.make()
@@ -3110,12 +3138,32 @@ class Model():
         if cursor is None:
             show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.header.model.type}")
             return None
-        if self.AltN and self.type != 'Podd':
-            AltN = list(set(self.header.AltN))
-            for i in range(len(AltN)):
-                node_type = readUInt32BE(buffer, cursor)
-                node = create_node(node_type, self, self)
-                self.nodes.append(node.read(buffer, AltN[i]))
+        
+        if self.type == "4":
+            
+            #get MAlt
+            MAlt_id = Podd_MAlt[str(self.id)]
+            MAlt_buffer = self.modelblock.fetch(MAlt_id)[1]
+            MAlt = Model(MAlt_id).read(MAlt_buffer)
+            
+            for i, offset in enumerate(self.header.offsets):
+                if offset:
+                    node_type = readUInt32BE(buffer, offset)
+                    node = create_node(node_type, self, self)
+                    self.nodes.append(node.read(buffer, offset))
+                elif MAlt.header.offsets[i]:
+                    MAlt_offset = MAlt.header.offsets[i]
+                    node_type = readUInt32BE(MAlt_buffer, MAlt_offset)
+                    node = create_node(node_type, self, self)
+                    self.nodes.append(node.read(MAlt_buffer, MAlt_offset))
+            
+        
+        # if self.AltN and self.type == 'Podd':
+        #     AltN = list(set(self.header.AltN))
+        #     for i in range(len(AltN)):
+        #         node_type = readUInt32BE(buffer, cursor)
+        #         node = create_node(node_type, self, self)
+        #         self.nodes.append(node.read(buffer, AltN[i]))
         else:
             node_type = readUInt32BE(buffer, cursor)
             node = create_node(node_type, self, self)
@@ -3202,7 +3250,11 @@ class Model():
         if self.type == '3': #part
             for o in collection.objects:
                 if o.type == 'MESH':
-                    assign_objs_to_node_by_type([Mesh(None,self).unmake(o)], root, self)
+                    immediate_children = get_immediate_children(collection)
+                    unmade = []
+                    for obj in immediate_children:
+                        unmade.extend(deep_unmake(obj, root, self, target_map))
+                    assign_objs_to_node_by_type(unmade, root, self)
                 
         #update trigger targets
         for trigger in self.triggers:
