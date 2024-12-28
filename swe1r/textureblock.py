@@ -55,6 +55,7 @@ class Texture():
         self.pixels = Pixels(self)
         self.pixels.read(pixel_buffer)
     def make(self):
+        #TODO: Detect broken PC textures via hash and correct them automatically
         if int(self.id) < 0:
             return
         if self.pixels is None or not self.pixels:
@@ -169,23 +170,22 @@ class Palette():
         # TODO: replace with color quantization solution
         image_data = np.array(image.pixels[:])  # Convert pixel data to a NumPy array
 
-        step = threshold / 3
-        quantized = np.round(image_data / step) * step
-        quantized.astype(np.uint8)
-        
+        # step = threshold / 3
+        # quantized = np.round(image_data / step) * step
+        # quantized.astype(np.uint8)
     
-        pixels = quantized.astype(np.uint8).reshape(-1, 4)
-
-        # unique_pixels = np.unique(pixels, axis=0)
-        # for pixel in unique_pixels[:threshold]:
-        #     #detect if we need format 3
-        #     if pixel[3] > 0 and pixel[3] < 1:
-        #         #abandon palettization since we don't need it for format 3
-        #         image['format'] = 3
-        #         self.texture.format = 3
-        #         return self
-        #     color = RGBA5551().from_array([ max(0, min(int(j*255), 255)) for j in pixel])
-        #     self.data.append(color)
+        pixels = image_data.reshape(-1, 4)
+        unique_pixels = np.unique(pixels, axis=0)
+        for pixel in unique_pixels[:threshold]:
+            #detect if we need format 3
+            if pixel[3] > 0 and pixel[3] < 1:
+                print('format 3 detected')
+                #abandon palettization since we don't need it for format 3
+                image['format'] = 3
+                self.texture.format = 3
+                return self
+            color = RGBA5551().from_array([ max(0, min(int(j*255), 255)) for j in pixel])
+            self.data.append(color)
         
         return self
     
@@ -281,6 +281,7 @@ class Pixels():
                 color = RGBA5551().from_array([int(p*255) for p in pixel])
                 closest = palette.closest(color)
                 self.data.append(closest)
+                
         return self
 
     def write(self):
@@ -305,9 +306,11 @@ class Pixels():
             for pixel in self.data:
                 struct.pack_into('>B', buffer, cursor, int(pixel*255))
                 cursor += 1
-        elif format in [513, 1025, 3]:
+        elif format in [513, 1025]:
             for i in range(len(self.data)):
                 pixel = self.data[i]
+                # if pixel is None:
+                #     pixel = 0
                 buffer[cursor] = pixel
                 cursor += 1
 

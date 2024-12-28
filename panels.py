@@ -48,7 +48,7 @@ def get_frozen_value(value):
         return frozen_copy
     return value
 
-def get_obj_prop_value(context, prop_name):
+def get_obj_prop_value(context, prop_name, indeterminates):
     selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
     if not selected_meshes:
         return None
@@ -61,15 +61,18 @@ def get_obj_prop_value(context, prop_name):
                 values.add(frozen_copy)
             else:
                 values.add(obj[prop_name])
+        else:
+            values.add(None)
     if len(values) == 1:
         return values.pop()  # All values are the same
+    elif len(values):
+        indeterminates.append(prop_name)
     return get_default(bpy.context.scene, prop_name)
 
-def get_mat_prop_value(context, prop_name):
+def get_mat_prop_value(context, prop_name, indeterminates):
     selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
     if not selected_meshes:
         return None
-    
     mats = []
     for obj in selected_meshes:
         if len(obj.material_slots):
@@ -77,6 +80,8 @@ def get_mat_prop_value(context, prop_name):
     values = {getattr(mat, prop_name, None) for mat in mats}
     if len(values) == 1:
         return values.pop()  # All values are the same
+    elif len(values):
+        indeterminates.append(prop_name)
     return get_default(bpy.context.scene, prop_name)
 
 obj_props = ['visible', 
@@ -86,6 +91,7 @@ obj_props = ['visible',
             'collidable',
             'collision_data',
             'magnet',
+            'strict_spline',
             'lighting_light',
             'lighting_color',
             'lighting_invert',
@@ -112,14 +118,26 @@ mat_props = [
     'flip_y'
 ]
 
+def is_indeterminate(prop, text = ""):
+    indeterminates = bpy.context.scene.indeterminates
+    is_ind = prop in indeterminates.split(",")
+    if not is_ind:
+        return ""
+    if text:
+        return text
+    return "*"
+
 @bpy.app.handlers.persistent
 def on_object_selection(context):
+    indeterminates = []
     for prop in obj_props:
-        val = get_obj_prop_value(bpy.context, prop)
+        val = get_obj_prop_value(bpy.context, prop, indeterminates)
         context[prop] = val
+        
     for prop in mat_props:
-        val = get_mat_prop_value(bpy.context, prop)
+        val = get_mat_prop_value(bpy.context, prop, indeterminates)
         context[prop] = val
+        
     textures = set()
     for obj in bpy.context.selected_objects:
         if obj.type == 'MESH':
@@ -129,11 +147,16 @@ def on_object_selection(context):
                     for node in mat.node_tree.nodes:
                         if node.type == 'TEX_IMAGE':
                             textures.add(node.image)
+                            break
     if len(textures) == 1:
         val = textures.pop()
         context['texture'] = val
+    elif len(textures):
+        context['texture'] = None
+        indeterminates.append('texture')
     else:
         context['texture'] = None
+    bpy.context.scene.indeterminates = ",".join(indeterminates)
 
 class InfoPanel(bpy.types.Panel):
     bl_label = "Info"
@@ -335,7 +358,7 @@ class SelectedPanel(bpy.types.Panel):
             parent_box = layout.box()            
             row = parent_box.row()
             row.scale_y = 1.5
-            row.prop(context.scene, 'visible', text = 'Visible')
+            row.prop(context.scene, 'visible', text = f'Visible{is_indeterminate("visible")}')
             if context.scene.visible:
                 row.operator("view3d.v_color", text="", emboss=False, icon = 'LOOP_BACK') # TODO: formalize reset fn
 
@@ -372,18 +395,18 @@ class SelectedPanel(bpy.types.Panel):
                 if context.scene.textures_expanded:
                     if len(mats):
                         row = box.row(align=True)
-                        row.prop(context.scene, "texture", text = "")
+                        row.prop(context.scene, "texture", text = "", placeholder = is_indeterminate("texture", "Mixed"))
                         row.operator("view3d.open_image", text="", icon='FILEBROWSER')
                         row = box.row()
-                        row.prop(context.scene, 'use_backface_culling', text = 'Backface Culling')
+                        row.prop(context.scene, 'use_backface_culling', text = f'Backface Culling{is_indeterminate("use_backface_culling")}')
                         row = box.row()
                         row.label(text = 'Scroll')
-                        row.prop(context.scene, 'scroll_x', text = "x")
-                        row.prop(context.scene, 'scroll_y', text = "y")
+                        row.prop(context.scene, 'scroll_x', text = f'x{is_indeterminate("scroll_x")}')
+                        row.prop(context.scene, 'scroll_y', text = f'y{is_indeterminate("scroll_y")}')
                         row= box.row()
                         row.label(text = 'Flip')
-                        row.prop(context.scene, 'flip_x', text = "x")
-                        row.prop(context.scene, 'flip_y', text = "y")
+                        row.prop(context.scene, 'flip_x', text = f'x{is_indeterminate("flip_x")}')
+                        row.prop(context.scene, 'flip_y', text = f'y{is_indeterminate("flip_y")}')
                         row = box.row()
                         row.operator('view3d.bake_vcolors', text='Apply')
                     else:
@@ -394,7 +417,7 @@ class SelectedPanel(bpy.types.Panel):
             row = parent_box.row()
             row.scale_y = 1.5
             
-            row.prop(context.scene, 'collidable', text= "Collidable")
+            row.prop(context.scene, 'collidable', text= f"Collidable{is_indeterminate('collidable')}")
                 
             if context.scene.collidable:
                 if context.scene.collision_data:
@@ -402,7 +425,7 @@ class SelectedPanel(bpy.types.Panel):
                
                 if not context.scene.collision_data:
                     row = parent_box.row()
-                    row.prop(context.scene, "collision_data", text = "Add surface tags, fog, etc.",icon = "ADD")
+                    row.prop(context.scene, "collision_data", text = f"Add surface tags, fog, etc.{is_indeterminate('collision_data')}",icon = "ADD")
                 elif context.scene.collidable:
                     
                     box = parent_box.box()
@@ -422,23 +445,24 @@ class SelectedPanel(bpy.types.Panel):
                         row = box.row()
                         col = row.column()
                         for flag in gameplay:
-                            col.prop(context.scene, flag)
+                            col.prop(context.scene, flag, text = f"{flag}{is_indeterminate(flag)}")
                         
                         r = col.row()
                         r.label(text = "")
                         r.scale_y = 0.5
                         r = col.row()
-                        r.prop(context.scene, "magnet", text = '', icon = 'SNAP_ON')
+                        r.prop(context.scene, "magnet", text = is_indeterminate('magnet'), icon = 'SNAP_ON')
+                        r.prop(context.scene, "strict_spline", text = is_indeterminate('strict_spline'), icon = 'CURVE_DATA')
                             
                         col = row.column()
                         for flag in effects:
-                            col.prop(context.scene, flag)
+                            col.prop(context.scene, flag, text = f"{flag}{is_indeterminate(flag)}")
                             
                         r = col.row()
                         r.label(text = "")
                         r.scale_y = 0.5
                         for flag in feedback:
-                            col.prop(context.scene, flag)
+                            col.prop(context.scene, flag, text = f"{flag}{is_indeterminate(flag)}")
                         
                         
                         
@@ -453,24 +477,24 @@ class SelectedPanel(bpy.types.Panel):
                     if context.scene.fog_expanded:
                         row = box.row()
                         col = row.column()
-                        col.prop(context.scene, 'fog_color_update', text = 'Set color')
+                        col.prop(context.scene, 'fog_color_update', text = f'Set color{is_indeterminate("fog_color_update")}')
                         col = row.column()
-                        col.prop(context.scene, 'fog_color', text = '')
+                        col.prop(context.scene, 'fog_color', text = "")
                         col.enabled = context.scene.fog_color_update
                         
                         row = box.row()
                         col = row.column()
-                        col.prop(context.scene, 'fog_range_update', text = 'Set range')
+                        col.prop(context.scene, 'fog_range_update', text = f'Set range{is_indeterminate("fog_range_update")}')
                         col = row.column()
-                        col.prop(context.scene, 'fog_min', text = 'Min', slider = True)
-                        col.prop(context.scene, 'fog_max', text = 'Max', slider = True)
+                        col.prop(context.scene, 'fog_min', text = f'Min{is_indeterminate("fog_min")}', slider = True)
+                        col.prop(context.scene, 'fog_max', text = f'Max{is_indeterminate("fog_max")}', slider = True)
                         col.enabled = context.scene.fog_range_update
                         
                         row = box.row()
-                        row.prop(context.scene, 'fog_clear', text = 'Clear Fog', icon = 'SHADERFX')
+                        row.prop(context.scene, 'fog_clear', text = f'Clear Fog{is_indeterminate("fog_clear")}', icon = 'SHADERFX')
                         row = box.row()
-                        row.prop(context.scene, 'skybox_show', text = 'Show Skybox', icon = 'HIDE_OFF')
-                        row.prop(context.scene, 'skybox_hide', text = 'Hide Skybox', icon = 'HIDE_ON')
+                        row.prop(context.scene, 'skybox_show', text = f'Show Skybox{is_indeterminate("skybox_show")}', icon = 'HIDE_OFF')
+                        row.prop(context.scene, 'skybox_hide', text = f'Hide Skybox{is_indeterminate("skybox_hide")}', icon = 'HIDE_ON')
                         
                     
                     box = parent_box.box()
@@ -482,13 +506,13 @@ class SelectedPanel(bpy.types.Panel):
                     
                     if context.scene.lighting_expanded:
                         row = box.row()
-                        row.prop(context.scene, 'lighting_light', text = '')
+                        row.prop(context.scene, 'lighting_light', text = "", placeholder = is_indeterminate("lighting_light", "Mixed"))
                         row = box.row()
-                        row.prop(context.scene, 'lighting_color', text = 'Ambient Color')
+                        row.prop(context.scene, 'lighting_color', text = f'Ambient Color{is_indeterminate("lighting_color")}')
                         row = box.row(align = True)
-                        row.prop(context.scene, 'lighting_flicker', text = 'Flicker', toggle = True)
-                        row.prop(context.scene, 'lighting_invert', text = 'Invert', toggle = True)
-                        row.prop(context.scene, 'lighting_persistent', text = 'Persist', toggle = True)
+                        row.prop(context.scene, 'lighting_flicker', text = f'Flicker{is_indeterminate("lighting_flicker")}', toggle = True)
+                        row.prop(context.scene, 'lighting_invert', text = f'Invert{is_indeterminate("lighting_invert")}', toggle = True)
+                        row.prop(context.scene, 'lighting_persistent', text = f'Persist{is_indeterminate("lighting_persistent")}', toggle = True)
                     
                     box = parent_box.box()
                     row = box.row()
@@ -503,6 +527,11 @@ class SelectedPanel(bpy.types.Panel):
                     
                     row = parent_box.row()
                     row.operator("view3d.add_trigger", text = "Add event trigger", icon = 'ADD')
+                
+            if context.scene.indeterminates:
+                row = layout.row()
+                row.label(text = "*Selection contains mixed values")
+                row.enabled = False
                 
         elif spline:
             is_cyclic = spline.use_cyclic_u

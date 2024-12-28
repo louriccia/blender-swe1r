@@ -213,10 +213,10 @@ class Spline(DataStruct):
             return
         
         spline_object = spline_objects[0]
-        if 'id' in spline_object:
-            self.id = spline_object['id']
-        else:
-            self.id = spline_map[int(collection.export_model)]
+        # if 'id' in spline_object:
+        #     self.id = spline_object['id']
+        # else:
+        self.id = spline_map[int(collection.export_model)]
         splines = spline_object.data.splines
         
         #find bezier splines

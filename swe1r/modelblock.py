@@ -325,10 +325,10 @@ class SurfaceEnum():
     
 class SpecialSurfaceEnum():
     Unk0 = (1 << 0)
-    Unk1 = (1 << 1) #enable skybox fog
-    Unk2 = (1 << 2) #disable skybox fog
-    Unk3 = (1 << 3)
-    Unk4 = (1 << 4)
+    Unk1 = (1 << 1) #hide skybox
+    Unk2 = (1 << 2) #show skybox
+    Unk3 = (1 << 3) #strict spline
+    Unk4 = (1 << 4) #elevation?
     Unk5 = (1 << 5) #magnet mode
 
 class SpecialSurfaceFlags(DataStruct):
@@ -345,14 +345,17 @@ class SpecialSurfaceFlags(DataStruct):
             setattr(self, attr, bool(getattr(SpecialSurfaceEnum, attr) & data))
             
     def make(self, obj):
-        obj.magnet = self.Unk5
-        obj.skybox_show = self.Unk2
         obj.skybox_hide = self.Unk1
+        obj.skybox_show = self.Unk2
+        obj.strict_spline = self.Unk3
+        obj.magnet = self.Unk5
+        
             
     def unmake(self, obj):
-        self.Unk5 = obj.magnet
-        self.Unk2 = obj.skybox_show
         self.Unk1 = obj.skybox_hide
+        self.Unk2 = obj.skybox_show
+        self.Unk3 = obj.strict_spline
+        self.Unk5 = obj.magnet
     
     def write(self, buffer, cursor):
         data = 0
@@ -1106,7 +1109,9 @@ class MaterialShader(DataStruct):
             #goes from alpha blend to alpha clip          10000
         if hasattr(self.parent, 'skybox') and self.parent.skybox:
             self.render_mode_1 = 0b1100000010000010000000001000 #fixes small stitching issues
-            self.render_mode_2 =   0b11000000100010000000001000
+            self.render_mode_2 =   0b11000000100010000000001000 #FIXME: breaking this temporarily
+            
+        
             
         # alternate way to detect if this material is on a skybox mesh
         # TODO: debug if this works for template track
@@ -1116,7 +1121,7 @@ class MaterialShader(DataStruct):
             obj = mesh.original_object
             for collection in obj.users_collection:
                 if collection.collection_type == '1':
-                    self.render_mode_1 = 0b1100000010000010000000001000
+                    self.render_mode_1 = 0b1100000010000010000000001000 #FIXME: breaking this temporarily
                     self.render_mode_2 = 0b11000000100010000000001000
                     break
         
@@ -1151,10 +1156,10 @@ class Material(DataStruct):
         #0000001   1   254 1 = lightmap
         #0000010   2   253 no apparent changes
         #0000100   4   251 
-        #0001000   8   247 0 = double sided, 1 = single sided
+        #0001000   8   247 0 = draw backface, 1 = do not draw backface
         #0010000   16  239 1 = weird lighting
         #0100000   32  223 
-        #1000000   64  191 1 =  breaking change
+        #1000000   64  191 0 = draw frontface, 1 = do not draw frontface
 
         #0000100 format 4 is only used for engine trail, binder, and flame effects
         #0000110 format 6 seems to indicate doublesidedness
@@ -1180,7 +1185,7 @@ class Material(DataStruct):
         while parent is not None:
             if hasattr(parent, 'skybox'):
                 self.skybox = True 
-                self.format = 12
+                # self.format = 12
             parent = parent.parent
         
     def read(self, buffer, cursor):
@@ -1965,8 +1970,8 @@ class Mesh(DataStruct):
             collision_vert_buffer_addr = cursor
             cursor = self.collision_vert_buffer.write(buffer, cursor)
             collision_vert_count = len(self.collision_vert_buffer.data)
-            if cursor % 4 != 0:
-                cursor += cursor % 4
+            #byte align (otherwise game will crash)
+            cursor += 4 - (cursor % 4)
                 
         if self.material:
             self.model.highlight(mesh_start)
