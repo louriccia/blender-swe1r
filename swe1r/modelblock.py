@@ -1061,15 +1061,41 @@ class MaterialShader(DataStruct):
         self.model = model
         self.unk1 = 0
         self.unk2 = 2 # maybe "combiner cycle type"
+        
         # combine mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetCombineLERP.htm
+        # these values seem to be unused by the pc version
         self.color_combine_mode_cycle1 = 0# 0b1000111110000010000011111
         self.alpha_combine_mode_cycle1 = 0#0b111000001110000011100000100
         self.color_combine_mode_cycle2 = 0#0b11111000111110001111100000000
         self.alpha_combine_mode_cycle2 = 0#0b111000001110000011100000000
+        
         self.unk5 = 0
         # render mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetRenderMode.htm
-        self.render_mode_1 = 0# 0b11001000000000000000000000000000
-        self.render_mode_2 = 0b10000 # 0b100010010000000111000
+        self.render_mode_1 = 0x18 #initialize with zcmp and aa
+        self.render_mode_2 = 0
+        
+        #  0b1100 0000 1000 0010 0000 0000 1000
+        #    0b11 0000 0010 0010 0000 0000 1000
+        #http://n64devkit.square7.ch/header/gbi.htm
+        #	AA_EN		0x8
+        #	Z_CMP		0x10 skybox does not use zcmp, all other meshes do
+        #	Z_UPD		0x20
+        #	IM_RD		0x40
+        #	CLR_ON_CVG	0x80
+        #	CVG_DST_CLAMP	0
+        #	CVG_DST_WRAP	0x100
+        #	CVG_DST_FULL	0x200
+        #	CVG_DST_SAVE	0x300
+        #	ZMODE_OPA	0
+        #	ZMODE_INTER	0x400
+        #	ZMODE_XLU	0x800 use alpha
+        #	ZMODE_DEC	0xc00
+        #	CVG_X_ALPHA	0x1000
+        #	ALPHA_CVG_SEL	0x2000
+        #	FORCE_BL	0x4000
+        #	TEX_EDGE	0x0000 /* used to be 0x8000 */
+        # 0x8000000 Do not tile
+        
         self.unk8 = 0
         self.color = RGBA4Bytes()
         self.unk = []
@@ -1089,29 +1115,15 @@ class MaterialShader(DataStruct):
         material['render_mode_1'] = str(self.render_mode_1)
         material['render_mode_2'] = str(self.render_mode_2)
         
-        if self.unk1 == 8:
+        if self.unk1 == 8 or self.render_mode_1 & 0x800 or self.render_mode_2 & 0x800:
             material.show_transparent_back = True
             material.blend_method = 'BLEND'
+            material['transparent'] = True
     
     def unmake(self, material):
-        self.render_mode_1 = int(material.get('render_mode_1', 0))
-        self.render_mode_2 = int(material.get('render_mode_2', 0b10000))
-        
-        transparency = False
-        for node in material.node_tree.nodes:
-                if node.type == 'BSDF_PRINCIPLED':
-                    if node.inputs['Alpha'].is_linked:
-                        transparency = True
-        if transparency:
+        if material.transparent:
             self.unk1 = 8
-            self.render_mode_2 =        0b000000000100000011000   #0b100000100100101111001
-            #use alpha bit                         100000000000
-            #goes from alpha blend to alpha clip          10000
-        if hasattr(self.parent, 'skybox') and self.parent.skybox:
-            self.render_mode_1 = 0b1100000010000010000000001000 #fixes small stitching issues
-            self.render_mode_2 =   0b11000000100010000000001000 #FIXME: breaking this temporarily
-            
-        
+            self.render_mode_1 |= 0x800
             
         # alternate way to detect if this material is on a skybox mesh
         # TODO: debug if this works for template track
@@ -1121,16 +1133,17 @@ class MaterialShader(DataStruct):
             obj = mesh.original_object
             for collection in obj.users_collection:
                 if collection.collection_type == '1':
-                    self.render_mode_1 = 0b1100000010000010000000001000 #FIXME: breaking this temporarily
-                    self.render_mode_2 = 0b11000000100010000000001000
+                    # render modes have to be these exact values to fix small stitching issues
+                    if mat.scroll_x or mat.scroll_y:
+                        self.render_mode_1 &= 0xFFFFFFEF
+                        self.render_mode_2 &= 0xFFFFFFEF
+                    else:
+                        self.render_mode_1 = 0b1100000010000010000000001000 
+                        self.render_mode_2 =   0b11000000100010000000001000
                     break
         
-        #self.unk1 = material.get('unk1', 0)
-        #self.unk2 = material.get('unk2', 0)
-        #self.color_combine_mode_cycle1 = int(material.get('color_combine_mode_cycle1', 0))
-        #self.alpha_combine_mode_cycle1 = int(material.get('alpha_combine_mode_cycle1', 0))
-        #self.color_combine_mode_cycle2 = int(material.get('color_combine_mode_cycle2', 0))
-        #self.alpha_combine_mode_cycle2 = int(material.get('alpha_combine_mode_cycle2', 0))
+        self.unk1 = material.get('unk1', 0)
+        self.unk2 = material.get('unk2', 0)
         
         return self
     
@@ -1140,6 +1153,7 @@ class MaterialShader(DataStruct):
     def write(self, buffer, cursor):
         struct.pack_into(self.format_string, buffer, cursor, self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, 0, 0, 0, 0, 0, 0, 0)
         self.color.write(buffer, cursor + 34)
+        print(self.parent.id, cursor + 24, self.render_mode_1, self.render_mode_2)
         return cursor + self.size
     
 name_tex_override_id = data_name_format.format(data_type = 'tex', label = 'override_id')
@@ -1153,13 +1167,14 @@ class Material(DataStruct):
         self.model = model
         self.format = 14
         self.name = ""
-        #0000001   1   254 1 = lightmap
-        #0000010   2   253 no apparent changes
-        #0000100   4   251 
-        #0001000   8   247 0 = draw backface, 1 = do not draw backface
-        #0010000   16  239 1 = weird lighting
-        #0100000   32  223 
-        #1000000   64  191 0 = draw frontface, 1 = do not draw frontface
+        #00000001   1   254 1 = lightmap
+        #00000010   2   253
+        #00000100   4   251 this is on for all formats
+        #00001000   8   247 0 = draw backface, 1 = do not draw backface
+        #00010000   16  239 1 = lightmap
+        #00100000   32  223 
+        #01000000   64  191 0 = draw frontface, 1 = do not draw frontface
+        #10000000   128     1 = if texture offset is set https://github.com/tim-tim707/SW_RACER_RE/blob/fa8787540055d0bdf422b42e72ccf50cd3d72a07/src/types.h#L1410
 
         #0000100 format 4 is only used for engine trail, binder, and flame effects
         #0000110 format 6 seems to indicate doublesidedness

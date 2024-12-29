@@ -26,6 +26,7 @@ import bpy
 from ..utils import euclidean_distance, data_name_format
 from .modelblock import DataStruct
 
+
 def compute_hash(buffer):
     return hashlib.md5(buffer).hexdigest()
 
@@ -34,6 +35,43 @@ def compute_image_hash(image):
     pixels = image.pixels[:]  # Get pixel data
     pixel_bytes = bytes([int(p * 255) for p in pixels])  # Convert to 0-255 range
     return compute_hash(pixel_bytes)
+
+def reduce_colors(image_array, num_colors=255, max_iter=3):
+    """
+    Reduce the number of colors in an image to a specified number using k-means clustering.
+    
+    Parameters:
+    - image_array: numpy array of shape (height, width, 4) or (num_pixels, 4)
+    - num_colors: number of colors to reduce to (default 255)
+    - max_iter: maximum number of iterations for convergence
+    
+    Returns:
+    - reduced_image: numpy array of the same shape as image_array with reduced colors
+    """
+    # Reshape image to (num_pixels, 4)
+    pixels = image_array.reshape(-1, 4).astype(np.float32)  # Ensure float for computations
+    # Initialize centroids by randomly selecting `num_colors` pixels
+    np.random.seed(42)  # For reproducibility
+    centroids = pixels[np.random.choice(pixels.shape[0], num_colors, replace=False)]
+    for iteration in range(max_iter):
+        # Compute distances from each pixel to each centroid
+        distances = np.linalg.norm(pixels[:, None, :] - centroids[None, :, :], axis=2)
+        # Assign each pixel to the nearest centroid
+        labels = np.argmin(distances, axis=1)
+        # Compute new centroids
+        new_centroids = np.array([pixels[labels == k].mean(axis=0) if np.any(labels == k) else centroids[k]
+                                   for k in range(num_colors)])
+        # Check for convergence (if centroids do not change)
+        if np.allclose(centroids, new_centroids, atol=1e-4):
+            break
+        
+        centroids = new_centroids
+    
+    indices = labels
+    # Convert centroids to uint8 for palette
+    palette = (centroids * 255).astype(np.uint8)
+    
+    return indices, palette
 
 class Texture():
     def __init__(self, id, format = 513, width = 32, height = 32):
@@ -100,9 +138,27 @@ class Texture():
         return new_image
 
     def unmake(self, image, override_format = None):
+        width, height = image.size
+        if width > 320:
+            image.scale(320, int(height*320/width))
+        elif height > 320:
+            image.scale(int(width*320/height), 320)
+        
         self.width, self.height = image.size
-        self.palette = Palette(self).unmake(image, override_format)
-        self.pixels = Pixels(self).unmake(image, override_format)
+        
+        #check if we need palettization
+        image_data = np.array(image.pixels[:])  # Convert pixel data to a NumPy array
+        pixels = image_data.reshape(-1, 4)
+        palette = np.unique(pixels, axis=0)
+        if len(palette > 255):
+            reduced_image, palette = reduce_colors(image_data, num_colors=32, max_iter = 1)
+            self.pixels = Pixels(self)
+            self.pixels.data = reduced_image
+            self.palette = Palette(self)
+            self.palette.data = [RGBA5551().from_array(color) for color in palette]
+        else:        
+            self.palette = Palette(self).unmake(image, override_format)
+            self.pixels = Pixels(self).unmake(image, override_format)
         return self
     
 class RGBA5551(DataStruct):
@@ -175,8 +231,8 @@ class Palette():
         # quantized.astype(np.uint8)
     
         pixels = image_data.reshape(-1, 4)
-        unique_pixels = np.unique(pixels, axis=0)
-        for pixel in unique_pixels[:threshold]:
+        palette = np.unique(pixels, axis=0)
+        for pixel in palette[:threshold]:
             #detect if we need format 3
             if pixel[3] > 0 and pixel[3] < 1:
                 print('format 3 detected')

@@ -115,7 +115,8 @@ mat_props = [
     'scroll_x',
     'scroll_y',
     'flip_x',
-    'flip_y'
+    'flip_y',
+    'transparent'
 ]
 
 def is_indeterminate(prop, text = ""):
@@ -399,6 +400,7 @@ class SelectedPanel(bpy.types.Panel):
                         row.operator("view3d.open_image", text="", icon='FILEBROWSER')
                         row = box.row()
                         row.prop(context.scene, 'use_backface_culling', text = f'Backface Culling{is_indeterminate("use_backface_culling")}')
+                        row.prop(context.scene, 'transparent', text = f'Transparent{is_indeterminate("transparent")}')
                         row = box.row()
                         row.label(text = 'Scroll')
                         row.prop(context.scene, 'scroll_x', text = f'x{is_indeterminate("scroll_x")}')

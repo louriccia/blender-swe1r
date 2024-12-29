@@ -177,6 +177,8 @@ def register():
     bpy.types.Material.scroll_y = bpy.props.FloatProperty(name = 'scroll_y', default = 0.0)
     bpy.types.Material.flip_x = bpy.props.BoolProperty(name = 'flip_x', default = False)
     bpy.types.Material.flip_y = bpy.props.BoolProperty(name = 'flip_y', default = False)
+    bpy.types.Scene.transparent = bpy.props.BoolProperty(name = 'transparent', default = False, update = utils.update_selected("transparent", update_mat = True))
+    bpy.types.Material.transparent = bpy.props.BoolProperty(name = 'transparent', default = False)
     
     #light state
     bpy.types.Light.LStr = bpy.props.BoolProperty(name = 'LStr', default=False, update = utils.create_update_function("LStr"))
