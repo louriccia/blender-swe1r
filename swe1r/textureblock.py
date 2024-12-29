@@ -223,12 +223,7 @@ class Palette():
         else:
             threshold = 16 if int(image['format']) == 512 else 256
     
-        # TODO: replace with color quantization solution
         image_data = np.array(image.pixels[:])  # Convert pixel data to a NumPy array
-
-        # step = threshold / 3
-        # quantized = np.round(image_data / step) * step
-        # quantized.astype(np.uint8)
     
         pixels = image_data.reshape(-1, 4)
         palette = np.unique(pixels, axis=0)

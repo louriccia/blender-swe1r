@@ -1882,23 +1882,6 @@ class Mesh(DataStruct):
                 new_verts.extend(strip_verts[:])
                 strips.append(strip)
                 new_verts.extend([s for s in strip[0]])
-
-            # strip_list = [2+ len(strip) for strip in strips]
-
-            # if node_tmp.get('collision_data'):
-            #     r_mesh.collision_tags = CollisionTags(r_mesh, r_mesh.model).unmake(node_tmp, triggers)
-            # collision_vert_buffer.length = len(new_verts)
-            # collision_vert_buffer.data = new_verts
-            # collision_vert_buffer.format_string = f'>{len(new_verts)*3}h'
-            # collision_vert_buffer.size = struct.calcsize(f'>{len(new_verts)*3}h')
-            # r_mesh.collision_vert_buffer = collision_vert_buffer
-            # r_mesh.strip_count = len(strip_list)
-            # r_mesh.vert_strips.strip_count = len(strip_list)
-            # r_mesh.vert_strips.data = strip_list
-            # r_mesh.vert_strips.format_string = f'>{len(strip_list)}I'
-            # r_mesh.vert_strips.size = struct.calcsize(f'>{len(strip_list)}I')
-            # r_mesh.vert_strips.strip_size = 5
-            # r_mesh.vert_strips.include_buffer = True
             
             strip_list = [2+ len(strip) for strip in strips]
             self.collision_vert_buffer.data = new_verts
@@ -1911,41 +1894,6 @@ class Mesh(DataStruct):
             self.vert_strips.size = struct.calcsize(f'>{len(strip_list)}I')
             self.vert_strips.strip_size = 5
             self.vert_strips.include_buffer = True
-            
-            #return True
-
-        # r_mesh_list = []
-        # todo_triggers = True
-
-        # for b_mat_slot in node_tmp.material_slots:
-        #     r_mesh: Mesh = Mesh(self.parent, self.model)
-        #     to_append: bool = False
-
-        #     unmake_setup(r_mesh)
-
-        #     if node_tmp.visible and unmake_visuals(r_mesh, b_mat_slot):
-        #         to_append = True
-
-        #     if node_tmp.collidable and unmake_collision(r_mesh, b_mat_slot, todo_triggers):
-        #         to_append = True
-        #         todo_triggers = False
-
-        #     if not to_append:
-        #         continue
-
-        #     r_mesh.bounding_box = MeshBoundingBox(r_mesh, r_mesh.model).unmake(r_mesh)
-        #     r_mesh_list.append(r_mesh)
-
-        # if len(r_mesh_list) == 0 and node_tmp.collidable:
-        #     r_mesh: Mesh = Mesh(self.parent, self.model)
-        #     unmake_setup(r_mesh)
-        #     unmake_collision(r_mesh)
-        #     r_mesh.bounding_box = MeshBoundingBox(r_mesh, r_mesh.model).unmake(r_mesh)
-        #     r_mesh_list.append(r_mesh)
-
-        # if node_tmp_clean:
-        #     bpy.data.objects.remove(node_tmp)
-        #     bpy.data.meshes.remove(node_tmp_data)
         
         self.bounding_box = MeshBoundingBox(self, self.model).unmake(self)
         return self
@@ -2939,7 +2887,6 @@ class ModelHeader():
     def make(self):
         self.model.collection['header'] = self.offsets
         self.model.collection.export_type = self.model.type
-        # TODO: FIX LATER
         # TODO: Investigate podds with missing anim poses, also bumpy with only engines
         #self.model.collection.export_model = str(self.model.id)
         
@@ -3006,7 +2953,7 @@ def r_get_family(node):
     return objects
 
 def assign_objs_to_node_by_type(objects, root, model):
-    # TODO: Make a way for this to respsect the shown order in the outliner for the sake of depth order in some cases (like skyboxes)
+    # TODO: Make a way for this to respect the shown order in the outliner for the sake of depth order in some cases (like skyboxes)
     viscol = []
     col = []
     vis = []
