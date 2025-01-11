@@ -67,17 +67,17 @@ model_list = [
  {
    "index": 13,
    "name": "Ark 'Bumpy' Roose",
-   "extension": "Podd"
+   "extension": "MAlt"
  },
  {
    "index": 14,
    "name": "Ark 'Bumpy' Roose",
-   "extension": "MAlt"
+   "extension": "Podd"
  },
  {
    "index": 15,
    "name": "Wan Sandage",
-   "extension": "Podd"
+   "extension": "MAlt"
  },
  {
    "index": 16,

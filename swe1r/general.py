@@ -150,7 +150,7 @@ class FloatMatrix(DataStruct):
     def __init__(self, data = None):
         super().__init__('>12f')
         if data is None:
-            self.data = [FloatVector(), FloatVector(), FloatVector(), FloatPosition()]
+            self.from_array([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
         else:
             self.from_array(data)
 

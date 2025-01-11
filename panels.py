@@ -92,6 +92,7 @@ obj_props = ['visible',
             'collision_data',
             'magnet',
             'strict_spline',
+            'elevation',
             'lighting_light',
             'lighting_color',
             'lighting_invert',
@@ -133,11 +134,17 @@ def on_object_selection(context):
     indeterminates = []
     for prop in obj_props:
         val = get_obj_prop_value(bpy.context, prop, indeterminates)
-        context[prop] = val
+        if val is not None and prop != 'lighting_light':
+            context[prop] = val
+        elif prop in context and isinstance(context[prop], int):
+            context[prop] = False
         
     for prop in mat_props:
         val = get_mat_prop_value(bpy.context, prop, indeterminates)
-        context[prop] = val
+        if val is not None:
+            context[prop] = val
+        elif prop in context and isinstance(context[prop], int):
+            context[prop] = False
         
     textures = set()
     for obj in bpy.context.selected_objects:
@@ -454,7 +461,8 @@ class SelectedPanel(bpy.types.Panel):
                         r.scale_y = 0.5
                         r = col.row()
                         r.prop(context.scene, "magnet", text = is_indeterminate('magnet'), icon = 'SNAP_ON')
-                        r.prop(context.scene, "strict_spline", text = is_indeterminate('strict_spline'), icon = 'CURVE_DATA')
+                        r.prop(context.scene, "strict_spline", text = is_indeterminate('strict_spline'), icon = 'SEQ_LUMA_WAVEFORM')
+                        r.prop(context.scene, "elevation", text = is_indeterminate('elevation'), icon = 'MOD_DISPLACE')
                             
                         col = row.column()
                         for flag in effects:

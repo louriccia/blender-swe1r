@@ -107,7 +107,11 @@ def register():
             ("NONE", "None", "Unspecified type"),
             ("MODEL", "Model", "A Model Collection"),
             ("0", "Track", "A Track Model Collection"),
-            ("1", "Skybox", "A Track Skybox Collection")
+            ("1", "Skybox", "A Track Skybox Collection"),
+            ("2", "Right Engine", "The Podd's Right Engine"),
+            ("3", "Left Engine", "The Podd's Left Engine"),
+            ("4", "Cockpit", "The Podd's Cockpit"),
+            ("5", "Cable", "The Podd's Cable")
         ],
         name = "Collection Type",
         description="The type of collection",
@@ -128,10 +132,12 @@ def register():
         if not flag.startswith("__"):
             setattr(bpy.types.Scene, flag, bpy.props.BoolProperty(name = flag, default=False, update = utils.update_selected(flag)))
             setattr(bpy.types.Object, flag, bpy.props.BoolProperty(name = flag, default=False))
-    bpy.types.Scene.magnet = bpy.props.BoolProperty(name ='magnet', default=False, update = utils.update_selected("magnet"))
+    bpy.types.Scene.magnet = bpy.props.BoolProperty(name ='magnet', default=False, update = utils.update_selected("magnet"), description = "Disable tilting and climbing")
     bpy.types.Object.magnet = bpy.props.BoolProperty(name ='magnet', default=False)
-    bpy.types.Scene.strict_spline = bpy.props.BoolProperty(name ='strict_spline', default=False, update = utils.update_selected("strict_spline"))
+    bpy.types.Scene.strict_spline = bpy.props.BoolProperty(name ='strict_spline', default=False, update = utils.update_selected("strict_spline"), description = "Make lap progress stricter")
     bpy.types.Object.strict_spline = bpy.props.BoolProperty(name ='strict_spline', default=False)
+    bpy.types.Scene.elevation = bpy.props.BoolProperty(name ='elevation', default=False, update = utils.update_selected("elevation"), description = "Prevent pod getting stuck on overlapping collisions (MFG)")
+    bpy.types.Object.elevation = bpy.props.BoolProperty(name ='elevation', default=False)
     
     bpy.types.Scene.lighting_light = bpy.props.PointerProperty(type=bpy.types.Light, name="lighting_light", update = utils.update_selected("lighting_light"))
     bpy.types.Object.lighting_light = bpy.props.PointerProperty(type=bpy.types.Light, name="lighting_light")

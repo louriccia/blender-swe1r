@@ -6,6 +6,7 @@ from .swe1r.textureblock import Texture
 from .swe1r.block import Block
 from .swe1r.general import *
 from .swe1r.textureblock import compute_hash
+from .utils import Podd_MAlt
 from datetime import datetime
     
 scale = 100
@@ -53,6 +54,14 @@ def export_model(col, file_path, exports, update_progress):
         offset_buffer, model_buffer = model.write()
         modelblock.inject([offset_buffer, model_buffer], id)
         
+        if model.id in Podd_MAlt:
+            # If we're exporting a Podd, write a blank MAlt model
+            MAlt_id = Podd_MAlt[model.id]
+            MAlt = Model(MAlt_id)
+            MAlt.type = '1'
+            MAlt_offset_buffer, MAlt_model_buffer = MAlt.write()
+            modelblock.inject([MAlt_offset_buffer, MAlt_model_buffer], MAlt_id)
+        
         with open(file_path + 'out_modelblock.bin', 'wb') as file:
             file.write(modelblock.write())
             
@@ -71,14 +80,14 @@ def export_model(col, file_path, exports, update_progress):
                 file.write(offset_buffer)
             
         # write debug file
-        # debug_text = ["float, int32, int16_1, int16_2, int8_1, int8_2, int8_3, int8_4, local_offset, pointer"]
-        # for i in range(0, len(model_buffer), 4):
-        #     debug_string = f"{readFloatBE(model_buffer, i)}, {readUInt32BE(model_buffer, i)}, {readInt16BE(model_buffer, i)}, {readInt16BE(model_buffer, i+2)}, {readUInt8(model_buffer, i)}, {readUInt8(model_buffer, i + 1)}, {readUInt8(model_buffer, i + 2)}, {readUInt8(model_buffer, i + 3)}, {i}, {readUInt8(offset_buffer, i//32)}, {(readUInt8(offset_buffer, i//32) >> (7-((i//4)%8)) )& 1 }"
-        #     debug_text.append(debug_string)
+        debug_text = ["float, int32, int16_1, int16_2, int8_1, int8_2, int8_3, int8_4, local_offset, pointer"]
+        for i in range(0, len(model_buffer), 4):
+            debug_string = f"{readFloatBE(model_buffer, i)}, {readUInt32BE(model_buffer, i)}, {readInt16BE(model_buffer, i)}, {readInt16BE(model_buffer, i+2)}, {readUInt8(model_buffer, i)}, {readUInt8(model_buffer, i + 1)}, {readUInt8(model_buffer, i + 2)}, {readUInt8(model_buffer, i + 3)}, {i}, {readUInt8(offset_buffer, i//32)}, {(readUInt8(offset_buffer, i//32) >> (7-((i//4)%8)) )& 1 }"
+            debug_text.append(debug_string)
             
-        # with open(file_path + 'debug.txt', 'a') as file:
-        #     for string in debug_text:
-        #         file.write(string + '\n')
+        with open(file_path + 'model_' + str(model.id) + '_' + timestamp + 'debug.txt', 'a') as file:
+            for string in debug_text:
+                file.write(string + '\n')
     
     if 'CURVE' in types and spline_export:
         update_progress(0.95, f'Unmaking spline...')

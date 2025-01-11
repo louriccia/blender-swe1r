@@ -165,11 +165,22 @@ class NewModelOperator(bpy.types.Operator):
             spline_object = bpy.data.objects.new("spline", curve_data)
             
             main_collection.objects.link(spline_object)
+        
+        elif type_name == 'Podd':
+            right_engine_collection = bpy.data.collections.new("Right Engine")
+            right_engine_collection.collection_type = "2"
+            left_engine_collection = bpy.data.collections.new("Left Engine")
+            left_engine_collection.collection_type = "3"
+            cockpit_collection = bpy.data.collections.new("Cockpit")
+            cockpit_collection.collection_type = "4"
+            cable_collection = bpy.data.collections.new("Cable")
+            cable_collection.collection_type = "5"
             
-
-        
-        
-        
+            main_collection.children.link(right_engine_collection)
+            main_collection.children.link(left_engine_collection)
+            main_collection.children.link(cockpit_collection)
+            main_collection.children.link(cable_collection)
+            
         main_collection.export_type = type
         main_collection.export_model = str(valid_models[0]['index'])
         

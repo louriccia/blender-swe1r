@@ -52,7 +52,7 @@ def reduce_colors(image_array, num_colors=255, max_iter=3):
     pixels = image_array.reshape(-1, 4).astype(np.float32)  # Ensure float for computations
     # Initialize centroids by randomly selecting `num_colors` pixels
     np.random.seed(42)  # For reproducibility
-    centroids = pixels[np.random.choice(pixels.shape[0], num_colors, replace=False)]
+    centroids = pixels[np.random.choice(pixels.shape[0], num_colors, replace=True)] #changed replace=False to true because of some error
     for iteration in range(max_iter):
         # Compute distances from each pixel to each centroid
         distances = np.linalg.norm(pixels[:, None, :] - centroids[None, :, :], axis=2)
@@ -138,27 +138,46 @@ class Texture():
         return new_image
 
     def unmake(self, image, override_format = None):
+        TEXTURE_MAX_SIZE = 64
         width, height = image.size
-        if width > 320:
-            image.scale(320, int(height*320/width))
-        elif height > 320:
-            image.scale(int(width*320/height), 320)
+        print('original image size', image, width, height)
+        if width > TEXTURE_MAX_SIZE:
+            image.scale(TEXTURE_MAX_SIZE, int(height*TEXTURE_MAX_SIZE/width))
+        elif height > TEXTURE_MAX_SIZE:
+            image.scale(int(width*TEXTURE_MAX_SIZE/height), TEXTURE_MAX_SIZE)
+        
+        # if width > TEXTURE_MAX_SIZE or height > TEXTURE_MAX_SIZE:
+        #     image.scale(TEXTURE_MAX_SIZE, TEXTURE_MAX_SIZE)
         
         self.width, self.height = image.size
+        print('new image size', image, self.width, self.height)
         
         #check if we need palettization
         image_data = np.array(image.pixels[:])  # Convert pixel data to a NumPy array
         pixels = image_data.reshape(-1, 4)
         palette = np.unique(pixels, axis=0)
+        #check if we need format 3
+        for color in palette: #FIXME: this is not behaving correctly for alderon export
+            if color[3] < 255 and color[3] > 0 and False:
+                print('format 3 detected')
+                self.format = 3
+                image['format'] = 3
+                self.palette = Palette(self)
+                self.pixels = Pixels(self).unmake(image, override_format = 3)
+                return self
         if len(palette > 255):
+            print('reducing palette')
             reduced_image, palette = reduce_colors(image_data, num_colors=32, max_iter = 1)
+            self.format = 513
+            image['format'] = 513
             self.pixels = Pixels(self)
             self.pixels.data = reduced_image
             self.palette = Palette(self)
             self.palette.data = [RGBA5551().from_array(color) for color in palette]
-        else:        
-            self.palette = Palette(self).unmake(image, override_format)
-            self.pixels = Pixels(self).unmake(image, override_format)
+            return self     
+        
+        self.palette = Palette(self).unmake(image, override_format)
+        self.pixels = Pixels(self).unmake(image, override_format)
         return self
     
 class RGBA5551(DataStruct):
@@ -228,13 +247,6 @@ class Palette():
         pixels = image_data.reshape(-1, 4)
         palette = np.unique(pixels, axis=0)
         for pixel in palette[:threshold]:
-            #detect if we need format 3
-            if pixel[3] > 0 and pixel[3] < 1:
-                print('format 3 detected')
-                #abandon palettization since we don't need it for format 3
-                image['format'] = 3
-                self.texture.format = 3
-                return self
             color = RGBA5551().from_array([ max(0, min(int(j*255), 255)) for j in pixel])
             self.data.append(color)
         
