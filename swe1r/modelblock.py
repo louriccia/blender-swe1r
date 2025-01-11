@@ -3454,22 +3454,22 @@ class Model():
                 # elif type == 'cockpit':
                 #     comp_e.header = [45]
                 link_nodes(comp_d, [comp_e])
-                comp_f = Group20582(None, self, 20582).set_flags(vis_flags=4294967295, col_flags=4294967293)
-                if type == 'cockpit':
-                    comp_f.floats = [0.0, 2000.0, 4000.0, 6000.0, 8000.0, 1000000.0, -1.0, -1.0, 0.0, 0.0, 0.0] #LOD distances
-                else:
-                    comp_f.floats = [0.0, 40.0, 60.0, 100.0, 120.0, 1000000.0, -1.0, -1.0, 0.0, 0.0, 0.0]
-                link_nodes(comp_e, [comp_f])
+                # comp_f = Group20582(None, self, 20582).set_flags(vis_flags=4294967295, col_flags=4294967293)
+                # if type == 'cockpit':
+                #     comp_f.floats = [0.0, 2000.0, 4000.0, 6000.0, 8000.0, 1000000.0, -1.0, -1.0, 0.0, 0.0, 0.0] #LOD distances
+                # else:
+                #     comp_f.floats = [0.0, 40.0, 60.0, 100.0, 120.0, 1000000.0, -1.0, -1.0, 0.0, 0.0, 0.0]
+                #link_nodes(comp_e, [comp_f])
                 if len(mesh):
-                    assign_objs_to_node_by_type([Mesh(None, self).unmake(obj) for obj in mesh], comp_f, self)
+                    assign_objs_to_node_by_type([Mesh(None, self).unmake(obj) for obj in mesh], comp_e, self)
                 
                 return comp_a
             
             def create_air_stream(mesh, top_header, bottom_header):
-                air_a = Group53349(None, self, 53349).set_flags(vis_flags=4294967292, col_flags=4294967293) #, header = [top_header]
+                air_a = Group53349(None, self, 53349, header = [top_header]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
                 air_b = Group53350(None, self, 53350).set_flags(vis_flags=4294967295, col_flags=4294967293)
                 link_nodes(air_a, [air_b])
-                air_c = Group53349(None, self, 53349).set_flags(vis_flags=4294967295, col_flags=4294967293) #, header = [bottom_header]
+                air_c = Group53349(None, self, 53349, header = [bottom_header]).set_flags(vis_flags=4294967295, col_flags=4294967293) #
                 link_nodes(air_b, [air_c])
                 air_d = Group53349(None, self, 53349).set_flags(vis_flags=4294967295, col_flags=4294967293)
                 link_nodes(air_c, [air_d])
@@ -3480,13 +3480,13 @@ class Model():
             root = Group20581(root, self, 20581, header = [0]).set_flags(vis_flags=4294967295, col_flags=4294967293)
             
             podd_a_node = Group20580(None, self, 20580).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            podd_74_node = Group53349(None, self, 53349).set_flags(vis_flags=4294967295, col_flags=4294967293) #full low LOD pod #, header = [74]
+            podd_74_node = Group53349(None, self, 53349, header = [74]).set_flags(vis_flags=4294967295, col_flags=4294967293) #full low LOD pod #
             link_nodes(root, [podd_a_node, podd_74_node])
             
             podd_shadows_node = Group20580(None, self, 20580).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            podd_engine_r_shadow = Group53349(None, self, 53349).set_flags(vis_flags=4294967292, col_flags=4294967293) #, header = [62]
-            podd_engine_l_shadow = Group53349(None, self, 53349).set_flags(vis_flags=4294967292, col_flags=4294967293) #, header = [63]
-            podd_cockpit_shadow = Group53349(None, self, 53349).set_flags(vis_flags=4294967292, col_flags=4294967293) #, header = [64]
+            podd_engine_r_shadow = Group53349(None, self, 53349, header = [62]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
+            podd_engine_l_shadow = Group53349(None, self, 53349, header = [63]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
+            podd_cockpit_shadow = Group53349(None, self, 53349, header = [64]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
             link_nodes(podd_shadows_node, [podd_engine_r_shadow, podd_engine_l_shadow, podd_cockpit_shadow])
             
             podd_b_node = Group20580(None, self, 20580).set_flags(vis_flags=0, col_flags=4294967293)
@@ -3530,8 +3530,8 @@ class Model():
             assign_objs_to_node_by_type([Mesh(podd_cable2, self).unmake(obj) for obj in cable_mesh], podd_cable2, self)
             podd_sparks = Group53349(None, self, 53349, header = [65]).set_flags(vis_flags=4294967292, col_flags=4294967293)
             podd_sparks_ai = Group53349(None, self, 53349, header = [66]).set_flags(vis_flags=4294967292, col_flags=4294967293)
-            podd_72_node = Group53349(None, self, 53349).set_flags(vis_flags=4294967292, col_flags=4294967293) #, header = [72]
-            podd_73_node = Group53349(None, self, 53349).set_flags(vis_flags=4294967292, col_flags=4294967293) #, header = [73]
+            podd_72_node = Group53349(None, self, 53349, header = [72]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
+            podd_73_node = Group53349(None, self, 53349, header = [73]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
             podd_binder1 = Group53349(None, self, 53349, header = [6]).set_flags(vis_flags=4294967295, col_flags=4294967293)
             podd_binder2 = Group53349(None, self, 53349, header = [7]).set_flags(vis_flags=4294967295, col_flags=4294967293)
             link_nodes(podd_binder1, [podd_binder2])
