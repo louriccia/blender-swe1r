@@ -72,14 +72,14 @@ class SplinePoint(DataStruct):
         polyline.bezier_points[-1].handle_left =  tuple([p for p in self.handle1.to_array()])
         polyline.bezier_points[-1].handle_right =  tuple([p for p in self.handle2.to_array()])
     
-    def unmake(self, point, object):
+    def unmake(self, point, object, scale = 0.01):
         co = object.matrix_world @ point.co
         handle_left = object.matrix_world @ point.handle_left
         handle_right = object.matrix_world @ point.handle_right
-        self.position = FloatPosition().from_array([c/.01 for c in co])
+        self.position = FloatPosition().from_array([c/scale for c in co])
         self.rotation = FloatVector().from_array([0, 0, 1])
-        self.handle1 = FloatPosition().from_array([c/.01 for c in handle_left])
-        self.handle2 = FloatPosition().from_array([c/.01 for c in handle_right])
+        self.handle1 = FloatPosition().from_array([c/scale for c in handle_left])
+        self.handle2 = FloatPosition().from_array([c/scale for c in handle_right])
         return self
     
     def to_array(self):
@@ -188,8 +188,7 @@ class Spline(DataStruct):
                     next.extend(point.next)
 
             if 0 in next:
-                if len(next) > 1:
-                    raise ValueError("All paths must join before and split after starting line! You cannot have shortcuts that go around the finish line.")
+                assert len(next) <= 1, "All paths must join before and split after starting line! You cannot have shortcuts that go around the finish line."
                 end = True
 
             path_list.append(current_unique)
@@ -202,7 +201,7 @@ class Spline(DataStruct):
                 if i == len(path_list) - 1 and not loop:
                     point.progress = 0
     
-    def unmake(self, collection):
+    def unmake(self, collection, scale = 0.01):
         spline_objects = [obj for obj in collection.objects if obj.type == 'CURVE']
         
         if len(spline_objects) < 1:
@@ -220,7 +219,7 @@ class Spline(DataStruct):
         splines = spline_object.data.splines
         
         #find bezier splines
-        paths = [spline for spline in splines if spline.type == 'BEZIER'] # and len(spline.bezier_points)>=2
+        paths = [spline for spline in splines if spline.type == 'BEZIER' and len(spline.bezier_points)>=2]
         
         if len(paths) == 0:
             show_custom_popup(bpy.context, "No bezier splines", "No bezier splines were found in the selected collection")
@@ -250,13 +249,12 @@ class Spline(DataStruct):
         
         main_len = len(main_path.bezier_points)
         count = main_len + sum([len(path.bezier_points) - 2 for path in alt_paths])
-        if count > 255:
-            raise ValueError(f"Too many spline points. Splines that contain more than 255 points are not supported. This scene contains {count} points.")
+        assert count <= 255, f"Too many spline points. Splines that contain more than 255 points are not supported. This scene contains {count} points."
         
         
         #add all points from main_path
         for i, point in enumerate(main_path.bezier_points):
-            p = SplinePoint().unmake(point, spline_object)
+            p = SplinePoint().unmake(point, spline_object, scale)
             p.id = point_count
             
             if i == 0 and loop:
@@ -282,10 +280,12 @@ class Spline(DataStruct):
             last = path.bezier_points[-1]
             
             # find index of existing points
-            start = self.find_closest(first.co, 'start')
+            start = self.find_closest(first.co , 'start')
             end = self.find_closest(last.co, 'end')
             points = path.bezier_points[1:-1]
-             
+            
+            assert start != end, "Something went wrong during Spline export"
+            
             # check if path needs to be inverted
             # this prevents a path from ending on an earlier point than where it started
             if self.points[start].progress > self.points[end].progress:
@@ -296,7 +296,7 @@ class Spline(DataStruct):
             
             # loop through and add points of path
             for i, point in enumerate(points):
-                p = SplinePoint().unmake(point, spline_object)
+                p = SplinePoint().unmake(point, spline_object, scale)
                 p.id = point_count
                 
                 if i == 0: # start of path connects to existing point
@@ -336,7 +336,7 @@ class Spline(DataStruct):
         
         return self
         
-    def find_closest(self, co, cap = 'start'):
+    def find_closest(self, co, cap = 'start', scale = 0.01):
         closest_index = None
         closest_distance = float('inf')
         
@@ -345,7 +345,7 @@ class Spline(DataStruct):
                 continue
             if cap is "end" and len(point.previous) >= 4:
                 continue
-            distance_vec = (d - co[j] for j, d in enumerate(point.position.to_array()))
+            distance_vec = (d*scale - co[j] for j, d in enumerate(point.position.to_array()))
             distance = math.sqrt(sum([d**2 for d in distance_vec]))
             
             if distance < closest_distance:

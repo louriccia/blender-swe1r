@@ -25,20 +25,7 @@ from .swe1r.modelblock import Model
 from .swe1r.splineblock import Spline
 from .swe1r.spline_map import spline_map
 from .swe1r.block import Block
-from .utils import UpdateVisibleSelectable, data_name_prefix_short
-
-# for material in bpy.data.materials:
-#     material.user_clear()
-#     bpy.data.materials.remove(material)
-
-# for obj in bpy.data.objects:
-#     bpy.data.objects.remove(obj)
-    
-# for col in bpy.data.collections:
-#     bpy.data.collections.remove(col)
-    
-# for img in bpy.data.images:
-#     bpy.data.images.remove(img)
+from .utils import UpdateVisibleSelectable
 
 scale = 0.01
 
@@ -49,34 +36,34 @@ def import_model(file_path, selector=None, update_progress=None):
     # cleanup
 
     mats_removed = 0
-    update_progress(0.2, "Deleting unused materials")    
-    for mat in bpy.data.materials:
-        if mat.name.startswith(data_name_prefix_short) and (mat.users == 0 or int(mat.name[11:14]) in selector):
-            bpy.data.materials.remove(mat)
-            mats_removed += 1
+    # update_progress("Deleting unused materials")    
+    # for mat in bpy.data.materials:
+    #     if mat.name.startswith(data_name_prefix_short) and (mat.users == 0 or int(mat.name[11:14]) in selector):
+    #         bpy.data.materials.remove(mat)
+    #         mats_removed += 1
 
-    if mats_removed > 0:
-        print(f'Removed {mats_removed} unused materials.')
+    # if mats_removed > 0:
+    #     print(f'Removed {mats_removed} unused materials.')
 
 
-    update_progress(0.3, "Deleting unused images")    
+    # update_progress("Deleting unused images")    
 
-    imgs_removed = 0
-    for img in bpy.data.images:
-        if img.name.startswith(data_name_prefix_short) and img.users == 0:
-            bpy.data.images.remove(img)
-            imgs_removed += 1
+    # imgs_removed = 0
+    # for img in bpy.data.images:
+    #     if img.name.startswith(data_name_prefix_short) and img.users == 0:
+    #         bpy.data.images.remove(img)
+    #         imgs_removed += 1
 
-    if imgs_removed > 0:
-        print(f'Removed {imgs_removed} unused images.')
+    # if imgs_removed > 0:
+    #     print(f'Removed {imgs_removed} unused images.')
         
     # setup
     
-    update_progress(0.4, "Parsing .bin files")
+    update_progress("Parsing .bin files")
     
-    modelblock = Block(file_path + 'out_modelblock.bin', [[], []]).read()
-    textureblock = Block(file_path + 'out_textureblock.bin', [[], []]).read()
-    splineblock = Block(file_path + 'out_splineblock.bin', [[]]).read()
+    modelblock = Block(file_path + 'out_modelblock.bin', 2, update_progress).read()
+    textureblock = Block(file_path + 'out_textureblock.bin', 2, update_progress).read()
+    splineblock = Block(file_path + 'out_splineblock.bin', 1, update_progress).read()
 
     modelblock.textureblock = textureblock
     modelblock.splineblock = splineblock
@@ -84,7 +71,7 @@ def import_model(file_path, selector=None, update_progress=None):
     # unpacking
 
     for model_id in selector:
-        update_progress(0.5, f'Reading model {model_id}')
+        update_progress(f'Reading model {model_id}')
 
         model_buffer = modelblock.fetch(model_id)[1]
         model = Model(model_id)
@@ -93,16 +80,16 @@ def import_model(file_path, selector=None, update_progress=None):
         if model is None:
             print("There was an error while parsing the model")
             return 
-        update_progress(0.75, f'Making model {model_id}')
+        update_progress(f'Making model {model_id}')
 
         collection = model.make()
         if model_id in spline_map:
             spline_id = spline_map[model_id]
             spline_buffer = splineblock.fetch(spline_id)[0]
-            update_progress(0.9, f'Reading spline {spline_id}')
+            update_progress(f'Reading spline {spline_id}')
             
             spline = Spline(spline_id).read(spline_buffer)
-            update_progress(0.95, f'Making spline {spline_id}')
+            update_progress(f'Making spline {spline_id}')
             collection.objects.link(spline.make(model.scale))
             
     # toggle visible/selectable
@@ -112,5 +99,5 @@ def import_model(file_path, selector=None, update_progress=None):
 
     print(f'Successfully unpacked {len(selector)} models')
 
-    show_custom_popup(bpy.context, "IMPORTED!", f"Successfully unpacked {len(selector)} models. Removed {mats_removed} unused materials and {imgs_removed} unused images.")
+    show_custom_popup(bpy.context, "IMPORTED!", f"Successfully unpacked {len(selector)} models.")
     

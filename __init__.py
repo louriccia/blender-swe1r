@@ -77,6 +77,7 @@ def register():
     import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list) if model['extension'] == utils.model_types[int(utils.get_setting('import_type', 0))][1]]
     if not len(import_items):
         import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(swe1r.model_list.model_list)]
+    import_items.append(("-1", "All", "Import all models of this type"))
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
         items=import_items,
         name="Model",
@@ -179,10 +180,14 @@ def register():
     bpy.types.Scene.scroll_y = bpy.props.FloatProperty(name = 'scroll_y', default = 0.0, update = utils.update_selected("scroll_y", update_mat = True))
     bpy.types.Scene.flip_x = bpy.props.BoolProperty(name = 'flip_x', default = False, update = utils.update_selected("flip_x", update_mat = True))
     bpy.types.Scene.flip_y = bpy.props.BoolProperty(name = 'flip_y', default = False, update = utils.update_selected("flip_y", update_mat = True))
+    bpy.types.Scene.clip_x = bpy.props.BoolProperty(name = 'clip_x', default = False, update = utils.update_selected("clip_x", update_mat = True))
+    bpy.types.Scene.clip_y = bpy.props.BoolProperty(name = 'clip_y', default = False, update = utils.update_selected("clip_y", update_mat = True))
     bpy.types.Material.scroll_x = bpy.props.FloatProperty(name = 'scroll_x', default = 0.0)
     bpy.types.Material.scroll_y = bpy.props.FloatProperty(name = 'scroll_y', default = 0.0)
     bpy.types.Material.flip_x = bpy.props.BoolProperty(name = 'flip_x', default = False)
     bpy.types.Material.flip_y = bpy.props.BoolProperty(name = 'flip_y', default = False)
+    bpy.types.Material.clip_x = bpy.props.BoolProperty(name = 'clip_x', default = False)
+    bpy.types.Material.clip_y = bpy.props.BoolProperty(name = 'clip_y', default = False)
     bpy.types.Scene.transparent = bpy.props.BoolProperty(name = 'transparent', default = False, update = utils.update_selected("transparent", update_mat = True))
     bpy.types.Material.transparent = bpy.props.BoolProperty(name = 'transparent', default = False)
     

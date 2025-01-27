@@ -117,6 +117,8 @@ mat_props = [
     'scroll_y',
     'flip_x',
     'flip_y',
+    'clip_x',
+    'clip_y',
     'transparent'
 ]
 
@@ -151,7 +153,7 @@ def on_object_selection(context):
         if obj.type == 'MESH':
             mats = [slot.material for slot in obj.material_slots]
             for mat in mats:
-                if mat.node_tree:
+                if mat is not None and mat.node_tree:
                     for node in mat.node_tree.nodes:
                         if node.type == 'TEX_IMAGE':
                             textures.add(node.image)
@@ -413,9 +415,13 @@ class SelectedPanel(bpy.types.Panel):
                         row.prop(context.scene, 'scroll_x', text = f'x{is_indeterminate("scroll_x")}')
                         row.prop(context.scene, 'scroll_y', text = f'y{is_indeterminate("scroll_y")}')
                         row= box.row()
-                        row.label(text = 'Flip')
+                        row.label(text = 'Mirror')
                         row.prop(context.scene, 'flip_x', text = f'x{is_indeterminate("flip_x")}')
                         row.prop(context.scene, 'flip_y', text = f'y{is_indeterminate("flip_y")}')
+                        row= box.row()
+                        row.label(text = 'Clip')
+                        row.prop(context.scene, 'clip_x', text = f'x{is_indeterminate("clip_x")}')
+                        row.prop(context.scene, 'clip_y', text = f'y{is_indeterminate("clip_y")}')
                         row = box.row()
                         row.operator('view3d.bake_vcolors', text='Apply')
                     else:
@@ -544,13 +550,16 @@ class SelectedPanel(bpy.types.Panel):
                 row.enabled = False
                 
         elif spline:
-            is_cyclic = spline.use_cyclic_u
-            layout.operator("view3d.invert_spline", text = "Invert", icon='ARROW_LEFTRIGHT')
-            layout.operator("view3d.reconstruct_spline", text = "Set spawn point", icon='TRACKING')
-            icon = "CHECKBOX_HLT" if is_cyclic else "CHECKBOX_DEHLT"
             row = layout.row()
-            row.label(text = 'Cyclic')
-            row.operator("view3d.toggle_cyclic", emboss = False, icon = icon, text = "")
+            column = row.column()   
+            column.operator("curve.select_first_spline_point", text = "Select spawn", icon = "SELECT_SET")
+            column = row.column()
+            column.enabled = spline.use_cyclic_u and context.mode == 'EDIT_CURVE'
+            column.operator("view3d.reconstruct_spline", text = "Set spawn", icon = "TRACKING" )
+            layout.operator("view3d.invert_spline", text = "Invert", icon='ARROW_LEFTRIGHT')
+            row = layout.row()
+            row.prop(spline, 'use_cyclic_u', text = "Cyclic")
+            row.prop(context.space_data.overlay, "show_curve_normals", text = "Show direction")
             
         elif light:
             layout.prop(light, "color", text = "Color")

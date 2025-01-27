@@ -109,8 +109,7 @@ class FloatPosition(DataStruct):
         return f"({self.data[0]}, {self.data[1]}, {self.data[2]})"
     
     def from_array(self, data=None):
-        if(len(data) != 3):
-            raise ValueError(f"Vec3 must contain 3 values, received {len(data)}")
+        assert len(data) == 3, f"Vec3 must contain 3 values, received {len(data)}"
         super().from_array(data)
         return self
     
@@ -160,8 +159,7 @@ class FloatMatrix(DataStruct):
         return self
 
     def from_array(self, data=None):
-        if(len(data) != 12):
-            raise ValueError("FloatMatrix must have 12 values")
+        assert len(data) == 12, "FloatMatrix must have 12 values"
         self.data = [FloatVector().from_array(data[:3]), FloatVector().from_array(data[3:6]), FloatVector().from_array(data[6:9]), FloatPosition().from_array(data[9:])]
 
     def to_array(self):
@@ -199,11 +197,10 @@ class Color(Data):
         return f"r: {self.data[0]} g: {self.data[1]} b: {self.data[2]}"
     
     def set(self, data=None):
-        if(len(data) > 4 or len(data) < 3):
-            raise ValueError("Color must have 3 or 4 values")
+        assert len(data) == 3 or len(data) == 4, "Color must have 3 or 4 values"
+        
         for c in self.data:
-            if c > 255:
-                raise ValueError(f"Color values must be < 255, received {c}")
+            assert c <= 255, f"Color values must be < 255, received {c}"
         if len(data) == 3:
             data.append(255)
         self.data = data

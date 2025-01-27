@@ -669,8 +669,7 @@ class VisualsVertBuffer():
         return [d.to_array() for d in self.data]
     
     def write(self, buffer, cursor, index_buffer):
-        if not index_buffer.offset:
-            raise AttributeError(index_buffer, "Index buffer must be written before vertex buffer")
+        assert index_buffer.offset, "Index buffer must be written before vertex buffer"
         
         vert_buffer_addr = cursor
         for vert in self.data:
@@ -829,8 +828,7 @@ class VisualsIndexBuffer():
         
         while(chunk_type != 223):
             chunk_class = self.map.get(chunk_type)
-            if chunk_class is None:
-                raise ValueError(f"Invalid index chunk type {chunk_type}")
+            assert chunk_class, f"Invalid index chunk type {chunk_type}"
             chunk = chunk_class(self, self.model, chunk_class)
             chunk.read(buffer, cursor, vert_buffer_addr)
             self.data.append(chunk)
@@ -860,7 +858,6 @@ class VisualsIndexBuffer():
         
         index_buffer = []
         # TODO: this should not pair faces that have indices more than 63 apart in the same chunk
-        # TODO: Investigate missing tris
         while len(faces) > 1:
             chunk_type = 6
             chunk_class = self.map.get(chunk_type)
@@ -921,11 +918,11 @@ class MaterialTextureChunk(DataStruct):
         self.parent = parent
         self.data = []
         self.unk0 = 0 #sets uv mirroring
-        self.unk1 = 0
+        self.unk1 = 1280
         self.unk2 = 0
         self.unk3 = 0
-        self.unk4 = 0
-        self.unk5 = 0
+        self.unk4 = 292
+        self.unk5 = 184
         self.model = model
         
     def read(self, buffer, cursor):
@@ -933,8 +930,6 @@ class MaterialTextureChunk(DataStruct):
         return self
         
     def unmake(self, texture):
-        self.unk4 = texture.width - 4
-        self.unk5 = texture.height - 4
         return self
     
     def write(self, buffer, cursor):
@@ -950,9 +945,8 @@ class MaterialTexture(DataStruct):
 
         self.parent = parent
         self.model = model
-        self.id = None
-        self.unk0 = 0 #0, 1, 65, 73 
-        self.format = 0
+        self.unk0 = 1 #0, 1, 65, 73 
+        self.format = 513
         self.unk4 = 0 #0, 4
         self.width = 0
         self.height = 0
@@ -960,7 +954,7 @@ class MaterialTexture(DataStruct):
         self.unk8 = 0
         self.chunks = []
         self.unk9 = 2560 #this is a required value
-        self.tex_index = 0
+        self.id = 0
 
     def read(self, buffer, cursor):
         if cursor == 0:
@@ -971,7 +965,7 @@ class MaterialTexture(DataStruct):
 
         unk_pointers = []
         self.id = cursor
-        self.unk0, unk1, unk3, self.format, self.unk4, self.width, self.height, unk5, unk6, self.unk7, self.unk8, *unk_pointers, self.unk9, self.tex_index = struct.unpack_from(self.format_string, buffer, cursor)
+        self.unk0, unk1, unk3, self.format, self.unk4, self.width, self.height, unk5, unk6, self.unk7, self.unk8, *unk_pointers, self.unk9, self.id = struct.unpack_from(self.format_string, buffer, cursor)
         for pointer in unk_pointers:
             if pointer:
                 chunk = MaterialTextureChunk(self, self.model)
@@ -982,56 +976,56 @@ class MaterialTexture(DataStruct):
 
         return self.model.textures[cursor]
 
+    def to_array(self):
+        return [self.unk0, 0, 0, self.format, self.unk4, self.width, self.height, 0, 0, self.unk7, self.unk8, *[0,0,0,0,0,0], self.unk9, self.id]
+
     def make(self):
-        if self.tex_index == 65535:
+        if self.id == 65535:
             return
         textureblock = self.model.modelblock.textureblock
-        self.texture = Texture(self.tex_index, self.format, self.width, self.height)
-        pixel_buffer, palette_buffer = textureblock.fetch(self.tex_index)
+        self.texture = Texture(self.id, self.format, self.width, self.height)
+        pixel_buffer, palette_buffer = textureblock.fetch(self.id)
         self.texture.read(pixel_buffer, palette_buffer)
         return self.texture.make()
 
-    def unmake(self, image, override_id = None, override_format = None):
+    def unmake(self, image):
         if image is None:
             return self
 
-        if override_id is not None and int(override_id) < 0xFFFF:
-            self.tex_index = int(override_id)
-            self.id = int(override_id)
-        elif 'id' in image:
-            self.tex_index = int(image['id'])
+        if 'id' in image:
             self.id = int(image['id'])
 
-        if override_format is not None:
-            self.format = int(override_format)
-        elif 'format' in image:
+        if 'format' in image:
             self.format = int(image['format'])
-        else:
-            self.format = 513
 
         self.width, self.height = image.size
-        self.unk1 = min(self.width * 4, 65535)
-        self.unk2 = min(self.height * 4, 65535)
-        self.unk5 = min(65535, self.width * 512)
-        self.unk6 = min(65535, self.height * 512)
         self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
 
         if self.model is None:
             return self
 
-        if image.name in self.model.written_textures:
-            self.tex_index = image['id']
-            self.id = image['id']
+        #check if we already wrote this image
+        if image.name in self.model.image_map:
+            self.id = self.model.image_map[image.name]
         elif self.model.texture_export:
             hash = compute_image_hash(image)
             
-            #if it matches what was imported, do nothing
-            if hash == image.get('hash'):
-                return self    
+            #if user has made no changes
+            if hash == image.get('internal_hash'):
+                if self.id < 1648: #do nothing for vanilla
+                    return self  
+                
+                # textureblock may have changed so we need to check
+                id = self.model.textureblock.fetch_by_hash(image.get('external_hash'))
+                if id is not None:
+                    self.id = id
+                    image['id'] = id
+                    print('found', image.name, 'already in modelblock as', id)
+                    return self
             
-            id = len(self.model.textureblock.data[0])
+            image['internal_hash'] = hash
+            id = len(self.model.textureblock.data)
             self.id = id
-            self.tex_index = id
             image['id'] = id
             texture = Texture(id, self.format).unmake(image, self.format)
             self.format = texture.format
@@ -1039,24 +1033,23 @@ class MaterialTexture(DataStruct):
                 self.unk0 = 1
             self.width = texture.width
             self.height = texture.height
-            self.unk1 = min(self.width * 4, 65535)
-            self.unk2 = min(self.height * 4, 65535)
-            self.unk5 = min(65535, self.width * 512)
-            self.unk6 = min(65535, self.height * 512)
             pixel_buffer = texture.pixels.write()
             palette_buffer = texture.palette.write()
-            self.model.written_textures[image.name] = id
+            self.model.image_map[image.name] = id
             
             #see if this texture is already in block
             buffer = pixel_buffer + palette_buffer
             buffer_hash = compute_hash(buffer)
-            for i, texture_hash in enumerate(self.model.textureblock.hash_table):
-                if texture_hash == buffer_hash:
-                    self.id = i
-                    self.tex_index = i
-                    image['id'] = i
-                    return self
+            image['external_hash'] = buffer_hash
+            id = self.model.textureblock.fetch_by_hash(image.get('external_hash'))
             
+            if id is not None:
+                self.id = id
+                image['id'] = id
+                print('found', image.name, 'already in modelblock as', id)
+                return self
+            
+            id = len(self.model.textureblock.data)
             self.model.textureblock.inject([pixel_buffer, palette_buffer], id)
             
 
@@ -1065,7 +1058,8 @@ class MaterialTexture(DataStruct):
     def write(self, buffer, cursor):
         chunk_addr = cursor + 28
         self.model.highlight(cursor + 56)
-        struct.pack_into(self.format_string, buffer, cursor, self.unk0, min(self.width*4, 32768), min(self.height*4, 32768), self.format, self.unk4, self.width, self.height, min(self.width*512, 32768), min(self.height*512, 32768), self.unk7, self.unk8, *[0, 0, 0, 0, 0, 0], self.unk9, self.tex_index)
+        #struct.pack_into(self.format_string, buffer, cursor, self.unk0, min(self.width*4, 65535), min(self.height*4, 65535), self.format, self.unk4, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), self.unk7, self.unk8, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
+        struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 65535), min(self.height*8, 65535), self.format, 3, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), 683, 503, *[3, 3, 3, 3, 3, 3], self.unk9, self.id)
         cursor += self.size
 
         for i, chunk in enumerate(self.chunks):
@@ -1096,7 +1090,15 @@ class MaterialShader(DataStruct):
         # render mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetRenderMode.htm
         self.render_mode_1 = 0x18 #initialize with zcmp and aa
         self.render_mode_2 = 0
-        
+        # 0b11001000000100000100100101111000	1	    weird material in bwr ice reflection
+        # 0b11001000000100000100101101010000	1	    transparent death beam on oovo
+        # 0b11001000000100010010000001111000	15	    broken textures
+        # 0b11001000000100000100100111011000	113	    reserved for semi-transparent textures (format 3)
+        # 0b11001000000100000100100101111001	225	    textures with transparency (format 513)
+        #     0b1100000110000100100101001000    6	    transparent skybox (oovo asteroids)
+        #     0b1111000010100010000000001000    342	    skybox materials
+        # 0b11001000000100010010000000111000	2246	everything else
+        #                       100000000000 transparency
         #  0b1100 0000 1000 0010 0000 0000 1000
         #    0b11 0000 0010 0010 0000 0000 1000
         #http://n64devkit.square7.ch/header/gbi.htm
@@ -1126,6 +1128,9 @@ class MaterialShader(DataStruct):
         self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, *self.unk = struct.unpack_from(self.format_string, buffer, cursor)
         self.color.read(buffer, cursor + 34)
     
+    def to_array(self):
+        return [self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, *self.unk]    
+    
     def make(self, material):
         material['unk1'] = self.unk1 = 0
         material['unk2'] = self.unk2 = 2
@@ -1144,12 +1149,14 @@ class MaterialShader(DataStruct):
             material['transparent'] = True
     
     def unmake(self, material):
-        if material.transparent:
-            self.unk1 = 8
-            self.render_mode_1 |= 0x800
+        if material is not None:
+            if material.transparent:
+                self.unk1 = 8
+                self.render_mode_1 |= 0x800
+            self.unk1 = material.get('unk1', 0)
+            self.unk2 = material.get('unk2', 0)
             
         # alternate way to detect if this material is on a skybox mesh
-        # TODO: debug if this works for template track
         mat = self.parent
         mesh = mat.parent
         if mat.parent:
@@ -1162,11 +1169,8 @@ class MaterialShader(DataStruct):
                         self.render_mode_2 &= 0xFFFFFFEF
                     else:
                         self.render_mode_1 = 0b1100000010000010000000001000 
-                        self.render_mode_2 =   0b11000000100010000000001000
+                        self.render_mode_2 = 0b11000000100010000000001000
                     break
-        
-        self.unk1 = material.get('unk1', 0)
-        self.unk2 = material.get('unk2', 0)
         
         return self
     
@@ -1217,14 +1221,6 @@ class Material(DataStruct):
         self.texture_anim = False
         self.shader = MaterialShader(self, self.model)
         
-    def detect_skybox(self):
-        parent = self.parent
-        while parent is not None:
-            if hasattr(parent, 'skybox'):
-                self.skybox = True 
-                # self.format = 12
-            parent = parent.parent
-        
     def read(self, buffer, cursor):
         self.id = cursor
         self.format, texture_addr, shader_addr = struct.unpack_from(self.format_string, buffer, cursor)
@@ -1234,9 +1230,10 @@ class Material(DataStruct):
         # there should always be a shader_addr otherwise game will crash
         assert shader_addr > 0, "Material should have shader"
         self.shader.read(buffer, shader_addr)
-        
-        self.detect_skybox()
         return self
+        
+    def to_array(self):
+        return [self.format, 0, 0]
         
     def make(self, remake = False):
         mat_name = self.name if self.name else data_name_format_long.format(data_type = 'mat', group_id = '{:03d}'.format(self.model.id), label = str(self.id))
@@ -1256,7 +1253,7 @@ class Material(DataStruct):
         material['format'] = self.format
         
         if (self.texture is not None):
-            tex_name = data_name_format.format(data_type = 'tex', label = str(self.texture.tex_index))
+            tex_name = data_name_format.format(data_type = 'tex', label = str(self.texture.id))
 
             material['scroll_x'] = self.scroll_x
             material['scroll_y'] = self.scroll_y
@@ -1335,7 +1332,11 @@ class Material(DataStruct):
                     material.flip_x = True
                 if(chunk_tag & 0x10):
                     material.flip_y = True
-
+                if(chunk_tag & 0x2):
+                    material.clip_x = True
+                if(chunk_tag & 0x20):
+                    material.clip_y = True
+                    
                 if(chunk_tag & 0x11 == 0x11):
                     node_7 = material.node_tree.nodes.new("ShaderNodeMath")
                     node_7.operation = 'PINGPONG'
@@ -1397,36 +1398,36 @@ class Material(DataStruct):
             return material
 
     def unmake(self, material):
-        self.detect_skybox()
-        self.name = material.name
         material_name: str = ""
+        
+        self.shader.unmake(material)
         if material:
+            self.name = material.name
+            
             material_name = material.name #.split(".")[0]
             self.id = material_name[data_name_prefix_len:]
             if self.model and material_name in self.model.materials:
                 return self.model.materials[material_name]
-
-            
             
             self.scroll_x = material.get('scroll_x')
             self.scroll_y = material.get('scroll_y')
             self.texture_anim = material.get('texture_anim')
             
+            # if material.node_tree:
             for node in material.node_tree.nodes:
                 if node.type == 'TEX_IMAGE':
-                    force_id = material.get(name_tex_override_id)
-                    force_fmt = material.get(name_tex_override_format)
-                    self.texture = MaterialTexture(self, self.model).unmake(node.image, force_id, force_fmt)
-
-            self.shader.unmake(material)
+                    self.texture = MaterialTexture(self, self.model).unmake(node.image)
 
             self.id = material.get('id')
 
             if material.flip_x:
                 self.texture.chunks[0].unk1 |= 0x01
-
             if material.flip_y:
                 self.texture.chunks[0].unk1 |= 0x10
+            if material.clip_x:
+                self.texture.chunks[0].unk1 |= 0x02
+            if material.clip_y:
+                self.texture.chunks[0].unk1 |= 0x20
 
             # get animations
             if self.model:
@@ -1445,6 +1446,10 @@ class Material(DataStruct):
                 
             if material.use_backface_culling == False:
                 self.format &= 0b11110111
+
+            #clamps uvs
+            # if self.texture:                
+            #     self.texture.chunks[0].unk1 |= 0x22
         
         if self.model: 
             self.model.materials[material_name] = self
@@ -1606,6 +1611,46 @@ class Mesh(DataStruct):
     def has_trigger(self):
         return self.collision_tags is not None and len(self.collision_tags.triggers)
     
+    def has_transparency(self):
+        return self.material is not None and self.material.shader.render_mode_1 & 0x800 > 0
+    
+    def split(self):
+        vis = Mesh(self.parent, self.model)
+        col = Mesh(self.parent, self.model)
+        
+        vis.material = self.material
+        col.collision_tags = self.collision_tags
+        col.strip_count = self.strip_count
+        col.strip_size = self.strip_size
+        col.vert_strips = self.vert_strips
+        vis.group_parent_id = self.group_parent_id
+        col.collision_vert_buffer = self.collision_vert_buffer
+        vis.visuals_index_buffer = self.visuals_index_buffer
+        vis.visuals_vert_buffer = self.visuals_vert_buffer
+        vis.group_count = self.group_count
+        
+        vis.original_object = self.original_object
+        col.original_object = self.original_object
+        vis.bounding_box = MeshBoundingBox(self, self.model).unmake(vis)
+        col.bounding_box = MeshBoundingBox(self, self.model).unmake(col)
+        return [vis, col]
+        
+    def join(self, vis, col):
+        self.material = vis.material
+        self.collision_tags = col.collision_tags
+        self.strip_count = col.strip_count
+        self.strip_size = col.strip_size
+        self.vert_strips = col.vert_strips
+        self.group_parent_id = vis.group_parent_id
+        self.collision_vert_buffer = col.collision_vert_buffer
+        self.visuals_index_buffer = vis.visuals_index_buffer
+        self.visuals_vert_buffer = vis.visuals_vert_buffer
+        self.group_count = vis.group_count
+        
+        self.original_object = vis.original_object
+        self.bounding_box = MeshBoundingBox(self, self.model).unmake(self)
+        return self
+    
     def read(self, buffer, cursor):
         self.id = cursor
         mat_addr, collision_tags_addr, min_x, min_y, min_z, max_x, max_y, max_z, self.strip_count, self.strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count = struct.unpack_from(self.format_string, buffer, cursor)
@@ -1696,24 +1741,17 @@ class Mesh(DataStruct):
             mesh.validate() #clean_customdata=False
             obj.parent = parent
             
-            
             if self.material:
                 mat = self.material.make()
                 mesh.materials.append(mat)
             
-            
             #set vector colors / uv coords
-            #uv_layer = mesh.uv_layers.new(name = name_attr_uvmap)
-            # NOTE: color layer has to come after uv_layer
-            #color_layer = mesh.color_attributes.new(name_attr_colors, 'BYTE_COLOR', 'CORNER') 
-            
             uv_layer = mesh.uv_layers.new(name = 'uv')
             color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
             
             mesh.attributes.render_color_index = obj.data.attributes.active_color_index
             # no idea why but 4.0 requires I do this:
             uv_layer = obj.data.uv_layers.active.data
-            #color_layer = obj.data.attributes[obj.data.attributes.default_color_name].data   
             color_layer = obj.data.vertex_colors.active.data                
             for poly in mesh.polygons:
                 for p in range(len(poly.vertices)):
@@ -1751,30 +1789,20 @@ class Mesh(DataStruct):
         #     bm.free()
         #     node_tmp.data.update()            
 
-        # def unmake_setup(r_mesh):
-        #     r_mesh.id = node_tmp.get('id', node_tmp.name)
-
-        #     # NOTE: may be impacted in future by normal correction for negatively scaled objects
-        #     get_animations(node_tmp, r_mesh.model, r_mesh)
-
         self.id = node.name
             
         if unmake_anim:
             get_animations(node, self.model, self)
 
-        # def unmake_visuals(r_mesh, b_mat_slot) -> bool:
-        
         if node.visible:
-            #visuals_vert_buffer = VisualsVertBuffer(r_mesh, r_mesh.model).unmake(node_tmp)
-            #verts = visuals_vert_buffer.data
-
-            #faces = [[v for v in face.vertices] for face in node_tmp.data.polygons if face.material_index == b_mat_slot.slot_index]
-            
+            material = None
             for slot in node.material_slots:
                 material = slot.material
                 if material:
                     self.material = Material(self, self.model).unmake(material)
                     break
+            if material is None:
+                self.material = Material(self, self.model).unmake(None)
             
             self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
             verts = self.visuals_vert_buffer.data
@@ -1784,13 +1812,12 @@ class Mesh(DataStruct):
                 return None
             
             # fix uvs
-            if self.material:
+            if self.material and self.material.texture:
                 uv_islands = get_uv_islands(node)
                 new_verts = []
                 new_faces = []
                 index_map = {}
                 
-                vert_index_offset = 0
                 for i, island in enumerate(uv_islands):
                     # check total uv size and determine if we need to offset to fit uv bounds
                     UV_MAX_SIZE = 8
@@ -1815,43 +1842,42 @@ class Mesh(DataStruct):
                                 if coordinate > face_max[i]:
                                     face_max[i] = coordinate
                         
-                        if face_max[0] - face_min[0] > 16 or face_max[1] - face_min[1] > 16:
-                            print("Face uv is too big. We need to subdivide it", face_max, face_min)
+                        # if face_max[0] - face_min[0] > 16 or face_max[1] - face_min[1] > 16:
+                        #     print("Face uv is too big. We need to subdivide it", face_max, face_min)
                             
-                    if uv_max[0] - uv_min[0] > 16 or uv_max[1] - uv_min[1] > 16:
-                        print("island uv is too big, but we can try treating each face individually", uv_max, uv_min)
+                    # if uv_max[0] - uv_min[0] > 16 or uv_max[1] - uv_min[1] > 16:
+                    #     print("island uv is too big, but we can try treating each face individually", uv_max, uv_min)
                     for i in range(2):
                         if uv_min[i] < UV_MIN_SIZE:
                             uv_offset[i] += math.ceil(UV_MIN_SIZE - uv_min[i])
                         if uv_max[i] > UV_MAX_SIZE:
                             uv_offset[i] -= math.ceil(uv_max[i] - UV_MAX_SIZE)
                                                 
-                    # reorder verts and faces
+                    # reindex verts and faces
                     for face in island:
                         new_face = []
                         for j, index in enumerate(face['vertices']):
+                            #create key
                             uv = [x + y for x, y in zip(uv_offset, face['uvs'][j])]
-                            index_key = str(vert_index_offset + index) + "_" + str(uv)
+                            index_key = str(index) + "_" + str(uv)
+                            
                             if index_key in index_map:
                                 new_face.append(index_map[index_key])
                             else:
                                 vert = VisualsVertChunk(self.visuals_vert_buffer, self.model).clone(verts[index])
                                 vert.unmake(uv = uv)
-                                next_index = len(new_verts)
+                                next_index = len(verts)
                                 index_map[index_key] = next_index
                                 new_face.append(next_index)
-                                new_verts.append(vert)
-                            
+                                verts.append(vert)
                         new_faces.append(new_face)
-                    vert_index_offset = len(new_verts)
-                verts = new_verts
+                #verts = new_verts
                 faces = new_faces
-
+            
             # tesselate faces
             t_faces = []
             for face in faces:
-                if len(face) > 4:
-                    raise ValueError("Polygon with more than 4 vertices detected")
+                assert len(face) <= 4, "Polygon with more than 4 vertices detected"
                 if len(face) == 4:
                     t_faces.append([face[0], face[1], face[2]])
                     t_faces.append([face[0], face[2], face[3]])
@@ -1862,7 +1888,7 @@ class Mesh(DataStruct):
 
             # replace each index with its vert
             faces = [[verts[i] for i in face] for face in faces]
-
+            
             # reorder faces to maximize shared edges
             ordered_faces = []
             ordered_faces.append(faces.pop(0))
@@ -1906,6 +1932,7 @@ class Mesh(DataStruct):
                 r_mesh.group_count = None
 
             self.visuals_vert_buffer.data = new_verts
+            assert len(new_faces) <= 2048, f"Max faces reached in {node.name} {len(new_faces)}/2048"
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
             #return True
 
@@ -1923,8 +1950,7 @@ class Mesh(DataStruct):
             # tesselate/validate faces
             t_faces = []
             for face in faces:
-                if len(face) > 4:
-                    raise ValueError("Polygon with more than 4 vertices detected")
+                assert len(face) <= 4, "Polygon with more than 4 vertices detected"
                 if len(face) == 4:
                     t_faces.append([face[0], face[1], face[2]])
                     t_faces.append([face[0], face[2], face[3]])
@@ -2106,10 +2132,8 @@ def create_node(node_type, parent, model):
     }
 
     node_class = NODE_MAPPING.get(node_type)
-    if node_class:
-        return node_class(parent, model, node_type)
-    else:
-        raise ValueError(f"Invalid node type {node_type}")
+    assert node_class, f"Invalid node type {node_type}"    
+    return node_class(parent, model, node_type)
     
 class Node(DataStruct):
     
@@ -2125,8 +2149,8 @@ class Node(DataStruct):
         if len(header):
             self.header.extend(header)
         self.node_type = type
-        self.vis_flags = 0b11111111111111111111111111111111
-        self.col_flags = 0b11111111111111111111111111111111
+        self.vis_flags = 0xFFFFFFFF
+        self.col_flags = 0xFFFFFFFF
         self.flags_set = False
         self.unk1 = 0
         self.unk2 = 0
@@ -2247,10 +2271,10 @@ class Node(DataStruct):
         if node.type == 'EMPTY':
             self.node_type = 53349
         
-        if 'vis_flags' in node:
-            self.vis_flags = int(node['vis_flags'])
-        if 'col_flags' in node:
-            self.col_flags = int(node['col_flags'])
+        # if 'vis_flags' in node:
+        #     self.vis_flags = int(node['vis_flags'])
+        # if 'col_flags' in node:
+        #     self.col_flags = int(node['col_flags'])
             
         get_animations(node, self.model, self)
             
@@ -2287,24 +2311,22 @@ class Node(DataStruct):
         #check if this node has collision or visuals
         has_vis = False
         has_col = False
-        if not self.flags_set:
-            if self.type == 12388 and len(self.children):
-                for mesh in self.children:
-                    if mesh.has_collision():
-                        has_col = True
-                    if mesh.has_visuals():
-                        has_vis = True
-                if not has_col:
-                    self.col_flags &= 0b11111111111111111111111111111001
-                if not has_vis:
-                    self.vis_flags &= 0b11111111111111111111111111111011
-            elif len(self.children):
-                #TODO: understand how the game handles children of transform node and vis/col flags
-                for child in self.children:
-                    print('child flags', child.col_flags, child.vis_flags)
-                    self.col_flags &= child.col_flags
-                    self.vis_flags &= child.vis_flags
-                print(self.col_flags, self.vis_flags)
+        # if not self.flags_set:
+        #     if self.type == 12388 and len(self.children):
+        #         for mesh in self.children:
+        #             if mesh.has_collision():
+        #                 has_col = True
+        #             if mesh.has_visuals():
+        #                 has_vis = True
+        #         if not has_col:
+        #             self.col_flags &= 0b11111111111111111111111111111001
+        #         if not has_vis:
+        #             self.vis_flags &= 0b11111111111111111111111111111011
+        #     elif len(self.children):
+        #         #TODO: understand how the game handles children of transform node and vis/col flags
+        #         for child in self.children:
+        #             self.col_flags &= child.col_flags
+        #             self.vis_flags &= child.vis_flags
             
             
         struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.vis_flags, self.col_flags, self.unk1, self.unk2, 0, 0)
@@ -2368,8 +2390,9 @@ class Node(DataStruct):
         else:
             for child in self.children:
                 child.set_flags()
-                self.col_flags &= child.col_flags
-                self.vis_flags &= child.vis_flags
+                if self.node_type == [12388]:
+                    self.col_flags &= child.col_flags
+                    self.vis_flags &= child.vis_flags
         return self
 
 class MeshGroup12388(Node):
@@ -2486,33 +2509,37 @@ class Group53350(Node):
     def __init__(self, parent, model, type, header = []):
         super().__init__(parent, model, type, header)
         self.parent = parent
-        self.unk1 = 65536
-        self.unk2 = 0
-        self.unk3 = 0
-        self.unk4 = 1.0
+        self.follow_position = 0
+        # 1 = follow camera
+        self.track_position = 0
+        # 0 = disabled
+        # 1 = z (yaw)
+        # 2 = z + x + y (yaw + pitch+ roll)
+        # 3 = z + x (yaw + pitch)
+        self.up_vector = FloatVector([0.0,0.0,1.0])
+
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
-        self.unk1, self.unk2, self.unk3, self.unk4 = struct.unpack_from(">3if", buffer, cursor+28)
+        self.follow_position, self.track_position = struct.unpack_from(">hh12x", buffer, cursor+28)
+        self.up_vector.read(buffer, cursor + 32)
         return self
     def make(self, parent = None, collection = None):
         new_empty = super().make(parent, collection)
-        new_empty['53350_unk1'] = self.unk1
-        new_empty['53350_unk2'] = self.unk2
-        new_empty['53350_unk3'] = self.unk3
-        new_empty['53350_unk4'] = self.unk4
+        new_empty['follow_position'] = self.follow_position
+        new_empty['track_position'] = self.track_position
         return new_empty
     def unmake(self, node):
         super().unmake(node)
-        self.unk1 = node['53350_unk1']
-        self.unk2 = node['53350_unk2']
-        self.unk3 = node['53350_unk3']
-        self.unk4 = node['53350_unk4']
+        self.node_type = 53350
+        self.follow_position = node['follow_position']
+        self.track_position = node['track_position']
         return self
     def write(self, buffer, cursor):
         cursor = super().write(buffer, cursor)
         child_data_start = cursor - 8
-        struct.pack_into('>3if', buffer, cursor, self.unk1, self.unk2, self.unk3, self.unk4)
-        cursor += struct.calcsize('>3if')
+        struct.pack_into('>hh12x', buffer, cursor, self.follow_position, self.track_position)
+        self.up_vector.write(buffer, cursor+4)
+        cursor += struct.calcsize('>hh12x')
         
         cursor = super().write_children(buffer, cursor, child_data_start)
         
@@ -3046,9 +3073,8 @@ class ModelHeader():
     def read(self, buffer, cursor):
         type = readString(buffer, cursor)
         self.model.type = get_model_type(type)
-        if self.model.type is None:
-            show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {type}")
-            raise ValueError("Unexpected model extension", type)
+        assert self.model.type, f"This model extension was not recognized: {type}"
+        
         cursor = 4
         header = readInt32BE(buffer, cursor)
 
@@ -3061,6 +3087,8 @@ class ModelHeader():
         header_string = readString(buffer, cursor)
         
         while header_string != 'HEnd':
+            assert header_string in ['Data', 'Anim', 'AltN'], f"unexpected header string, {header_string}"
+            
             if header_string == 'Data':
                 self.model.Data = ModelData(self, self.model)
                 cursor = self.model.Data.read(buffer, cursor)
@@ -3078,8 +3106,7 @@ class ModelHeader():
                     AltN = readInt32BE(buffer, cursor)
                 cursor += 4
                 header_string = readString(buffer, cursor)
-            elif header_string != 'HEnd':
-                raise ValueError('unexpected header string', header_string)
+
         return cursor + 4
     
     def make(self):
@@ -3156,21 +3183,30 @@ def assign_objs_to_node_by_type(objects, root, model):
     viscol = []
     col = []
     vis = []
-    other = []  
+    tpt = []
+    other = []
     for obj in objects:
         if obj is None:
             continue
         if isinstance(obj, Node):
             other.append(obj)
         elif obj.has_collision() and obj.has_visuals():
-            viscol.append(obj)
+            if obj.has_transparency():
+                obj_vis, obj_col = obj.split()
+                tpt.append(obj_vis)
+                col.append(obj_col)
+            else:
+                viscol.append(obj)
         elif obj.has_collision():
             col.append(obj)
         elif obj.has_visuals():
-            vis.append(obj)
+            if obj.has_transparency():
+                tpt.append(obj)
+            else:
+                vis.append(obj)
         
         
-    for arr in [viscol, vis, col]:
+    for arr in [viscol, vis, col, tpt]:
         if len(arr):
             mesh_group = MeshGroup12388(root, model, 12388)
             for child in arr: 
@@ -3211,16 +3247,19 @@ def get_immediate_children(collection):
             immediate_children.append(obj)
     return immediate_children
 
-def deep_unmake(obj, parent, model, target_map):
+def deep_unmake(obj, parent, model, target_map, skybox = False):
     if obj is None:
         return []
     
     children = []
     
-    if (obj.get('node_type') == 53349) or obj.animation_data or obj.name in target_map.keys(): # cases in which we need to retain hierarchy
+    if (obj.get('node_type') == 53349) or (obj.get('node_type') == 53350 and not skybox)  or obj.animation_data or obj.name in target_map.keys(): # cases in which we need to retain hierarchy
         # empty = create_node(obj['node_type'] if 'node_type' in obj else 53349, parent, model)
         # empty.unmake(obj)
-        empty = Group53349(parent, model, 53349).unmake(obj)
+        if obj.get('node_type') == 53350 and not skybox:
+            empty = Group53350(parent, model, 53350).unmake(obj)
+        else:
+            empty = Group53349(parent, model, 53349).unmake(obj)
         empty.unk1 = 196608 #TODO:what the heck
         # empty.matrix = FloatMatrix()
         # empty.matrix.data[0].data[0] = 1.0
@@ -3265,6 +3304,14 @@ def split_meshes_by_material(collection):
     
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.separate(type='MATERIAL')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='DESELECT')
+    
+def split_mesh_by_loose_parts(mesh):
+    bpy.ops.object.select_all(action='DESELECT')
+    mesh.select_set(True)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.separate(type='LOOSE')
     bpy.ops.object.mode_set(mode='OBJECT')
     bpy.ops.object.select_all(action='DESELECT')
     
@@ -3316,16 +3363,12 @@ class Model():
             show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.header.model.type}")
             return None
         
-        print('type', self.type)
         if self.type == "4":
             
             #get MAlt
             MAlt_id = Podd_MAlt[str(self.id)]
             MAlt_buffer = self.modelblock.fetch(MAlt_id)[1]
             MAlt = Model(MAlt_id).read(MAlt_buffer)
-            
-            print('MAlt AltN', MAlt.header.AltN)
-            print('Podd AltN', self.header.AltN)
             
             for i, offset in enumerate(self.header.offsets):
                 if offset:
@@ -3353,6 +3396,7 @@ class Model():
         self.collection = collection
         
         for node in self.nodes:
+            self.modelblock.update_progress(f"Making node {node.id}")
             node.make(None, collection)
 
         # update trigger targets
@@ -3368,7 +3412,7 @@ class Model():
 
     def unmake(self, collection, texture_export, textureblock):
         self.textureblock = textureblock
-        self.written_textures = {}
+        self.image_map = {}
         self.type = collection.export_type
         self.id = collection.export_model
         self.nodes = []
@@ -3388,13 +3432,26 @@ class Model():
         #TODO: Resolve multi-user objects
         split_meshes_by_material(collection)
         apply_scale(collection)
+        objects = get_all_objects_in_collection(collection)
+        # for obj in objects:
+        #     if obj.type == 'MESH' and obj.visible:
+        #         faces = [[v for v in face.vertices] for face in obj.data.polygons]
+        #         if len(faces) > 2048:
+        #             split_mesh_by_loose_parts(obj)
+        objects = get_all_objects_in_collection(collection)
+        for obj in objects:
+            if obj.type == 'MESH' and (obj.visible or (not obj.visible and not obj.collidable)):
+                faces = [[v for v in face.vertices] for face in obj.data.polygons]
+                if len(faces) > 2048:
+                    bpy.ops.object.select_all(action='DESELECT')
+                    obj.select_set(True)
+                    raise ValueError(f"Max faces reached in {obj.name} {len(faces)}/2048")
         
         # get all target objects
         target_map = {b_obj.target.name: None for b_obj in get_all_objects_in_collection(collection) if b_obj.trigger_id and b_obj.target}
         
         if self.type == '7':
             for child_collection in collection.children:
-                
                 r_root_node = Group20580(root, self, 20580)
                 
                 if child_collection.collection_type == '0': #Track
@@ -3406,6 +3463,7 @@ class Model():
                     sky_empty = Group53349(r_root_node, self, 53349)
                     sky_empty.header = [2]
                     sky_to_camera = Group53350(sky_empty, self, 53350)
+                    sky_to_camera.follow_position = 1
                     append_root = sky_to_camera
                     
                     sky_empty.children.append(sky_to_camera)
@@ -3419,9 +3477,9 @@ class Model():
                 immediate_children = get_immediate_children(child_collection)
                 unmade = []
                 for obj in immediate_children:
-                    unmade.extend(deep_unmake(obj, append_root, self, target_map))
+                    unmade.extend(deep_unmake(obj, append_root, self, target_map, skybox = (child_collection.collection_type == '1')))
                 assign_objs_to_node_by_type(unmade, append_root, self)
-            root.set_flags()
+                #r_root_node.set_flags()
             
         elif self.type == '3': #part
             for o in collection.objects:
@@ -3434,113 +3492,92 @@ class Model():
                     
         elif self.type == '4':
             def create_podd_component(mesh, type):
-                comp_a = Group53349(None, self, 53349).set_flags(vis_flags=4294967295, col_flags=4294967293)
-                comp_a.unk1 = 720896
-                comp_b = Group53348(None, self, 53348).set_flags(vis_flags=4294967295, col_flags=4294967293)
-                comp_b.unk1 = 2293760
+                comp_a = Group53349(None, self, 53349)
+                comp_b = Group53348(None, self, 53348)
                 comp_b.matrix.data[0].data[0] = 0.016
                 comp_b.matrix.data[1].data[1] = 0.016
                 comp_b.matrix.data[2].data[2] = 0.016
                 link_nodes(comp_a, [comp_b])
-                # comp_c = Group53349(None, self, 53349) #mirror node for symmetric engines
-                # link_nodes(comp_b, [comp_c])
-                comp_d = Group20580(None, self, 20580).set_flags(vis_flags=4294967295, col_flags=4294967293)
+                comp_d = Group20580(None, self, 20580)
                 link_nodes(comp_b, [comp_d])
-                comp_e = Group53349(None, self, 53349).set_flags(vis_flags=4294967295, col_flags=4294967293) #31/17/45
-                # if type == 'engine_r':
-                #     comp_e.header = [31]
-                # elif type == 'engine_l':
-                #     comp_e.header = [17]
-                # elif type == 'cockpit':
-                #     comp_e.header = [45]
-                link_nodes(comp_d, [comp_e])
-                # comp_f = Group20582(None, self, 20582).set_flags(vis_flags=4294967295, col_flags=4294967293)
-                # if type == 'cockpit':
-                #     comp_f.floats = [0.0, 2000.0, 4000.0, 6000.0, 8000.0, 1000000.0, -1.0, -1.0, 0.0, 0.0, 0.0] #LOD distances
-                # else:
-                #     comp_f.floats = [0.0, 40.0, 60.0, 100.0, 120.0, 1000000.0, -1.0, -1.0, 0.0, 0.0, 0.0]
-                #link_nodes(comp_e, [comp_f])
                 if len(mesh):
-                    assign_objs_to_node_by_type([Mesh(None, self).unmake(obj) for obj in mesh], comp_e, self)
-                
+                    assign_objs_to_node_by_type([Mesh(None, self).unmake(obj) for obj in mesh], comp_d, self)
                 return comp_a
             
             def create_air_stream(mesh, top_header, bottom_header):
-                air_a = Group53349(None, self, 53349, header = [top_header]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
-                air_b = Group53350(None, self, 53350).set_flags(vis_flags=4294967295, col_flags=4294967293)
+                air_a = Group53349(None, self, 53349, header = [top_header])
+                air_b = Group53350(None, self, 53350)
                 link_nodes(air_a, [air_b])
-                air_c = Group53349(None, self, 53349, header = [bottom_header]).set_flags(vis_flags=4294967295, col_flags=4294967293) #
+                air_c = Group53349(None, self, 53349, header = [bottom_header])
                 link_nodes(air_b, [air_c])
-                air_d = Group53349(None, self, 53349).set_flags(vis_flags=4294967295, col_flags=4294967293)
+                air_d = Group53349(None, self, 53349)
                 link_nodes(air_c, [air_d])
                 if len(mesh):
                     assign_objs_to_node_by_type([Mesh(None, self).unmake(obj) for obj in mesh], air_d, self)
                 return air_a
             
-            root = Group20581(root, self, 20581, header = [0]).set_flags(vis_flags=4294967295, col_flags=4294967293)
+            root = Group20581(root, self, 20581, header = [0])
             
-            podd_a_node = Group20580(None, self, 20580).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            podd_74_node = Group53349(None, self, 53349, header = [74]).set_flags(vis_flags=4294967295, col_flags=4294967293) #full low LOD pod #
+            podd_a_node = Group20580(None, self, 20580)
+            podd_74_node = Group53349(None, self, 53349, header = [74])
             link_nodes(root, [podd_a_node, podd_74_node])
             
-            podd_shadows_node = Group20580(None, self, 20580).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            podd_engine_r_shadow = Group53349(None, self, 53349, header = [62]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
-            podd_engine_l_shadow = Group53349(None, self, 53349, header = [63]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
-            podd_cockpit_shadow = Group53349(None, self, 53349, header = [64]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
+            podd_shadows_node = Group20580(None, self, 20580)
+            podd_engine_r_shadow = Group53349(None, self, 53349, header = [62])
+            podd_engine_l_shadow = Group53349(None, self, 53349, header = [63])
+            podd_cockpit_shadow = Group53349(None, self, 53349, header = [64])
             link_nodes(podd_shadows_node, [podd_engine_r_shadow, podd_engine_l_shadow, podd_cockpit_shadow])
             
-            podd_b_node = Group20580(None, self, 20580).set_flags(vis_flags=0, col_flags=4294967293)
+            podd_b_node = Group20580(None, self, 20580)
             
-            
-            
-            podd_71_node = Group20580(None, self, 20580, header = [71]).set_flags(vis_flags=4294967295, col_flags=4294967293)
+            podd_71_node = Group20580(None, self, 20580, header = [71])
             link_nodes(podd_b_node, [podd_71_node])
             
-            
-            right_engine_mesh = None
-            left_engine_mesh = None
-            cockpit_mesh = None
-            for child_collection in collection.children:
-                if child_collection.collection_type == '2':
-                    right_engine_mesh = get_all_objects_in_collection(child_collection)
-                elif child_collection.collection_type == '3':
-                    left_engine_mesh = get_all_objects_in_collection(child_collection)
-                elif child_collection.collection_type == '4':
-                    cockpit_mesh = get_all_objects_in_collection(child_collection)
-                elif child_collection.collection_type == '5':
-                    cable_mesh = get_all_objects_in_collection(child_collection)
-            
-            right_engine = create_podd_component(right_engine_mesh, 'engine_r')
-            #right_engine.header = [14]
-            left_engine = create_podd_component(left_engine_mesh, 'engine_l')
-            #left_engine.header = [15]
-            cockpit = create_podd_component(cockpit_mesh, 'cockpit')
-            #cockpit.header = [16]
-            
-            
-            link_nodes(podd_71_node, [right_engine, left_engine, cockpit])
-            
-            podd_engine_r = Group53349(None, self, 53349, header = [1]).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            link_nodes(podd_engine_r, right_engine.children)
-            podd_engine_l = Group53349(None, self, 53349, header = [2]).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            link_nodes(podd_engine_l, left_engine.children)
-            podd_cable1 = Group53349(None, self, 53349, header = [10]).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            podd_cable2 = Group53349(None, self, 53349, header = [11]).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            assign_objs_to_node_by_type([Mesh(podd_cable1, self).unmake(obj) for obj in cable_mesh], podd_cable1, self)
-            assign_objs_to_node_by_type([Mesh(podd_cable2, self).unmake(obj) for obj in cable_mesh], podd_cable2, self)
-            podd_sparks = Group53349(None, self, 53349, header = [65]).set_flags(vis_flags=4294967292, col_flags=4294967293)
-            podd_sparks_ai = Group53349(None, self, 53349, header = [66]).set_flags(vis_flags=4294967292, col_flags=4294967293)
-            podd_72_node = Group53349(None, self, 53349, header = [72]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
-            podd_73_node = Group53349(None, self, 53349, header = [73]).set_flags(vis_flags=4294967292, col_flags=4294967293) #
-            podd_binder1 = Group53349(None, self, 53349, header = [6]).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            podd_binder2 = Group53349(None, self, 53349, header = [7]).set_flags(vis_flags=4294967295, col_flags=4294967293)
+            podd_sparks = Group53349(None, self, 53349, header = [65])
+            podd_sparks_ai = Group53349(None, self, 53349, header = [66])
+            podd_72_node = Group53349(None, self, 53349, header = [72])
+            podd_73_node = Group53349(None, self, 53349, header = [73])
+            podd_binder1 = Group53349(None, self, 53349, header = [6])
+            podd_binder2 = Group53349(None, self, 53349, header = [7])
             link_nodes(podd_binder1, [podd_binder2])
             podd_airsream_right = create_air_stream([], 67, 69)
             podd_airsream_left = create_air_stream([], 68, 70)
-            podd_cockpit = Group53349(None, self, 53349, header = [5]).set_flags(vis_flags=4294967295, col_flags=4294967293)
-            link_nodes(podd_cockpit, cockpit.children)
             
-            link_nodes(podd_a_node, [podd_shadows_node, podd_b_node, podd_engine_r, podd_engine_l, podd_cable1, podd_cable2, podd_sparks, podd_sparks_ai, podd_72_node, podd_73_node, podd_binder1, podd_airsream_right, podd_airsream_left, podd_cockpit])
+            link_nodes(podd_a_node, [podd_shadows_node, podd_b_node, podd_sparks, podd_sparks_ai, podd_72_node, podd_73_node, podd_binder1, podd_airsream_right, podd_airsream_left])
+            
+            for child_collection in collection.children:
+                if child_collection.collection_type == '2':
+                    right_engine_mesh = get_all_objects_in_collection(child_collection)
+                    right_engine = create_podd_component(right_engine_mesh, 'engine_r')
+                    link_nodes(podd_71_node, [right_engine])
+                    podd_engine_r = Group53349(None, self, 53349, header = [1])
+                    link_nodes(podd_engine_r, right_engine.children)
+                    link_nodes(podd_a_node, [podd_engine_r])
+                    #right_engine.header = [14]
+                elif child_collection.collection_type == '3':
+                    left_engine_mesh = get_all_objects_in_collection(child_collection)
+                    left_engine = create_podd_component(left_engine_mesh, 'engine_l')
+                    link_nodes(podd_71_node, [left_engine])
+                    podd_engine_l = Group53349(None, self, 53349, header = [2])
+                    link_nodes(podd_engine_l, left_engine.children)
+                    link_nodes(podd_a_node, [podd_engine_l])
+                    #left_engine.header = [15]
+                elif child_collection.collection_type == '4':
+                    cockpit_mesh = get_all_objects_in_collection(child_collection)
+                    cockpit = create_podd_component(cockpit_mesh, 'cockpit')
+                    link_nodes(podd_71_node, [cockpit])
+                    podd_cockpit = Group53349(None, self, 53349, header = [5])
+                    link_nodes(podd_cockpit, cockpit.children)
+                    link_nodes(podd_a_node, [podd_cockpit])
+                    #cockpit.header = [16]
+                elif child_collection.collection_type == '5':
+                    cable_mesh = get_all_objects_in_collection(child_collection)
+                    podd_cable1 = Group53349(None, self, 53349, header = [10])
+                    podd_cable2 = Group53349(None, self, 53349, header = [11])
+                    assign_objs_to_node_by_type([Mesh(podd_cable1, self).unmake(obj) for obj in cable_mesh], podd_cable1, self)
+                    assign_objs_to_node_by_type([Mesh(podd_cable2, self).unmake(obj) for obj in cable_mesh], podd_cable2, self)
+                    link_nodes(podd_a_node, [podd_cable1, podd_cable2])
+            
             # !0 (20581) 1111(on) 1101(collision off)
             #   (20580) 1111(on) 1101(collision off)
             #       (20580) 1111(on) 1101(collision off)
@@ -3569,16 +3606,14 @@ class Model():
             #                                           med LOD engines (no anims)
             #                                       (12388)
             #                                           low LOD engines
-            #                                   (20580)
-            #                                       (53349)
-            #                                           43/29 (53349)
-            #                                               (20580)
-            #                                                   jet trail tube
-            #                                   (20580)
-            #                                       (53349)
-            #                                           42/28 (53349)
-            #                                               (20580)
-            #                                                   jet trail flat
+            #                                   (53349)
+            #                                       43/29 (53349)
+            #                                           (20580)
+            #                                               jet trail tube
+            #                                   (53349)
+            #                                       42/28 (53349)
+            #                                           (20580)
+            #                                               jet trail flat
             #       !1 (53349) 1111(on) 1101(collision off) (also parent of 53348 node under 14)
             #       !2 (53349) 1111(on) 1101(collision off)  (also parent of 53348 node under 15)
             #       !10 (53349) 1111(on) 1101(collision off)
@@ -3604,7 +3639,7 @@ class Model():
             # 15/53348 is child of 2
             # 16/53348 is child of 5
         
-        #root.set_flags()
+        root.set_flags()
         self.nodes.append(root)
                 
         #update trigger targets

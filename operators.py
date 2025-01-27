@@ -62,8 +62,8 @@ class ImportOperator(bpy.types.Operator):
         context.scene.import_progress = 0.01
         context.scene.import_status = 'Importing...'
 
-        def update_progress(p, status):
-            context.scene.import_progress = p
+        def update_progress(status):
+            context.scene.import_progress = context.scene.import_progress + 0.1*(1.0 - context.scene.import_progress)
             context.scene.import_status = status
             
             # manually redraw since blender doesn't while in operation
@@ -71,7 +71,13 @@ class ImportOperator(bpy.types.Operator):
             bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
            
         try: 
-            import_model(folder_path, [int(context.scene.import_model)], update_progress)
+            id = int(context.scene.import_model)
+            import_type = next((item[1] for item in model_types if item[0] == context.scene.import_type), None)
+            if id == -1:
+                selector = [model["index"] for model in model_list if model['extension'] == import_type]
+            else:
+                selector = [int(context.scene.import_model)]
+            import_model(folder_path, selector, update_progress)
         except Exception as e:
             context.scene.import_progress = 1.0
             context.scene.import_status = ""
@@ -115,8 +121,8 @@ class ExportOperator(bpy.types.Operator):
         context.scene.export_progress = 0.01
         context.scene.export_status = 'Importing...'
         
-        def update_progress(p, status):
-            context.scene.export_progress = p
+        def update_progress(status):
+            context.scene.export_progress = context.scene.export_progress + 0.1*(1.0 - context.scene.export_progress)
             context.scene.export_status = status
             
             # manually redraw since blender doesn't while in operation
@@ -349,23 +355,12 @@ class InvertSpline(bpy.types.Operator):
     bl_idname = "view3d.invert_spline"
 
     def execute(self, context):
+        if bpy.context.mode != 'EDIT_CURVE':
+                bpy.ops.object.mode_set(mode='EDIT')
         for spline in context.active_object.data.splines:
-            if spline.type == 'BEZIER':
-                points = spline.bezier_points
-                n = len(points)
-                
-                # Swap control points to reverse the curve
-                for i in range(n // 2):
-                    points[i].co, points[n - i - 1].co = points[n - i - 1].co.copy(), points[i].co.copy()
-                    points[i].handle_left, points[n - i - 1].handle_right = points[n - i - 1].handle_right.copy(), points[i].handle_left.copy()
-                    points[i].handle_right, points[n - i - 1].handle_left = points[n - i - 1].handle_left.copy(), points[i].handle_right.copy()
-
-                if n % 2 == 1:
-                    points[n // 2].handle_right, points[n // 2].handle_left = points[n // 2].handle_left.copy(), points[n // 2].handle_right.copy()
-
-                # Flip the handles direction for the first and last points after reversal
-                #points[0].handle_left, points[0].handle_right = points[0].handle_right.copy(), points[0].handle_left.copy()
-                #points[-1].handle_left, points[-1].handle_right = points[-1].handle_right.copy(), points[-1].handle_left.copy()
+            if spline.type != 'BEZIER':
+                continue
+            bpy.ops.curve.switch_direction()
         return {"FINISHED"}
     
 class SplineCyclic(bpy.types.Operator):
@@ -404,6 +399,7 @@ class ReconstructSpline(bpy.types.Operator):
         if spline and len(spline.bezier_points) > 1:
             selected_point_index = None
 
+            # Find selected point
             for i, point in enumerate(spline.bezier_points):
                 if point.select_control_point:
                     selected_point_index = i
@@ -427,6 +423,9 @@ class ReconstructSpline(bpy.types.Operator):
                     point.handle_right = new_handles_right[i]
                     point.radius = new_radii[i]
                     point.tilt = new_tilts[i]
+                
+                bpy.ops.curve.select_all(action='DESELECT')
+                obj.data.splines.active.bezier_points[0].select_control_point = True
 
         return {'FINISHED'}
     
@@ -488,6 +487,46 @@ class OpenImageTexture(bpy.types.Operator, ImportHelper):
                             node.image = image
                             self.report({'INFO'}, f"Assigned {image.name} to {node.name}")
         return {'FINISHED'}
+    
+class SelectFirstSplinePointOperator(bpy.types.Operator):
+    """Select First Point (Spawn Point) of Spline"""
+    bl_idname = "curve.select_first_spline_point"
+    bl_label = "Select First Spline Point"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.active_object
+
+        if obj and obj.type == 'CURVE':
+            # Enter edit mode if not already in edit mode
+            if bpy.context.mode != 'EDIT_CURVE':
+                bpy.ops.object.mode_set(mode='EDIT')
+            
+            # Deselect all points first
+            bpy.ops.curve.select_all(action='DESELECT')
+            
+            # Access the curve data in edit mode
+            curve_data = obj.data
+
+            if curve_data.splines:
+                first_spline = curve_data.splines[0]
+
+                # Select the first point depending on spline type
+                if first_spline.bezier_points:
+                    first_spline.bezier_points[0].select_control_point = True
+                elif first_spline.points:
+                    first_spline.points[0].select_control_point = True
+                
+                # Update the view with the selection
+                context.view_layer.update()
+                return {'FINISHED'}
+            else:
+                self.report({'WARNING'}, "No splines found in the curve")
+                return {'CANCELLED'}
+        else:
+            self.report({'ERROR'}, "Active object is not a curve")
+            return {'CANCELLED'}
+
         
 # BAKE LIGHTING TO VERTEX COLORS
 
@@ -657,7 +696,8 @@ register_classes = (
     BakeVColorsClear,
     BakeVColorsCollection,
     BakeVColorsCollectionClear,
-    OpenImageTexture
+    OpenImageTexture,
+    SelectFirstSplinePointOperator
 )
 
 def register():
