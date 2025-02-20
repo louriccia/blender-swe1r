@@ -1,5 +1,5 @@
 # Copyright (C) 2021-2024
-# lightningpirate@gmail.com.com
+# lightningpirate@gmail.com
 
 # Created by LightningPirate
 

@@ -1,3 +1,24 @@
+# Copyright (C) 2021-2024
+# lightningpirate@gmail.com
+
+# Created by LightningPirate
+
+# This file is part of SWE1R Import/Export.
+
+#     SWE1R Import/Export is free software; you can redistribute it and/or
+#     modify it under the terms of the GNU General Public License
+#     as published by the Free Software Foundation; either version 3
+#     of the License, or (at your option) any later version.
+
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#     GNU General Public License for more details.
+
+#     You should have received a copy of the GNU General Public License
+#     along with this program; if not, see <https://www.gnu.org
+# /licenses>.
+
 import bpy
 import json
 import os
@@ -18,8 +39,6 @@ data_name_format = 'bswe1r_{data_type}_{label}'
 data_name_prefix_len = 11
 data_name_format_long = 'bswe1r_{data_type}_{group_id}_{label}'
 data_name_format_long_len = 15
-
-SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
 
 model_types = [
     ('0', 'All', 'View all models'),
@@ -90,11 +109,7 @@ showbytes = {
     "129": 16
 }
 
-def get_model_type(name):
-    for code, model_name, description in model_types:
-        if model_name == name:
-            return code
-    return None 
+SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
 
 def update_model_dropdown(self, context):
     model_type = model_types[int(context.scene.import_type)][1]
@@ -122,17 +137,27 @@ def update_selected(prop_name, update_mat = False, update_tex = False):
         for obj in context.selected_objects:
             if obj.type == 'MESH':
                 if update_mat:
+                    from .swe1r.modelblock import Material
                     mats = [slot.material for slot in obj.material_slots]
                     for mat in mats:
-                        if update_tex and mat.node_tree:
-                            for node in mat.node_tree.nodes:
-                                if node.type == 'TEX_IMAGE':
-                                    node.image = context.scene[prop_name]
+                        if mat is None: continue
+                        # if update_tex and mat.node_tree:
+                        #     for node in mat.node_tree.nodes:
+                        #         if node.type == 'TEX_IMAGE':
+                        #             node.image = context.scene[prop_name]
                         elif update_tex is False:
                             if hasattr(mat, prop_name):
                                 setattr(mat, prop_name, getattr(context.scene, prop_name))
                             elif hasattr(mat.data, prop_name):
                                 setattr(mat.data, prop_name, getattr(context.scene, prop_name))
+                                
+                        if len(mats):
+                            mat = mats[0]
+                            if prop_name == 'texture' and context.scene[prop_name]:
+                                mat = Material(None, None).remake(mat, tex_name = context.scene[prop_name].name)
+                            else:
+                                mat = Material(None, None).remake(mat)
+                            obj.material_slots[0].material = mat
                 else:
                     if hasattr(obj, prop_name):
                         setattr(obj, prop_name, getattr(context.scene, prop_name))
@@ -209,9 +234,6 @@ def SelCol(self, context = None):
             
 def open_url(url: str) -> None:
     webbrowser.open(url)
-    
-def clamp(value, min_value, max_value):
-    return max(min(value, max_value), min_value)
 
 def euclidean_distance(color1, color2):
     return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
@@ -350,6 +372,10 @@ def reset_vertex_colors(b_obj):
         for color in b_obj.data.attributes[name_attr_colors].data:
             color.color = [1.0, 1.0, 1.0, 1.0]
 
+    color_layer = b_obj.data.vertex_colors.active.data
+    for loop in color_layer:
+        loop.color = [1.0, 1.0, 1.0, 1.0]
+
     color_baked = b_obj.data.attributes.get(name_attr_baked)
     if color_baked is not None and b_obj.data.attributes.default_color_name != name_attr_baked:
         b_obj.data.attributes.remove(color_baked)
@@ -363,14 +389,6 @@ def populate_enum(scene, context):
  
     return current_view_layers
 
-def find_existing_light(objects, color, location, rotation):
-    for light in objects:
-        if light.type == 'LIGHT' and light.data.color == color and (light.location - location).length < 0.001 and light.users:
-            # Check rotation (convert both to Euler for comparison)
-            existing_rotation = light.rotation_euler
-            if existing_rotation == rotation:
-                return light
-    return None
 
 # checks if normals will be flipped after applying scale due to object-parent 
 # chain resolving to negative scale
@@ -394,7 +412,15 @@ def center_of_mass(o):
     center_of_mass_local = total / num_verts
 
     # Convert to world coordinates
-    
-    
-    
     return [mass / o.scale[i] for i, mass in enumerate(center_of_mass_local)]
+    
+def show_custom_popup(context, title, message):
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text=message)
+
+    bpy.context.window_manager.popup_menu(draw, title=title, icon='INFO')
+    
+def reselect_obj(obj):
+    obj.select_set(False)
+    obj.select_set(True)

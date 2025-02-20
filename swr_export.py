@@ -1,12 +1,32 @@
+# Copyright (C) 2021-2024
+# lightningpirate@gmail.com
+
+# Created by LightningPirate
+
+# This file is part of SWE1R Import/Export.
+
+#     SWE1R Import/Export is free software; you can redistribute it and/or
+#     modify it under the terms of the GNU General Public License
+#     as published by the Free Software Foundation; either version 3
+#     of the License, or (at your option) any later version.
+
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#     GNU General Public License for more details.
+
+#     You should have received a copy of the GNU General Public License
+#     along with this program; if not, see <https://www.gnu.org
+# /licenses>.
+
 import bpy
-from .popup import show_custom_popup
 from .swe1r.modelblock import Model
 from .swe1r.splineblock import Spline
 from .swe1r.textureblock import Texture
 from .swe1r.block import Block
 from .swe1r.general import *
 from .swe1r.textureblock import compute_hash
-from .utils import Podd_MAlt
+from .utils import Podd_MAlt, show_custom_popup
 from datetime import datetime
     
 scale = 100
@@ -14,6 +34,9 @@ scale = 100
 def export_model(col, file_path, exports, update_progress):
     # prepare blender scene for export
     bpy.context.scene.frame_set(0)
+    if bpy.context.object and bpy.context.object.mode == 'EDIT':
+    # Switch to Object Mode
+        bpy.ops.object.mode_set(mode='OBJECT')
     
     types = [obj.type for obj in col.objects]
     for child in col.children:

@@ -1,15 +1,34 @@
+# Copyright (C) 2021-2024
+# lightningpirate@gmail.com
+
+# Created by LightningPirate
+
+# This file is part of SWE1R Import/Export.
+
+#     SWE1R Import/Export is free software; you can redistribute it and/or
+#     modify it under the terms of the GNU General Public License
+#     as published by the Free Software Foundation; either version 3
+#     of the License, or (at your option) any later version.
+
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#     GNU General Public License for more details.
+
+#     You should have received a copy of the GNU General Public License
+#     along with this program; if not, see <https://www.gnu.org
+# /licenses>.
+
 import bpy
 import sys
 import importlib
 import traceback
-import time
 from bpy_extras.io_utils import ImportHelper
+from .swe1r.modelblock import SurfaceEnum
 
 modules = [
     'swr_import',
     'swr_export',
-    'popup',
-    'panels',
     'operators',
     'swe1r.model_list',
     'swe1r.modelblock',
@@ -28,14 +47,13 @@ for m in modules:
         module = importlib.import_module(module_name)
         sys.modules[module_name] = module
 
-from .popup import *
 from .swe1r.model_list import *
 from .swe1r.modelblock import *
 from .swe1r.block import *
 from .swe1r.textureblock import *
 from .swe1r.splineblock import *
 from .swe1r.general import *
-from .panels import *
+#from .panels import *
 from .swr_import import *
 from .swr_export import *
 from .utils import *
@@ -88,6 +106,7 @@ class ImportOperator(bpy.types.Operator):
             
         context.scene.import_progress = 1.0
         context.scene.import_status = ""
+        
         return {'FINISHED'}
     
 
@@ -194,123 +213,33 @@ class NewModelOperator(bpy.types.Operator):
         
         return {'FINISHED'}
 
-# WARN: the way this is actually used is more like "reset visuals"; could be
-# merged with VisibleOperator
-class VertexColorOperator(bpy.types.Operator):
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.v_color"
+# TOOLS
     
-    def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            reset_vertex_colors(obj)
+class SelectByProperty(bpy.types.Operator):
+    """Select mesh objects based on a specified property"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.select_by_property"
 
-        return {'FINISHED'}
-  
-class VisibleOperator(bpy.types.Operator):
-    """Make selected mesh visible in game"""
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.set_visible"
-    
-    def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            obj['visible'] = True
-            init_vertex_colors(obj)
-        return {'FINISHED'}
-    
-class NonVisibleOperator(bpy.types.Operator):
-    """Make selected mesh invisible in game"""
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.set_nonvisible"
-    
-    def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            obj['visible'] = False
-        return {'FINISHED'}
+    property_name: bpy.props.StringProperty()
+    selectable_flag: bpy.props.StringProperty()
 
-class CollidableOperator(bpy.types.Operator):
-    """Make selected mesh collidable in game"""
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.set_collidable"
-    
-    def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            obj['collidable'] = True
-        return {'FINISHED'}    
-
-class NonCollidableOperator(bpy.types.Operator):
-    """Make selected mesh non-collidable in game"""
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.set_noncollidable"
-    
-    def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            obj['collidable'] = False
-        return {'FINISHED'}
-    
-class VisibleSelect(bpy.types.Operator):
-    """Select all visible mesh"""
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.select_visible"
-    
     def execute(self, context):
         bpy.ops.object.select_all(action='DESELECT')
-        
-        #make selectable
-        if not context.scene.visuals_selectable:
-            context.scene.visuals_selectable = True
-        
+
+        # Make selectable if needed
+        if not getattr(context.scene, self.selectable_flag, False):
+            setattr(context.scene, self.selectable_flag, True)
+
+        # Select objects based on property
         for obj in bpy.context.scene.objects:
-            if 'visible' in obj and obj['visible']:
+            if self.property_name in obj and obj[self.property_name]:
                 obj.hide_select = False
                 obj.select_set(True)
-                
-        return {'FINISHED'}
-    
-class CollidableSelect(bpy.types.Operator):
-    """Select all collidable mesh"""
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.select_collidable"
-    
-    def execute(self, context):
-        bpy.ops.object.select_all(action='DESELECT')
-        
-        #make selectable
-        if not context.scene.collision_selectable:
-            context.scene.collision_selectable = True
-        
-        for obj in  bpy.context.scene.objects:
-            if 'collidable' in obj and obj['collidable']:
-                obj.hide_select = False
-                obj.select_set(True)
-        return {'FINISHED'}
-    
-class RemoveCollisionData(bpy.types.Operator):
-    """Removes collision data such as fog/lighting/gameplay effects"""
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.remove_collision_data"
 
-    def execute(self, context):
-        context.scene.collision_data = False
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            obj.collision_data = False
         return {'FINISHED'}
-    
-class ResetCollisionData(bpy.types.Operator):
-    """Clear collision data such as fog/lighting/gameplay effects"""
-    bl_label = "SWE1R Import/Export"
-    bl_idname = "view3d.reset_collision_data"
 
-    def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            CollisionTags(None, None).make(obj)
-        return {'FINISHED'}
+# MARK: RESET
+
     
 class ResetVisuals(bpy.types.Operator):
     """Reset visual data"""
@@ -318,10 +247,255 @@ class ResetVisuals(bpy.types.Operator):
     bl_idname = "view3d.reset_visuals"
     
     def execute(self, context):
+        bpy.ops.view3d.reset_v_color()
+        bpy.ops.view3d.reset_texture()
+        
+        return {'FINISHED'}
+
+class ResetVColor(bpy.types.Operator):
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.reset_v_color"
+    
+    def execute(self, context):
         selected_objects = context.selected_objects
         for obj in selected_objects:
             reset_vertex_colors(obj)
-            # TODO: reset animation
+
+        return {'FINISHED'}
+    
+class ResetTexture(bpy.types.Operator):
+    """Reset texture data"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.reset_texture"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            mats = [slot.material for slot in obj.material_slots]
+            if not len(mats): continue
+            mats[0].use_backface_culling = False
+            mats[0].transparent = False
+            mats[0].scroll_x = False
+            mats[0].scroll_y = False
+            mats[0].flip_x = False
+            mats[0].flip_y = False
+            mats[0].clip_x = False
+            mats[0].clip_y = False
+        return {'FINISHED'}
+
+class ResetCollidable(bpy.types.Operator):
+    """Reset collidable data"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.reset_collidable"
+    
+    def execute(self, context):
+        bpy.ops.view3d.reset_terrain()
+        bpy.ops.view3d.reset_lighting()
+        bpy.ops.view3d.reset_fog()
+        bpy.ops.view3d.reset_loading()
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            obj.collision_data = False
+            
+            reselect_obj(obj)
+        return {'FINISHED'}
+    
+
+class ResetTerrain(bpy.types.Operator):
+    """Reset terrain data"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.reset_terrain"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            for flag in dir(SurfaceEnum):
+                if not flag.startswith("__"):
+                    obj[flag] = False
+                    context.scene[flag] = False
+            for flag in ['magnet', 'strict_spline', 'elevation']:
+                obj[flag] = False
+                context.scene[flag] = False
+            reselect_obj(obj)
+        return {'FINISHED'}
+    
+class ResetLighting(bpy.types.Operator):
+    """Reset lighting data"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.reset_lighting"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            obj.lighting_light = None
+            obj.lighting_color = (1.0, 1.0, 1.0)
+            obj.lighting_invert = False
+            obj.lighting_flicker = False
+            obj.lighting_persistent = False
+            reselect_obj(obj)
+        return {'FINISHED'}
+    
+class ResetFog(bpy.types.Operator):
+    """Reset lighting data"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.reset_fog"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            obj.fog_color = (1.0, 1.0, 1.0)
+            obj.fog_color_update = False
+            obj.fog_range_update = False 
+            obj.fog_min = 1000
+            obj.fog_max = 30000
+            obj.fog_clear = False
+            obj.skybox_show = False
+            obj.skybox_hide = False
+            reselect_obj(obj)
+        return {'FINISHED'}
+    
+class ResetLoading(bpy.types.Operator):
+    """Reset loading data"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.reset_loading"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            for i, val in enumerate(obj.load_trigger):
+                obj.load_trigger[i] = 0
+            reselect_obj(obj)
+        return {'FINISHED'}
+    
+# MARK: VISUALS
+
+# Custom operator to load and assign an image
+class OpenImageTexture(bpy.types.Operator, ImportHelper):
+    """Open Image and Assign to Texture Node"""
+    bl_idname = "view3d.open_image"
+    bl_label = "Open Image"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filename_ext = ".png;.jpg;.jpeg;.bmp;.tiff;.tga;.exr;.hdr"
+    filter_glob: bpy.props.StringProperty(
+        default="*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.tga;*.exr;*.hdr;*.gif",
+        options={'HIDDEN'},
+        maxlen=255
+    )
+    
+    def invoke(self, context, event):
+        # Open the file browser
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        print("Selected file:", self.filepath)
+        # Validate the file path
+        if not self.filepath:
+            self.report({'WARNING'}, "No file selected.")
+            return {'CANCELLED'}
+        
+        image = bpy.data.images.load(self.filepath, check_existing=True)
+        for obj in context.selected_objects:
+            if obj and obj.type == 'MESH':
+                mats = [slot.material for slot in obj.material_slots]
+                if mats[0] is not None:
+                    obj.material_slots[0].material = Material(None, None).remake(mats[0], tex_name = image.name)
+                # if len(mats) and mats[0].node_tree:
+                #     for node in mats[0].node_tree.nodes:
+                #         if node.type == 'TEX_IMAGE':
+                #             node.image = image
+                #             self.report({'INFO'}, f"Assigned {image.name} to {node.name}")
+        return {'FINISHED'}
+    
+class RemakeMaterials(bpy.types.Operator):
+    bl_idname = "view3d.remake_materials"
+    bl_label = "Remake Materials"
+    bl_description = "Remake materials for all selected objects"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            if obj.type != 'MESH' or obj.material_slots is None:
+                continue
+            mats = [slot.material for slot in obj.material_slots]
+            if len(mats):
+                obj.material_slots[0].material = Material(None, None).remake(mats[0])
+            else:
+                remake = Material(None, None).make()
+                obj.data.materials.append(remake)
+        return {"FINISHED"}
+
+class BakeVColors(bpy.types.Operator):
+    bl_idname = "view3d.bake_vcolors"
+    bl_label = "Bake Vertex Colors"
+    bl_description = "Bake lighting into dedicated color map, while preserving Render Color"
+    
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        for obj in selected_objects:
+            # Calculate the total light for each vertex of the selected object
+            total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
+               
+            reset_vertex_colors(obj)
+            
+            color_layer = obj.data.vertex_colors.active.data   
+                
+            for poly in obj.data.polygons:
+                for p in range(len(poly.vertices)):
+                    color = total_lights[poly.vertices[p]]
+                    color_layer[poly.loop_indices[p]].color = [*color, 1.0]
+
+        bpy.ops.view3d.remake_materials()
+
+        return {"FINISHED"}
+    
+# MARK: COLLISION
+    
+class PreviewLoadTrigger(bpy.types.Operator):
+    """Preview load trigger"""
+    bl_label = "SWE1R Import/Export"
+    bl_idname = "view3d.preview_load"
+    
+    def execute(self, context):
+        selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+        selected_obj = selected_meshes[0]
+        layers = selected_obj.load_trigger
+        collections = [col for col in bpy.data.collections if selected_obj.name in col.objects]
+        selected_collection = collections[0]
+        objs = get_all_objects_in_collection(selected_collection)
+        working_layer = context.scene.view_layers[0]
+        for i, val in enumerate(layers):
+            if not val:
+                continue
+            view_layer = context.scene.view_layers[i + 1]
+            for obj in objs:
+                active = not obj.hide_get(view_layer = view_layer)
+                if not active:
+                    continue
+                obj.hide_set(False if val == 1 else True, view_layer = working_layer)
+        return {'FINISHED'}
+    
+class ToggleViewLayerState(bpy.types.Operator):
+    """Cycles through Unchecked → Checked → Exed → Unchecked"""
+    bl_idname = "my_list.toggle_state"
+    bl_label = "Toggle State"
+    
+    item_index: bpy.props.IntProperty()  # Stores index of the clicked item
+
+    def execute(self, context):
+        scene = context.scene
+        item = scene.load_trigger[self.item_index]
+
+        # Cycle through the three states
+        states = ["UNCHECKED", "CHECKED", "EXED"]
+        current_index = states.index(item.toggle_state)
+        item.toggle_state = states[(current_index + 1) % len(states)]
+        
+        selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']        
+        for obj in selected_meshes:
+            obj.load_trigger[self.item_index] = (current_index + 1) % len(states)
+            reselect_obj(obj)
         return {'FINISHED'}
     
 class AddTrigger(bpy.types.Operator):
@@ -348,21 +522,44 @@ class AddTrigger(bpy.types.Operator):
         bpy.context.view_layer.objects.active = new_empty
         return {'FINISHED'}
     
+# MARK: SPLINE
 
 class InvertSpline(bpy.types.Operator):
     """Invert the selected spline"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Invert Spline"
     bl_idname = "view3d.invert_spline"
+    bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        if bpy.context.mode != 'EDIT_CURVE':
-                bpy.ops.object.mode_set(mode='EDIT')
-        for spline in context.active_object.data.splines:
-            if spline.type != 'BEZIER':
-                continue
-            bpy.ops.curve.switch_direction()
-        return {"FINISHED"}
-    
+        obj = context.active_object
+        if obj is None or obj.type != 'CURVE':
+            self.report({'ERROR'}, "No active curve object")
+            return {'CANCELLED'}
+        
+        curve = obj.data
+
+        # Ensure we're in Object Mode to modify splines safely
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+        for spline in curve.splines:
+            if spline.type == 'BEZIER':
+                num_points = len(bezier_points)
+                bezier_points = list(spline.bezier_points)  # Convert to a list
+
+                # Reverse the order of points
+                new_points = [bezier_points[i] for i in range(num_points - 1, -1, -1)]
+
+                # Swap handle positions to maintain curve shape
+                for i in range(num_points):
+                    new_points[i].co, bezier_points[i].co = bezier_points[i].co, new_points[i].co
+                    new_points[i].handle_left, bezier_points[i].handle_left = bezier_points[i].handle_right, new_points[i].handle_right
+                    new_points[i].handle_right, bezier_points[i].handle_right = bezier_points[i].handle_left, new_points[i].handle_right
+
+        # Return to Edit Mode
+        bpy.ops.object.mode_set(mode='EDIT')
+
+        return {'FINISHED'}
+  
 class SplineCyclic(bpy.types.Operator):
     """Toggle the selected spline between open (rally) and closed (circuit)"""
     bl_idname = "view3d.toggle_cyclic"
@@ -429,6 +626,47 @@ class ReconstructSpline(bpy.types.Operator):
 
         return {'FINISHED'}
     
+class SelectFirstSplinePointOperator(bpy.types.Operator):
+    """Select First Point (Spawn Point) of Spline"""
+    bl_idname = "curve.select_first_spline_point"
+    bl_label = "Select First Spline Point"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.active_object
+
+        if obj is None or obj.type != 'CURVE':
+            self.report({'ERROR'}, "Active object is not a curve")
+            return {'CANCELLED'}
+            
+        # Enter edit mode if not already in edit mode
+        if bpy.context.mode != 'EDIT_CURVE':
+            bpy.ops.object.mode_set(mode='EDIT')
+        
+        # Deselect all points first
+        bpy.ops.curve.select_all(action='DESELECT')
+        
+        # Access the curve data in edit mode
+        curve_data = obj.data
+
+        if not curve_data.splines:
+            self.report({'WARNING'}, "No splines found in the curve")
+            return {'CANCELLED'}            
+            
+        active_spline = curve_data.splines.active
+
+        # Select the first point depending on spline type
+        if active_spline.bezier_points:
+            active_spline.bezier_points[0].select_control_point = True
+        elif active_spline.points:
+            active_spline.points[0].select_control_point = True
+        
+        # Update the view with the selection
+        context.view_layer.update()
+        return {'FINISHED'}
+    
+# MARK: MISC
+    
 class OpenUrl(bpy.types.Operator):
     """Open link"""
     bl_idname = "view3d.open_url"
@@ -451,261 +689,38 @@ class AddImageTexture(bpy.types.Operator):
         open_url(self.url)
         return {"FINISHED"}
 
-# Custom operator to load and assign an image
-class OpenImageTexture(bpy.types.Operator, ImportHelper):
-    """Open Image and Assign to Texture Node"""
-    bl_idname = "view3d.open_image"
-    bl_label = "Open Image"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    filename_ext = ".png;.jpg;.jpeg;.bmp;.tiff;.tga;.exr;.hdr"
-    filter_glob: bpy.props.StringProperty(
-        default="*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.tga;*.exr;*.hdr;*.gif",
-        options={'HIDDEN'},
-        maxlen=255
-    )
-    
-    def invoke(self, context, event):
-        # Open the file browser
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-    def execute(self, context):
-        print("Selected file:", self.filepath)
-        # Validate the file path
-        if not self.filepath:
-            self.report({'WARNING'}, "No file selected.")
-            return {'CANCELLED'}
-        
-        image = bpy.data.images.load(self.filepath, check_existing=True)
-        for obj in context.selected_objects:
-            if obj and obj.type == 'MESH':
-                mats = [slot.material for slot in obj.material_slots]
-                if len(mats) and mats[0].node_tree:
-                    for node in mats[0].node_tree.nodes:
-                        if node.type == 'TEX_IMAGE':
-                            node.image = image
-                            self.report({'INFO'}, f"Assigned {image.name} to {node.name}")
-        return {'FINISHED'}
-    
-class SelectFirstSplinePointOperator(bpy.types.Operator):
-    """Select First Point (Spawn Point) of Spline"""
-    bl_idname = "curve.select_first_spline_point"
-    bl_label = "Select First Spline Point"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        obj = context.active_object
-
-        if obj and obj.type == 'CURVE':
-            # Enter edit mode if not already in edit mode
-            if bpy.context.mode != 'EDIT_CURVE':
-                bpy.ops.object.mode_set(mode='EDIT')
-            
-            # Deselect all points first
-            bpy.ops.curve.select_all(action='DESELECT')
-            
-            # Access the curve data in edit mode
-            curve_data = obj.data
-
-            if curve_data.splines:
-                first_spline = curve_data.splines[0]
-
-                # Select the first point depending on spline type
-                if first_spline.bezier_points:
-                    first_spline.bezier_points[0].select_control_point = True
-                elif first_spline.points:
-                    first_spline.points[0].select_control_point = True
-                
-                # Update the view with the selection
-                context.view_layer.update()
-                return {'FINISHED'}
-            else:
-                self.report({'WARNING'}, "No splines found in the curve")
-                return {'CANCELLED'}
-        else:
-            self.report({'ERROR'}, "Active object is not a curve")
-            return {'CANCELLED'}
-
-        
-# BAKE LIGHTING TO VERTEX COLORS
-
-# def bake_vertex_colors(b_context, b_obj_list):
-#     errlist_mismatch = []
-#     errlist_nodata = []
-
-#     for obj in b_obj_list:
-#         if obj.type != 'MESH' or not obj.get('visible', False):
-#             continue
-
-#         d = obj.data
-
-#         if len(d.color_attributes) == 0:
-#             reset_vertex_colors(obj)
-
-#         if d.attributes.default_color_name == name_attr_baked:
-#             errlist_mismatch.append(obj.name)
-#             continue
-
-#         color_base = d.attributes[d.attributes.default_color_name].data
-#         if len(color_base) == 0:
-#             errlist_nodata.append(obj.name)
-#             continue
-
-#         # Calculate the total light for each vertex of the selected object
-#         total_lights = calculate_total_light_for_object(obj, b_context.scene.light_falloff, b_context.scene.ambient_light_intensity, b_context.scene.ambient_light)
-        
-#         color_layer = d.attributes.get(name_attr_baked)
-#         if color_layer is not None:
-#             color_layer = color_layer.data
-#         else:
-#             d.color_attributes.new(name_attr_baked, 'BYTE_COLOR', 'CORNER') 
-#             color_layer = d.attributes[name_attr_baked].data
-
-#         for poly in d.polygons:
-#             for p in range(len(poly.vertices)):
-#                 color = total_lights[poly.vertices[p]]
-#                 a_col = color_base[poly.loop_indices[p]].color # old color
-#                 for i, b in enumerate([*color, 1.0]):
-#                     color_layer[poly.loop_indices[p]].color[i] = blend_multiply(a_col[i], b)
-
-#     if len(errlist_mismatch) > 0:
-#         show_custom_popup(bpy.context, 'ERROR', 'Baking target was base color map. Choose another Render Color or rename. Affected objects: {}'.format(', '.join(errlist_mismatch)))
-
-#     if len(errlist_nodata) > 0:
-#         show_custom_popup(bpy.context, 'ERROR', 'Base color map has no color data. Data may have been purged. Affected objects: {}'.format(', '.join(errlist_nodata)))
-
-
-# def bake_vertex_colors_clear(b_context, b_obj_list):
-#     errlist_mismatch = []
-#     for obj in b_obj_list:
-#         if obj.type != 'MESH' or not obj.get('visible', False):
-#             continue
-
-#         color_layer = obj.data.attributes.get(name_attr_baked)
-#         if color_layer is not None:
-#             if obj.data.attributes.default_color_name == name_attr_baked:
-#                 errlist_mismatch.append(obj.name)
-#                 continue
-
-#             obj.data.attributes.remove(color_layer)
-
-#     if len(errlist_mismatch) > 0:
-#         show_custom_popup(bpy.context, 'ERROR', 'Baked lighting was in base color map. Skipped deleting bake. Affected objects: {}'.format(', '.join(errlist_mismatch)))
-
-
-class RemakeMaterials(bpy.types.Operator):
-    bl_idname = "view3d.remake_materials"
-    bl_label = "Remake Materials"
-    bl_description = "Remake materials for all selected objects"
-    
-    def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            if obj.type == 'MESH' and obj.material_slots:
-                mats = [slot.material for slot in obj.material_slots]
-                material = Material.unmake(mats[0])
-                remake = material.make(remake = True)
-                obj.material_slots[0].material = remake
-        return {"FINISHED"}
-
-class BakeVColors(bpy.types.Operator):
-    bl_idname = "view3d.bake_vcolors"
-    bl_label = "Bake Vertex Colors"
-    bl_description = "Bake lighting into dedicated color map, while preserving Render Color"
-    
-    def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
-            # Calculate the total light for each vertex of the selected object
-            total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
-               
-            reset_vertex_colors(obj)
-            
-            color_layer = obj.data.vertex_colors.active.data   
-                
-            for poly in obj.data.polygons:
-                for p in range(len(poly.vertices)):
-                    color = total_lights[poly.vertices[p]]
-                    color_layer[poly.loop_indices[p]].color = [*color, 1.0]
-        #bake_vertex_colors(context, context.selected_objects)
-        return {"FINISHED"}
-    
-class BakeVColorsClear(bpy.types.Operator):
-    bl_idname = "view3d.bake_vcolors_clear"
-    bl_label = "Clear Baked Lighting"
-    bl_description = "Remove baked lighting color map from Color Attributes"
-
-    def execute(self, context):
-        bake_vertex_colors_clear(context, context.selected_objects)
-        return {"FINISHED"}
-
-class BakeVColorsCollection(bpy.types.Operator):
-    bl_idname = "outliner.collection_bake"
-    bl_label = "Bake Lighting on Collection"
-
-    @classmethod
-    def poll(cls, context):
-        return context.collection is not None
-
-    def execute(self, context):
-        bake_vertex_colors(context, context.collection.all_objects)
-        return {'FINISHED'}
-
-class BakeVColorsCollectionClear(bpy.types.Operator):
-    bl_idname = "outliner.collection_bake_clear"
-    bl_label = "Remove Baked Lighting from Collection"
-
-    @classmethod
-    def poll(cls, context):
-        return context.collection is not None
-
-    def execute(self, context):
-        bake_vertex_colors_clear(context, context.collection.all_objects)
-        return {'FINISHED'}
-
-# OUTLINER > COLLECTION context menu
-
-def draw_OUTLINER_MT_collection(self, context):
-    self.layout.separator()
-    self.layout.label(text='SWE1R Import/Export')
-    self.layout.operator('outliner.collection_bake', text='Bake Lighting', icon='LIGHT_SUN')
-    self.layout.operator('outliner.collection_bake_clear', text='Remove Baked Lighting')
-
-# REGISTER
+# MARK: REGISTER
 
 register_classes = (
+    RemakeMaterials,
+    ResetTexture,
+    ResetVisuals,
+    ResetTerrain,
+    ResetFog,
+    ResetLighting,
+    ResetLoading,
+    ResetCollidable,
     ImportOperator,
     ExportOperator,
     NewModelOperator,
-    VertexColorOperator,
-    VisibleOperator,
-    CollidableOperator,
-    VisibleSelect,
-    CollidableSelect,
-    RemoveCollisionData,
-    ResetCollisionData,
-    NonVisibleOperator,
-    NonCollidableOperator,
+    ResetVColor,
+    PreviewLoadTrigger,
+    SelectByProperty,
     AddTrigger,
     InvertSpline,
     SplineCyclic,
     ReconstructSpline,
     OpenUrl,
     BakeVColors,
-    BakeVColorsClear,
-    BakeVColorsCollection,
-    BakeVColorsCollectionClear,
     OpenImageTexture,
-    SelectFirstSplinePointOperator
+    SelectFirstSplinePointOperator,
+    ToggleViewLayerState
 )
 
 def register():
     for c in register_classes:
         bpy.utils.register_class(c)
-    bpy.types.OUTLINER_MT_collection.append(draw_OUTLINER_MT_collection)
     
 def unregister():
     for c in register_classes:
         bpy.utils.unregister_class(c)
-    bpy.types.OUTLINER_MT_collection.remove(draw_OUTLINER_MT_collection)

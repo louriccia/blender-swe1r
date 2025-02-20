@@ -137,7 +137,7 @@ class Texture():
             return
         
         
-        tex_name = data_name_format.format(data_type = 'tex', label = str(self.id))
+        tex_name = str(self.id)
         new_image = bpy.data.images.new(tex_name, self.width, self.height)
         image_pixels = []
         pixels = self.pixels.data
@@ -153,8 +153,12 @@ class Texture():
                 if self.format in [512, 513]:
                     color = palette[pixels[ind]].to_array()
 
-                elif self.format in [1024, 1025]:
-                    p = pixels[ind]
+                if self.format == 1024:
+                    p = pixels[ind]/0xF
+                    color = [p, p, p, 1.0]
+                    
+                elif self.format == 1025:
+                    p = pixels[ind]/255
                     color = [p, p, p, 1.0]
 
                 elif self.format == 3:
@@ -228,8 +232,8 @@ class Texture():
             self.format = 512
             
         
-        self.palette = Palette(self).unmake(image, override_format)
-        self.pixels = Pixels(self).unmake(image, override_format)
+        self.palette = Palette(self).unmake(image, self.format)
+        self.pixels = Pixels(self).unmake(image, self.format)
         return self
     
 class RGBA5551(DataStruct):

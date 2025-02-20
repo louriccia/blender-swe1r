@@ -1,5 +1,5 @@
 # Copyright (C) 2021-2024
-# lightningpirate@gmail.com.com
+# lightningpirate@gmail.com
 
 # Created by LightningPirate
 
@@ -20,12 +20,11 @@
 # /licenses>.
 
 import bpy
-from .popup import show_custom_popup
 from .swe1r.modelblock import Model
 from .swe1r.splineblock import Spline
 from .swe1r.spline_map import spline_map
 from .swe1r.block import Block
-from .utils import UpdateVisibleSelectable
+from .utils import UpdateVisibleSelectable, show_custom_popup
 
 scale = 0.01
 
@@ -92,6 +91,9 @@ def import_model(file_path, selector=None, update_progress=None):
             update_progress(f'Making spline {spline_id}')
             collection.objects.link(spline.make(model.scale))
             
+    # reset view layer
+    view_layer = bpy.context.scene.view_layers.get("ViewLayer")
+    bpy.context.window.view_layer = view_layer
     # toggle visible/selectable
     UpdateVisibleSelectable(None)
 

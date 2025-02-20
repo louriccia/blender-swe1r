@@ -1,5 +1,5 @@
 # Copyright (C) 2021-2024
-# lightningpirate@gmail.com.com
+# lightningpirate@gmail.com
 
 # Created by LightningPirate
 
@@ -24,15 +24,24 @@ import bpy
 import bmesh
 import math
 import mathutils
-import copy
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture, compute_image_hash, compute_hash
-from ..popup import show_custom_popup
-from ..utils import find_existing_light, check_flipped, data_name_format, data_name_prefix_len, data_name_format_long, data_name_format_short, get_model_type, model_types, header_sizes, showbytes, Podd_MAlt
+from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt
 
-name_attr_uvmap = data_name_format_short.format(label='uv_map')
-name_attr_colors = data_name_format_short.format(label='colors')
-name_attr_baked = data_name_format_short.format(label='colors_baked')
+def find_existing_light(objects, color, location, rotation):
+    for light in objects:
+        if light.type == 'LIGHT' and light.data.color == color and (light.location - location).length < 0.001 and light.users:
+            # Check rotation (convert both to Euler for comparison)
+            existing_rotation = light.rotation_euler
+            if existing_rotation == rotation:
+                return light
+    return None
+
+def get_model_type(name):
+    for code, model_name, description in model_types:
+        if model_name == name:
+            return code
+    return None 
 
 class Lights(DataStruct):
     def __init__(self, model):
@@ -443,6 +452,17 @@ class CollisionTags(DataStruct):
         self.lights.make(obj)
         obj['collision_data'] = True
         
+        obj.load_trigger = [0 for i in range(24)]
+        for i in range(24):
+            u_val = bool(self.unload & (1 << (i + 8)))
+            l_val = bool(self.load & (1 << (i + 8)))
+            if l_val:
+                obj.load_trigger[i] = 1
+            elif u_val:
+                obj.load_trigger[i] = 2
+            else:
+                obj.load_trigger[i] = 0
+        
         for trigger in self.triggers:
             trigger.make(obj, collection)
         
@@ -451,6 +471,12 @@ class CollisionTags(DataStruct):
         self.flags.unmake(mesh)
         self.fog.unmake(mesh)
         self.lights.unmake(mesh)
+        
+        for i, val in enumerate(mesh.load_trigger):
+            if val == 1:
+                self.load |= (1 << (i + 8))
+            elif val == 2:
+                self.unload |= (1 << (i + 8))
         
         for child in mesh.children:
             trigger = CollisionTrigger(self, self.model).unmake(child)
@@ -632,14 +658,12 @@ class VisualsVertBuffer():
         color_data = None
         d = mesh.data
         if d is None:
-            print(self.parent.id, 'has no mesh.data')
             return
         
         if d.uv_layers and d.uv_layers.active:
             uv_data = d.uv_layers.active.data
         if d.vertex_colors and d.vertex_colors.active:
             color_data = d.vertex_colors.active.data
-        
         
         # if d.uv_layers and d.uv_layers.active:
         #     uv_data = d.uv_layers.active.data
@@ -654,7 +678,6 @@ class VisualsVertBuffer():
         #there's probably a better way to do this but this works for now
         #https://docs.blender.org/api/current/bpy.types.Mesh.html
 
-        # TODO: remake tri for each unique loop index (uv)
         for poly in d.polygons:
             for loop_index in poly.loop_indices:
                 vert_index = d.loops[loop_index].vertex_index
@@ -853,7 +876,7 @@ class VisualsIndexBuffer():
     def to_array(self):
         return [d.to_array() for d in self.data]
     
-    def unmake(self, faces):
+    def unmake(self, faces):            
         #grab the base index buffer data from mesh.data.polygons and construct initial chunk list
         
         index_buffer = []
@@ -990,6 +1013,7 @@ class MaterialTexture(DataStruct):
 
     def unmake(self, image):
         if image is None:
+            print('image is None')
             return self
 
         if 'id' in image:
@@ -998,6 +1022,8 @@ class MaterialTexture(DataStruct):
         if 'format' in image:
             self.format = int(image['format'])
 
+        print(image.name, self.id, self.format)
+        
         self.width, self.height = image.size
         self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
 
@@ -1007,6 +1033,7 @@ class MaterialTexture(DataStruct):
         #check if we already wrote this image
         if image.name in self.model.image_map:
             self.id = self.model.image_map[image.name]
+            print(image.name,'already written as', self.id)
         elif self.model.texture_export:
             hash = compute_image_hash(image)
             
@@ -1156,6 +1183,11 @@ class MaterialShader(DataStruct):
             self.unk1 = material.get('unk1', 0)
             self.unk2 = material.get('unk2', 0)
             
+        for node in material.node_tree.nodes:
+            if node.type == 'ShaderNodeBsdfPrincipled':
+                color = node.inputs[0].default_value   
+                print('unmade color', color) 
+    
         # alternate way to detect if this material is on a skybox mesh
         mat = self.parent
         mesh = mat.parent
@@ -1182,8 +1214,8 @@ class MaterialShader(DataStruct):
         self.color.write(buffer, cursor + 34)
         return cursor + self.size
     
-name_tex_override_id = data_name_format.format(data_type = 'tex', label = 'override_id')
-name_tex_override_format = data_name_format.format(data_type = 'tex', label = 'override_format')
+
+# MARK: MATERIAL
 
 class Material(DataStruct):
     def __init__(self, parent, model):
@@ -1218,6 +1250,8 @@ class Material(DataStruct):
         self.write_location = None
         self.scroll_x = 0
         self.scroll_y = 0
+        self.clip_x = 0
+        self.clip_y = 0
         self.texture_anim = False
         self.shader = MaterialShader(self, self.model)
         
@@ -1235,33 +1269,39 @@ class Material(DataStruct):
     def to_array(self):
         return [self.format, 0, 0]
         
-    def make(self, remake = False):
-        mat_name = self.name if self.name else data_name_format_long.format(data_type = 'mat', group_id = '{:03d}'.format(self.model.id), label = str(self.id))
-        
-        material = bpy.data.materials.get(mat_name)
+    def make(self, remake = False, tex_name = None):
+        mat_name = "Unnamed Material"
+        material = None
+        if self.id is not None:
+            mat_name = str(self.id)
+            material = bpy.data.materials.get(mat_name)
         if material is not None and not remake:
             return material
-        if not remake:
+        if not remake or material is None:
             material = bpy.data.materials.new(mat_name)
             
         material.use_nodes = True
         material.node_tree.nodes.clear()
         output_node = material.node_tree.nodes.new(type='ShaderNodeOutputMaterial')
         node_0 = material.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
+        if material.shader:
+            node_0.inputs[0].default_value = [c/255 for c in material.shader.color.data[:3]]
         material.node_tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
         material['id'] = self.id
         material['format'] = self.format
         
-        if (self.texture is not None):
-            tex_name = data_name_format.format(data_type = 'tex', label = str(self.texture.id))
+        if (self.texture is not None or tex_name is not None):
+            tex_name = tex_name if tex_name is not None else str(self.texture.id)
 
             material['scroll_x'] = self.scroll_x
             material['scroll_y'] = self.scroll_y
+            material['clip_x'] = self.clip_x
+            material['clip_y'] = self.clip_y
             
             material.blend_method = 'OPAQUE'
             self.shader.make(material)
             
-            if self.texture.format == 3:
+            if self.texture and self.texture.format == 3:
                 material.blend_method = 'BLEND'
             if (self.format & 8):
                 material.use_backface_culling = True
@@ -1276,9 +1316,6 @@ class Material(DataStruct):
             material.node_tree.links.new(node_3.outputs["Color"], node_0.inputs["Base Color"])
             material.node_tree.links.new(node_1.outputs["Alpha"], node_0.inputs["Alpha"])
             node_0.inputs["Specular IOR Level"].default_value = 0
-            #node_0.inputs["Emission Strength"].default_value = 1.0
-            #material.node_tree.links.new(node_3.outputs["Color"], node_0.inputs["Emission Color"])
-            
 
             if self.scroll_x != 0 or self.scroll_y != 0:
                 shader_node = material.node_tree.nodes.new("ShaderNodeTexCoord")
@@ -1309,7 +1346,7 @@ class Material(DataStruct):
             
             # NOTE: probably shouldn't do it this way
             # TODO: find specific tag
-            if any(tex_name.endswith(id) for id in ["1167", "1077", "1461", "1596"]):
+            if tex_name in ["1167", "1077", "1461", "1596"]:
                 material.blend_method = 'BLEND'
                 material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Alpha"])
             
@@ -1317,8 +1354,8 @@ class Material(DataStruct):
                 material.node_tree.links.new(node_2.outputs["Color"], node_0.inputs["Normal"])
                 material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
             
-            chunk_tag = self.texture.chunks[0].unk1 if len(self.texture.chunks) else 0
-            if(self.texture.chunks and chunk_tag & 0x11 != 0):
+            chunk_tag = self.texture.chunks[0].unk1 if self.texture and len(self.texture.chunks) else 0
+            if(self.texture and self.texture.chunks and chunk_tag & 0x11 != 0):
                 node_4 = material.node_tree.nodes.new("ShaderNodeUVMap")
                 node_5 = material.node_tree.nodes.new("ShaderNodeSeparateXYZ")
                 node_6 = material.node_tree.nodes.new("ShaderNodeCombineXYZ")
@@ -1364,11 +1401,13 @@ class Material(DataStruct):
                     material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
 
             b_tex = bpy.data.images.get(tex_name)
-            if b_tex is None:
+            if b_tex is None and self.texture:
                 b_tex = self.texture.make()
             
             image_node = material.node_tree.nodes["Image Texture"]
             image_node.image = b_tex
+            
+            print('image', image_node.image)
             
             if self.texture_anim: # TODO
                 bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
@@ -1387,10 +1426,6 @@ class Material(DataStruct):
             material.preview_render_type = 'FLAT'
             return material
         else:
-            
-            # material.node_tree.nodes["Principled BSDF"].inputs[5].default_value = 0
-            # colors = [0, 0, 0, 0] if self.unk is None else self.unk.color
-            # material.node_tree.nodes["Principled BSDF"].inputs[0].default_value = [c/255 for c in colors]
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             node_0.inputs["Specular IOR Level"].default_value = 0
             material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
@@ -1405,20 +1440,22 @@ class Material(DataStruct):
             self.name = material.name
             
             material_name = material.name #.split(".")[0]
-            self.id = material_name[data_name_prefix_len:]
+            self.id = material_name
             if self.model and material_name in self.model.materials:
                 return self.model.materials[material_name]
             
-            self.scroll_x = material.get('scroll_x')
-            self.scroll_y = material.get('scroll_y')
-            self.texture_anim = material.get('texture_anim')
+            self.scroll_x = material.get('scroll_x', 0.0)
+            self.scroll_y = material.get('scroll_y', 0.0)
+            self.clip_x = material.get('clip_x', False)
+            self.clip_y = material.get('clip_y', False)
             
             # if material.node_tree:
             for node in material.node_tree.nodes:
                 if node.type == 'TEX_IMAGE':
                     self.texture = MaterialTexture(self, self.model).unmake(node.image)
 
-            self.id = material.get('id')
+            if hasattr(material, 'id') and material['id']:
+                self.id = material.get('id')
 
             if material.flip_x:
                 self.texture.chunks[0].unk1 |= 0x01
@@ -1446,10 +1483,6 @@ class Material(DataStruct):
                 
             if material.use_backface_culling == False:
                 self.format &= 0b11110111
-
-            #clamps uvs
-            # if self.texture:                
-            #     self.texture.chunks[0].unk1 |= 0x22
         
         if self.model: 
             self.model.materials[material_name] = self
@@ -1472,6 +1505,10 @@ class Material(DataStruct):
         cursor = self.shader.write(buffer, cursor)
         struct.pack_into(self.format_string, buffer, material_start, self.format, tex_addr, shader_addr)
         return cursor
+    def remake(self, material, tex_name = None):
+        self.unmake(material)
+        material = self.make(remake = True, tex_name = tex_name)
+        return material
 
 class MeshBoundingBox(DataStruct):
     """Defines the minimum and maximum bounds of a mesh"""
@@ -1516,57 +1553,123 @@ class MeshBoundingBox(DataStruct):
         struct.pack_into(self.format_string, buffer, cursor, *self.to_array())
         return self.size + cursor
     
-def get_uv_islands(obj):
-    # Ensure the object is a mesh and has an active UV map
+def get_uv_bounds(uv_coords):
+    """Calculate the bounding box of UV coordinates."""
+    min_u = min(uv[0] for uv in uv_coords)
+    max_u = max(uv[0] for uv in uv_coords)
+    min_v = min(uv[1] for uv in uv_coords)
+    max_v = max(uv[1] for uv in uv_coords)
+    return min_u, max_u, min_v, max_v
+
+def is_within_bounds(uv_coords, max_tile_size):
+    """Check if UV bounding box is within the size limit."""
+    min_u, max_u, min_v, max_v = get_uv_bounds(uv_coords)
+    return (max_u - min_u <= max_tile_size) and (max_v - min_v <= max_tile_size)
+
+def subdivide_face(bm, face, uv_layer, max_tile_size):
+    """Subdivide a single face until it fits within the UV bounds."""
+    while True:
+        uv_coords = [loop[uv_layer].uv for loop in face.loops]
+        if is_within_bounds(uv_coords, max_tile_size):
+            break
+        bmesh.ops.subdivide_edges(
+            bm,
+            edges=face.edges,
+            cuts=1,
+            use_grid_fill=True
+        )
+
+def get_uv_islands(obj, max_tile_size=16):
+    """Retrieve UV islands while limiting their size to max_tile_size, including vertex color data."""
     if obj.type != 'MESH' or not obj.data.uv_layers.active:
         return []
 
+    # Ensure the mesh has vertex colors
+    color_layer = None
+    
     mesh = obj.data
     bm = bmesh.new()
     bm.from_mesh(mesh)
     bm.faces.ensure_lookup_table()
     uv_layer = bm.loops.layers.uv.active
 
+    # Verify the active vertex color layer
+    if obj.data.vertex_colors:
+        color_layer = bm.loops.layers.color.verify()  # Ensures the vertex color layer is correctly accessed
+
     islands = []
     visited_faces = set()
 
-    # Iterate through each face
     for face in bm.faces:
         if face.index in visited_faces:
             continue
-        # Use a stack to perform a flood fill
-        stack = [face]
-        island = []
+
+        # Subdivide the face if it's too large
+        uv_coords = [loop[uv_layer].uv for loop in face.loops]
+        if not is_within_bounds(uv_coords, max_tile_size):
+            subdivide_face(bm, face, uv_layer, max_tile_size)
         
+        # Create a new island
+        stack = [face]
+        current_island = []
+        island_uvs = []
+
         while stack:
             current_face = stack.pop()
             if current_face.index in visited_faces:
                 continue
             visited_faces.add(current_face.index)
+
+            # Check if adding this face would exceed the UV bounds
+            current_uv_coords = [loop[uv_layer].uv for loop in current_face.loops]
+            combined_uvs = island_uvs + current_uv_coords
+
+            if not is_within_bounds(combined_uvs, max_tile_size):
+                # Start a new island if the bounds are exceeded
+                islands.append(current_island)
+                current_island = []
+                island_uvs = []
             
-            # Store face data (vertex indices and UV coordinates)
+            # Add the face to the current island
             face_data = {
                 "face_index": current_face.index,
-                "vertices": [v.index for v in current_face.verts],
-                "uvs": [(loop[uv_layer].uv.x, loop[uv_layer].uv.y) for loop in current_face.loops]
+                "vertices": [v.co for v in current_face.verts],
+                "uvs": current_uv_coords,
+                "colors": [ [] if not color_layer else
+                    tuple(loop[color_layer])  # Safely access vertex colors
+                    for loop in current_face.loops
+                ],
             }
-            island.append(face_data)
-            
+            current_island.append(face_data)
+            island_uvs.extend(current_uv_coords)
+
             # Traverse adjacent faces by shared UV coordinates
-            for loop in current_face.loops:
-                uv = loop[uv_layer].uv
-                for edge in current_face.edges:
-                    for linked_face in edge.link_faces:
-                        if linked_face.index not in visited_faces:
-                            # Check if linked face shares UV coordinates
-                            if any(linked_loop[uv_layer].uv == uv for linked_loop in linked_face.loops):
-                                stack.append(linked_face)
+            for edge in current_face.edges:
+                for linked_face in edge.link_faces:
+                    if linked_face.index not in visited_faces:
+                        stack.append(linked_face)
         
-        # Add the found island to the list
-        islands.append(island)
-    
+        # Add the final island
+        if current_island:
+            islands.append(current_island)
+
+    bm.to_mesh(mesh)
     bm.free()
     return islands
+    
+def get_object_view_layer_visibility(obj):
+    if obj is None or not isinstance(obj, bpy.types.Object):
+        return None
+
+    visibility = 0
+    
+    for i, view_layer in enumerate(bpy.context.scene.view_layers):
+        if i == 0: #skip working layer
+            continue
+        if not obj.hide_get(view_layer = view_layer):
+            visibility = visibility | (1 << (i - 1 + 8))
+    
+    return visibility
     
 class MeshGroupBoundingBox(MeshBoundingBox):
     def unmake(self, meshgroup):
@@ -1580,6 +1683,8 @@ class MeshGroupBoundingBox(MeshBoundingBox):
         self.max_y = max([b[4] for b in bb])
         self.max_z = max([b[5] for b in bb])
         return self
+    
+# MARK: MESH
     
 class Mesh(DataStruct):
     def __init__(self, parent, model):
@@ -1613,6 +1718,8 @@ class Mesh(DataStruct):
     
     def has_transparency(self):
         return self.material is not None and self.material.shader.render_mode_1 & 0x800 > 0
+    
+
     
     def split(self):
         vis = Mesh(self.parent, self.model)
@@ -1710,18 +1817,23 @@ class Mesh(DataStruct):
                     start += strip
             mesh_name = '{:07d}'.format(self.id) + "_" + "collision"
             mesh = bpy.data.meshes.new(mesh_name)
-            obj = bpy.data.objects.new(mesh_name, mesh)
+            b_obj = bpy.data.objects.new(mesh_name, mesh)
             
-            obj.collidable = True   
-            obj.id = str(self.id)
-            obj.scale = [self.model.scale, self.model.scale, self.model.scale]
+            b_obj.collidable = True   
+            b_obj.id = str(self.id)
+            b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
-            collection.objects.link(obj)
+            collection.objects.link(b_obj)
             mesh.from_pydata(verts, edges, faces)
-            obj.parent = parent
+            b_obj.parent = parent
 
             if(self.collision_tags is not None): 
-                self.collision_tags.make(obj, collection)
+                self.collision_tags.make(b_obj, collection)
+                
+            for i in range(24):
+                view_layer = bpy.context.scene.view_layers[i + 1]
+                if 'col_flags' in parent or parent.col_flags:
+                    b_obj.hide_set(not bool(int(parent['col_flags']) & (1 << (i + 8))), view_layer = view_layer)            
                 
         if self.has_visuals():
             
@@ -1731,15 +1843,15 @@ class Mesh(DataStruct):
             faces = self.visuals_index_buffer.make()
             mesh_name = '{:07d}'.format(self.id) + "_" + "visuals"
             mesh = bpy.data.meshes.new(mesh_name)
-            obj = bpy.data.objects.new(mesh_name, mesh)
-            obj.visible = True
-            obj.id = str(self.id)
-            obj.scale = [self.model.scale, self.model.scale, self.model.scale]
+            b_obj = bpy.data.objects.new(mesh_name, mesh)
+            b_obj.visible = True
+            b_obj.id = str(self.id)
+            b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
-            collection.objects.link(obj)
+            collection.objects.link(b_obj)
             mesh.from_pydata(verts, edges, faces)
             mesh.validate() #clean_customdata=False
-            obj.parent = parent
+            b_obj.parent = parent
             
             if self.material:
                 mat = self.material.make()
@@ -1749,15 +1861,23 @@ class Mesh(DataStruct):
             uv_layer = mesh.uv_layers.new(name = 'uv')
             color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
             
-            mesh.attributes.render_color_index = obj.data.attributes.active_color_index
+            mesh.attributes.render_color_index = b_obj.data.attributes.active_color_index
             # no idea why but 4.0 requires I do this:
-            uv_layer = obj.data.uv_layers.active.data
-            color_layer = obj.data.vertex_colors.active.data                
+            uv_layer = b_obj.data.uv_layers.active.data
+            color_layer = b_obj.data.vertex_colors.active.data                
             for poly in mesh.polygons:
                 for p in range(len(poly.vertices)):
                     v = self.visuals_vert_buffer.data[poly.vertices[p]]
                     uv_layer[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
                     color_layer[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
+                    
+            for i in range(24):
+                view_layer = bpy.context.scene.view_layers[i + 1]
+                if 'vis_flags' in parent or parent.vis_flags:
+                    b_obj.hide_set(not bool(int(parent['vis_flags']) & (1 << (i+8))), view_layer = view_layer)
+    
+
+        
     
     def unmake(self, node, unmake_anim = True):
         self.original_object = node
@@ -1765,129 +1885,75 @@ class Mesh(DataStruct):
         if node.get('visible') is None and node.get('collidable') is None:
             if self.model.type == '7':
                 node.collidable = True
-            node.visible = True
-
-        # node_tmp = node
-        # node_tmp_data = None
-        # node_tmp_clean = False
-
-        # if check_flipped(node):
-        #     node_tmp = node.copy()
-        #     node_tmp_data = node.data.copy()
-        #     node_tmp.data = node_tmp_data
-        #     node_tmp_clean = True
-
-        #     with bpy.context.temp_override(selected_editable_objects=[node_tmp]):
-        #         bpy.ops.object.make_single_user(type='SELECTED_OBJECTS', object=True, obdata=True)
-        #         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-        #     bm = bmesh.new()
-        #     bm.from_mesh(node_tmp.data)
-        #     bm.faces.ensure_lookup_table()
-        #     bmesh.ops.reverse_faces(bm, faces=bm.faces)
-        #     bm.to_mesh(node_tmp.data)
-        #     bm.free()
-        #     node_tmp.data.update()            
+            node.visible = True        
 
         self.id = node.name
-            
+        self.layers = get_object_view_layer_visibility(node) & 0xFFFFFF00
+        
         if unmake_anim:
             get_animations(node, self.model, self)
 
         if node.visible:
+            
+            #find material
             material = None
             for slot in node.material_slots:
                 material = slot.material
                 if material:
                     self.material = Material(self, self.model).unmake(material)
                     break
+                
             if material is None:
                 self.material = Material(self, self.model).unmake(None)
             
             self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
             verts = self.visuals_vert_buffer.data
             faces = [[v for v in face.vertices] for face in node.data.polygons]
-
+            
             if not len(faces) or not len(verts):
                 return None
-            
+
             # fix uvs
             if self.material and self.material.texture:
                 uv_islands = get_uv_islands(node)
-                new_verts = []
                 new_faces = []
-                index_map = {}
                 
                 for i, island in enumerate(uv_islands):
-                    # check total uv size and determine if we need to offset to fit uv bounds
+                    #shift uvs back in bounds
+                    uvs = [uv for face in island for uv in face["uvs"]]
+                    min_u, max_u, min_v, max_v = get_uv_bounds(uvs)
                     UV_MAX_SIZE = 8
                     UV_MIN_SIZE = -8
-                    
-                    uv_min = [UV_MAX_SIZE, UV_MAX_SIZE]
-                    uv_max = [UV_MIN_SIZE, UV_MIN_SIZE]
+                    uv_min = [min_u, min_v]
+                    uv_max = [max_u, max_v]
                     uv_offset = [0, 0]
-                    
-                    for face in island:
-                        face_min = [UV_MAX_SIZE, UV_MAX_SIZE]
-                        face_max = [UV_MIN_SIZE, UV_MIN_SIZE]
-                        for uv in face['uvs']:
-                            for i, coordinate in enumerate(uv):
-                                if coordinate < uv_min[i]:
-                                    uv_min[i] = coordinate
-                                if coordinate > uv_max[i]:
-                                    uv_max[i] = coordinate
-                                    
-                                if coordinate < face_min[i]:
-                                    face_min[i] = coordinate
-                                if coordinate > face_max[i]:
-                                    face_max[i] = coordinate
-                        
-                        # if face_max[0] - face_min[0] > 16 or face_max[1] - face_min[1] > 16:
-                        #     print("Face uv is too big. We need to subdivide it", face_max, face_min)
-                            
-                    # if uv_max[0] - uv_min[0] > 16 or uv_max[1] - uv_min[1] > 16:
-                    #     print("island uv is too big, but we can try treating each face individually", uv_max, uv_min)
                     for i in range(2):
                         if uv_min[i] < UV_MIN_SIZE:
                             uv_offset[i] += math.ceil(UV_MIN_SIZE - uv_min[i])
                         if uv_max[i] > UV_MAX_SIZE:
                             uv_offset[i] -= math.ceil(uv_max[i] - UV_MAX_SIZE)
+                    
                                                 
                     # reindex verts and faces
                     for face in island:
                         new_face = []
+                        #create vertices
                         for j, index in enumerate(face['vertices']):
-                            #create key
                             uv = [x + y for x, y in zip(uv_offset, face['uvs'][j])]
-                            index_key = str(index) + "_" + str(uv)
-                            
-                            if index_key in index_map:
-                                new_face.append(index_map[index_key])
-                            else:
-                                vert = VisualsVertChunk(self.visuals_vert_buffer, self.model).clone(verts[index])
-                                vert.unmake(uv = uv)
-                                next_index = len(verts)
-                                index_map[index_key] = next_index
-                                new_face.append(next_index)
-                                verts.append(vert)
+                            vert = VisualsVertChunk(self.visuals_vert_buffer, self.model).unmake(
+                                co = face['vertices'][j], 
+                                uv = uv,
+                                color = face['colors'][j]
+                                )
+                            new_face.append(vert)
                         new_faces.append(new_face)
-                #verts = new_verts
                 faces = new_faces
+            else:
+                # replace each index with its vert
+                faces = [[verts[i] for i in face] for face in faces]
             
-            # tesselate faces
-            t_faces = []
-            for face in faces:
-                assert len(face) <= 4, "Polygon with more than 4 vertices detected"
-                if len(face) == 4:
-                    t_faces.append([face[0], face[1], face[2]])
-                    t_faces.append([face[0], face[2], face[3]])
-                else:
-                    t_faces.append(face)
-            faces = t_faces
-
-
-            # replace each index with its vert
-            faces = [[verts[i] for i in face] for face in faces]
+            #TODO: Automatically split meshes?
+            assert len(faces) <= 2048, f"Max faces reached in {node.name} {len(new_faces)}/2048"
             
             # reorder faces to maximize shared edges
             ordered_faces = []
@@ -1932,7 +1998,7 @@ class Mesh(DataStruct):
                 r_mesh.group_count = None
 
             self.visuals_vert_buffer.data = new_verts
-            assert len(new_faces) <= 2048, f"Max faces reached in {node.name} {len(new_faces)}/2048"
+            
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
             #return True
 
@@ -1946,17 +2012,6 @@ class Mesh(DataStruct):
             
             faces = [[v for v in face.vertices] for face in node.data.polygons]
             verts = self.collision_vert_buffer.data
-
-            # tesselate/validate faces
-            t_faces = []
-            for face in faces:
-                assert len(face) <= 4, "Polygon with more than 4 vertices detected"
-                if len(face) == 4:
-                    t_faces.append([face[0], face[1], face[2]])
-                    t_faces.append([face[0], face[2], face[3]])
-                else:
-                    t_faces.append(face)
-            faces = t_faces
 
             if len(faces) == 0:
                 return None
@@ -2049,6 +2104,8 @@ class Mesh(DataStruct):
             self.vert_strips.strip_size = 5
             self.vert_strips.include_buffer = True
         
+        
+        
         self.bounding_box = MeshBoundingBox(self, self.model).unmake(self)
         return self
 
@@ -2135,6 +2192,8 @@ def create_node(node_type, parent, model):
     assert node_class, f"Invalid node type {node_type}"    
     return node_class(parent, model, node_type)
     
+# MARK: NODE
+    
 class Node(DataStruct):
     
     def __init__(self, parent, model, type, header = []):
@@ -2149,8 +2208,8 @@ class Node(DataStruct):
         if len(header):
             self.header.extend(header)
         self.node_type = type
-        self.vis_flags = 0xFFFFFFFF
-        self.col_flags = 0xFFFFFFFF
+        self.vis_flags = 0xFF
+        self.col_flags = 0xFF
         self.flags_set = False
         self.unk1 = 0
         self.unk2 = 0
@@ -2223,58 +2282,57 @@ class Node(DataStruct):
         #         collection = podd_collection
         
         if self.type in [53349, 53350]:
-            new_node = bpy.data.objects.new(name, None)
-            collection.objects.link(new_node)
+            b_node = bpy.data.objects.new(name, None)
+            collection.objects.link(b_node)
             #new_empty.empty_display_size = 2
             if self.unk1 &  1048576 != 0:
-                new_node.empty_display_type = 'ARROWS'
-                new_node.empty_display_size = 0.5
+                b_node.empty_display_type = 'ARROWS'
+                b_node.empty_display_size = 0.5
                 
             elif self.unk1 & 524288 != 0:
-                new_node.empty_display_type = 'CIRCLE'
-                new_node.empty_display_size = 0.5
+                b_node.empty_display_type = 'CIRCLE'
+                b_node.empty_display_size = 0.5
             else:
-                new_node.empty_display_type = 'PLAIN_AXES'
+                b_node.empty_display_type = 'PLAIN_AXES'
 
                  
         else:
-            new_node = bpy.data.objects.new(name, None)
+            b_node = bpy.data.objects.new(name, None)
             #new_empty.empty_display_type = 'PLAIN_AXES'
-            new_node.empty_display_size = 0
-            collection.objects.link(new_node)
+            b_node.empty_display_size = 0
+            collection.objects.link(b_node)
 
         #set group tags
-        new_node.id  = str(self.id)
-        new_node['node_type'] = self.node_type
-        new_node['vis_flags'] = str(self.vis_flags)
-        new_node['col_flags'] = str(self.col_flags)
-        new_node['unk1'] = self.unk1
-        new_node['unk2'] = self.unk2
+        b_node.id  = str(self.id)
+        b_node['node_type'] = self.node_type
+        b_node['vis_flags'] = str(self.vis_flags)
+        b_node['col_flags'] = str(self.col_flags)
+        b_node['unk1'] = self.unk1
+        b_node['unk2'] = self.unk2
             
         #assign parent
         if parent is not None:
-            new_node.parent = parent
+            b_node.parent = parent
                 
         
         for node in self.children :
             if not isinstance(node, dict):
-                node.make(new_node, collection)
+                node.make(b_node, collection)
             
         if self.id in self.model.header.offsets:
-            new_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
+            b_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
             
-        return new_node
+        for i in range(24):
+            view_layer = bpy.context.scene.view_layers.get(f"VisLayer_{i}")
+            b_node.hide_set(not bool(self.vis_flags & (1 << (i + 8))), view_layer = view_layer)
+            
+        return b_node
     def unmake(self, node, unmake_children = False):
         self.id = node.name
         self.original_object = node
             
         if node.type == 'EMPTY':
             self.node_type = 53349
-        
-        # if 'vis_flags' in node:
-        #     self.vis_flags = int(node['vis_flags'])
-        # if 'col_flags' in node:
-        #     self.col_flags = int(node['col_flags'])
             
         get_animations(node, self.model, self)
             
@@ -2307,28 +2365,7 @@ class Node(DataStruct):
         #write references to this node in the model header
         for i in self.header:
             struct.pack_into(f">{len(self.header)}I", buffer, 4 + 4*i, *[cursor]*len(self.header))
-            
-        #check if this node has collision or visuals
-        has_vis = False
-        has_col = False
-        # if not self.flags_set:
-        #     if self.type == 12388 and len(self.children):
-        #         for mesh in self.children:
-        #             if mesh.has_collision():
-        #                 has_col = True
-        #             if mesh.has_visuals():
-        #                 has_vis = True
-        #         if not has_col:
-        #             self.col_flags &= 0b11111111111111111111111111111001
-        #         if not has_vis:
-        #             self.vis_flags &= 0b11111111111111111111111111111011
-        #     elif len(self.children):
-        #         #TODO: understand how the game handles children of transform node and vis/col flags
-        #         for child in self.children:
-        #             self.col_flags &= child.col_flags
-        #             self.vis_flags &= child.vis_flags
-            
-            
+             
         struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.vis_flags, self.col_flags, self.unk1, self.unk2, 0, 0)
         return cursor + self.size
     
@@ -2388,11 +2425,13 @@ class Node(DataStruct):
             if not has_vis:
                 self.vis_flags &= 0b11111111111111111111111111111011
         else:
+            self.vis_flags = 0xFFFFFFFF
+            self.col_flags = 0xFFFFFFFF
             for child in self.children:
                 child.set_flags()
                 if self.node_type == [12388]:
-                    self.col_flags &= child.col_flags
-                    self.vis_flags &= child.vis_flags
+                    self.col_flags &= (child.col_flags & 0x000000FF)
+                    self.vis_flags &= (child.vis_flags & 0x000000FF)
         return self
 
 class MeshGroup12388(Node):
@@ -3178,6 +3217,26 @@ def r_get_family(node):
             objects.append(child)
     return objects
 
+def assign_objs_to_node_by_layer(objects, root, model):
+    
+    layers = {}
+    #get unique layer ids from objects
+    for obj in objects:
+        if obj.layers in layers:
+            layers[obj.layers].append(obj)
+            continue
+        layers[obj.layers] = [obj]
+    
+    for id, meshes in layers.items():
+        mesh_group = MeshGroup12388(root, model, 12388)
+        mesh_group.vis_flags |= id
+        mesh_group.col_flags |= id
+        for child in meshes: 
+            child.parent = mesh_group
+            mesh_group.children.append(child)
+            mesh_group.calc_bounding()
+        root.children.append(mesh_group)
+    
 def assign_objs_to_node_by_type(objects, root, model):
     # TODO: Make a way for this to respect the shown order in the outliner for the sake of depth order in some cases (like skyboxes)
     viscol = []
@@ -3208,12 +3267,13 @@ def assign_objs_to_node_by_type(objects, root, model):
         
     for arr in [viscol, vis, col, tpt]:
         if len(arr):
-            mesh_group = MeshGroup12388(root, model, 12388)
-            for child in arr: 
-                child.parent = mesh_group
-                mesh_group.children.append(child)
-            mesh_group.calc_bounding()
-            root.children.append(mesh_group)
+            assign_objs_to_node_by_layer(arr, root, model)
+            # mesh_group = MeshGroup12388(root, model, 12388)
+            # for child in arr: 
+            #     child.parent = mesh_group
+            #     mesh_group.children.append(child)
+            # mesh_group.calc_bounding()
+            # root.children.append(mesh_group)
             
     # this is added last as a hack since hierarchies sometimes need to be drawn last (oovo skybox)
     for node in other:
@@ -3323,11 +3383,30 @@ def apply_scale(collection):
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     bpy.ops.object.select_all(action='DESELECT')
     
+def triangulate_mesh(obj_list):
+    for obj in obj_list:
+        if obj.type == 'MESH':
+            mesh = obj.data
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+            bmesh.ops.triangulate(bm, faces=bm.faces[:])  # Triangulate all faces
+            bm.to_mesh(mesh)
+            bm.free()
+    
+def ensure_24_view_layers():
+    """Ensure that at least 24 view layers exist in the scene."""
+    scene = bpy.context.scene
+    gap = len(scene.view_layers) - 1
+    for i in range(gap, 24):
+        new_layer = scene.view_layers.new(name=f"VisLayer_{i}")
+
 def link_nodes(parent, children):
     for child in children:
         parent.children.append(child)
         if child is not None:
             child.parent = parent
+
+# MARK: MODEL
 
 class Model():    
     def __init__(self, id):
@@ -3388,6 +3467,7 @@ class Model():
         return self
 
     def make(self):
+        ensure_24_view_layers()
         collection = bpy.data.collections.new(f"model_{self.id}_{self.type}")
         collection.export_type = self.type
         collection.collection_type = "MODEL"
@@ -3430,15 +3510,11 @@ class Model():
         target_map = {}
         
         #TODO: Resolve multi-user objects
+        
         split_meshes_by_material(collection)
         apply_scale(collection)
         objects = get_all_objects_in_collection(collection)
-        # for obj in objects:
-        #     if obj.type == 'MESH' and obj.visible:
-        #         faces = [[v for v in face.vertices] for face in obj.data.polygons]
-        #         if len(faces) > 2048:
-        #             split_mesh_by_loose_parts(obj)
-        objects = get_all_objects_in_collection(collection)
+        triangulate_mesh(objects)
         for obj in objects:
             if obj.type == 'MESH' and (obj.visible or (not obj.visible and not obj.collidable)):
                 faces = [[v for v in face.vertices] for face in obj.data.polygons]
@@ -3543,7 +3619,12 @@ class Model():
             podd_airsream_right = create_air_stream([], 67, 69)
             podd_airsream_left = create_air_stream([], 68, 70)
             
-            link_nodes(podd_a_node, [podd_shadows_node, podd_b_node, podd_sparks, podd_sparks_ai, podd_72_node, podd_73_node, podd_binder1, podd_airsream_right, podd_airsream_left])
+            
+            podd_engine_r = None
+            podd_engine_l = None
+            podd_cockpit = None
+            podd_cable1 = None
+            podd_cable2 = None
             
             for child_collection in collection.children:
                 if child_collection.collection_type == '2':
@@ -3552,16 +3633,14 @@ class Model():
                     link_nodes(podd_71_node, [right_engine])
                     podd_engine_r = Group53349(None, self, 53349, header = [1])
                     link_nodes(podd_engine_r, right_engine.children)
-                    link_nodes(podd_a_node, [podd_engine_r])
-                    #right_engine.header = [14]
+                    right_engine.header = [14]
                 elif child_collection.collection_type == '3':
                     left_engine_mesh = get_all_objects_in_collection(child_collection)
                     left_engine = create_podd_component(left_engine_mesh, 'engine_l')
                     link_nodes(podd_71_node, [left_engine])
                     podd_engine_l = Group53349(None, self, 53349, header = [2])
                     link_nodes(podd_engine_l, left_engine.children)
-                    link_nodes(podd_a_node, [podd_engine_l])
-                    #left_engine.header = [15]
+                    left_engine.header = [15]
                 elif child_collection.collection_type == '4':
                     cockpit_mesh = get_all_objects_in_collection(child_collection)
                     cockpit = create_podd_component(cockpit_mesh, 'cockpit')
@@ -3569,7 +3648,7 @@ class Model():
                     podd_cockpit = Group53349(None, self, 53349, header = [5])
                     link_nodes(podd_cockpit, cockpit.children)
                     link_nodes(podd_a_node, [podd_cockpit])
-                    #cockpit.header = [16]
+                    cockpit.header = [16]
                 elif child_collection.collection_type == '5':
                     cable_mesh = get_all_objects_in_collection(child_collection)
                     podd_cable1 = Group53349(None, self, 53349, header = [10])
@@ -3578,6 +3657,20 @@ class Model():
                     assign_objs_to_node_by_type([Mesh(podd_cable2, self).unmake(obj) for obj in cable_mesh], podd_cable2, self)
                     link_nodes(podd_a_node, [podd_cable1, podd_cable2])
             
+            
+            link_nodes(podd_a_node, [podd_shadows_node, podd_b_node])
+            
+            if podd_engine_r:
+                link_nodes(podd_a_node, [podd_engine_r])
+            if podd_engine_l:
+                link_nodes(podd_a_node, [podd_engine_l])
+            if podd_cable1:
+                link_nodes(podd_a_node, [podd_cable1, podd_cable2])
+            
+            link_nodes(podd_a_node, [podd_sparks, podd_sparks_ai, podd_72_node, podd_73_node, podd_binder1, podd_airsream_right, podd_airsream_left])
+            
+            if podd_cockpit:
+                link_nodes(podd_a_node, [podd_cockpit])
             # !0 (20581) 1111(on) 1101(collision off)
             #   (20580) 1111(on) 1101(collision off)
             #       (20580) 1111(on) 1101(collision off)
@@ -3639,7 +3732,10 @@ class Model():
             # 15/53348 is child of 2
             # 16/53348 is child of 5
         
+        
         root.set_flags()
+        root.vis_flags = 0xFFFFFFFF
+        root.col_flags = 0xFFFFFFFF
         self.nodes.append(root)
                 
         #update trigger targets

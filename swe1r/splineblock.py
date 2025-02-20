@@ -1,5 +1,5 @@
 # Copyright (C) 2021-2024
-# lightningpirate@gmail.com.com
+# lightningpirate@gmail.com
 
 # Created by LightningPirate
 
@@ -24,7 +24,7 @@ import bpy
 import math
 from .general import *
 from .modelblock import DataStruct, FloatPosition, FloatVector
-from ..popup import show_custom_popup
+from ..utils import show_custom_popup
 from .spline_map import spline_map
 
 class SplinePoint(DataStruct):
@@ -251,7 +251,6 @@ class Spline(DataStruct):
         count = main_len + sum([len(path.bezier_points) - 2 for path in alt_paths])
         assert count <= 255, f"Too many spline points. Splines that contain more than 255 points are not supported. This scene contains {count} points."
         
-        
         #add all points from main_path
         for i, point in enumerate(main_path.bezier_points):
             p = SplinePoint().unmake(point, spline_object, scale)
@@ -266,6 +265,8 @@ class Spline(DataStruct):
                 p.next.append(0)
             elif i != main_len - 1:
                 p.next.append(point_count + 1)
+            
+            assert len(p.next) <= 2, "What the heck"
                 
             self.points.append(p)
             point_count += 1
@@ -274,21 +275,21 @@ class Spline(DataStruct):
         self.calculate_progress(loop)
         
         for k, path in enumerate(alt_paths):
-            
             # first and last points will be dups of main spline or existing path
             first = path.bezier_points[0]
             last = path.bezier_points[-1]
             
             # find index of existing points
             start = self.find_closest(first.co , 'start')
-            end = self.find_closest(last.co, 'end')
+            end = self.find_closest(last.co, 'end', ban = start)
             points = path.bezier_points[1:-1]
-            
+            print(k, start, end)
             assert start != end, "Something went wrong during Spline export"
             
             # check if path needs to be inverted
             # this prevents a path from ending on an earlier point than where it started
             if self.points[start].progress > self.points[end].progress:
+                print('reversed spline')
                 tmp = start
                 start = end
                 end = tmp
@@ -310,7 +311,7 @@ class Spline(DataStruct):
                     p.previous.append(point_count - 1)
                 if not len(p.next):
                     p.next.append(point_count + 1)
-                
+                    
                 self.points.append(p)
                 point_count += 1
                 segment_count += 1
@@ -336,17 +337,20 @@ class Spline(DataStruct):
         
         return self
         
-    def find_closest(self, co, cap = 'start', scale = 0.01):
+    def find_closest(self, co, cap = 'start', scale = 0.01, ban = None):
         closest_index = None
         closest_distance = float('inf')
         
         for i, point in enumerate(self.points):
-            if cap is "start" and len(point.next) >= 2:
+            if ban is not None and i == ban:
                 continue
-            if cap is "end" and len(point.previous) >= 4:
+            if cap == "start" and (len(point.next) >= 2 or len(point.previous) >=2):
                 continue
-            distance_vec = (d*scale - co[j] for j, d in enumerate(point.position.to_array()))
+            if cap == "end" and (len(point.previous) >= 2 or len(point.next) >= 2): #changed this from 4 because it might be reversed
+                continue
+            distance_vec = (d - co[j] for j, d in enumerate(point.position.to_array()))
             distance = math.sqrt(sum([d**2 for d in distance_vec]))
+            print(i, co, point.position.to_array(), distance_vec, distance, closest_distance)
             
             if distance < closest_distance:
                 closest_index = i
