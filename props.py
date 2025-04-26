@@ -148,8 +148,9 @@ def register():
     bpy.types.Material.flip_y = bpy.props.BoolProperty(name = 'flip_y', default = False)
     bpy.types.Material.clip_x = bpy.props.BoolProperty(name = 'clip_x', default = False)
     bpy.types.Material.clip_y = bpy.props.BoolProperty(name = 'clip_y', default = False)
-    bpy.types.Scene.transparent = bpy.props.BoolProperty(name = 'transparent', default = False, update = update_selected("transparent", update_mat = True))
     bpy.types.Material.transparent = bpy.props.BoolProperty(name = 'transparent', default = False)
+    bpy.types.Material.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, min=0.0, max=1.0)
+    
     
     #light state
     bpy.types.Light.LStr = bpy.props.BoolProperty(name = 'LStr', default=False, update = create_update_function("LStr"))
@@ -168,7 +169,8 @@ def register():
     bpy.types.Scene.visible = bpy.props.BoolProperty(name = 'visible', update = update_selected('visible'), default = False)
     
     bpy.types.Scene.texture = bpy.props.PointerProperty(type = bpy.types.Image, name="texture", update = update_selected("texture", update_mat = True, update_tex = True))
-    bpy.types.Scene.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', min=0.0, max=1.0, description="Set base material color", update =save_settings, default=(1.0, 1.0, 1.0))
+    bpy.types.Scene.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, description="Set base material color", update =update_selected("material_color", update_mat = True))
+    bpy.types.Scene.transparent = bpy.props.BoolProperty(name = 'transparent', default = False, update = update_selected("transparent", update_mat = True))
     bpy.types.Scene.use_backface_culling = bpy.props.BoolProperty(name = 'use_backface_culling', default = False, update = update_selected("use_backface_culling", update_mat = True))
     bpy.types.Scene.scroll_x = bpy.props.FloatProperty(name = 'scroll_x', default = 0.0, update = update_selected("scroll_x", update_mat = True))
     bpy.types.Scene.scroll_y = bpy.props.FloatProperty(name = 'scroll_y', default = 0.0, update = update_selected("scroll_y", update_mat = True))

@@ -597,7 +597,7 @@ class VisualsVertChunk(DataStruct):
         x, y, z, uv_x, uv_y, r, g, b, a = struct.unpack_from(self.format_string, buffer, cursor)
         self.co = [x, y, z]
         self.uv = [uv_x, uv_y]
-        self.color = RGBA4Bytes(r, g, b, a)
+        self.color.from_array([r, g, b, a])
         return cursor + self.size
     def to_array(self):
         return [*self.co, *self.uv, *self.color.to_array()]
@@ -625,7 +625,7 @@ class VisualsVertChunk(DataStruct):
                 return False
             self.uv = new_uv
         if color:
-            self.color = RGBA4Bytes().unmake(color)
+            self.color.unmake(color)
         self.unmade = True
         return self
     def write(self, buffer, cursor):
@@ -949,6 +949,8 @@ class MaterialTextureChunk(DataStruct):
         self.model = model
         
     def read(self, buffer, cursor):
+        if cursor > len(buffer):
+            return self
         self.unk0, self.unk1, self.unk2, self.unk3, self.unk4, self.unk5 = struct.unpack_from(self.format_string, buffer, cursor)
         return self
         
@@ -1097,23 +1099,23 @@ class MaterialTexture(DataStruct):
 
 class MaterialShader(DataStruct):
     def __init__(self, parent, model):
-        super().__init__('>IH4IH2IH4x7H')
+        super().__init__('>IH4I2x2I6x7H')
         
         self.parent = parent
         # this whole struct can be 0
         # notes from tilman https://discord.com/channels/441839750555369474/441842584592056320/1222313834425876502
         self.model = model
         self.unk1 = 0
-        self.unk2 = 2 # maybe "combiner cycle type"
+        self.combiner_cycle_type = 2 # maybe "combiner cycle type"
         
         # combine mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetCombineLERP.htm
         # these values seem to be unused by the pc version
         self.color_combine_mode_cycle1 = 0# 0b1000111110000010000011111
+        #self.color_combine_mode_cycle1 = 3 use base color?
         self.alpha_combine_mode_cycle1 = 0#0b111000001110000011100000100
+        #self.alpha_combine_mode_cycle1 = 0x03000000
         self.color_combine_mode_cycle2 = 0#0b11111000111110001111100000000
         self.alpha_combine_mode_cycle2 = 0#0b111000001110000011100000000
-        
-        self.unk5 = 0
         # render mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetRenderMode.htm
         self.render_mode_1 = 0x18 #initialize with zcmp and aa
         self.render_mode_2 = 0
@@ -1147,25 +1149,21 @@ class MaterialShader(DataStruct):
         #	FORCE_BL	0x4000
         #	TEX_EDGE	0x0000 /* used to be 0x8000 */
         # 0x8000000 Do not tile
-        
-        self.unk8 = 0
         self.color = RGBA4Bytes()
         self.unk = []
     def read(self, buffer, cursor):
-        self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, *self.unk = struct.unpack_from(self.format_string, buffer, cursor)
+        self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, *self.unk = struct.unpack_from(self.format_string, buffer, cursor)
         self.color.read(buffer, cursor + 34)
-    
-    def to_array(self):
-        return [self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, *self.unk]    
+        print(self.to_array())
     
     def make(self, material):
-        material['unk1'] = self.unk1 = 0
-        material['unk2'] = self.unk2 = 2
+        material['unk1'] = self.unk1
+        material['combiner_cycle_type'] = self.combiner_cycle_type
         
         material['color_combine_mode_cycle1'] = str(self.color_combine_mode_cycle1)
         material['alpha_combine_mode_cycle1'] = str(self.alpha_combine_mode_cycle1)
         material['color_combine_mode_cycle2'] = str(self.color_combine_mode_cycle2)
-        material['alpha_combine_mode_cycle2'] = str(self.alpha_combine_mode_cycle2 )
+        material['alpha_combine_mode_cycle2'] = str(self.alpha_combine_mode_cycle2)
         
         material['render_mode_1'] = str(self.render_mode_1)
         material['render_mode_2'] = str(self.render_mode_2)
@@ -1181,12 +1179,9 @@ class MaterialShader(DataStruct):
                 self.unk1 = 8
                 self.render_mode_1 |= 0x800
             self.unk1 = material.get('unk1', 0)
-            self.unk2 = material.get('unk2', 0)
-            
-        for node in material.node_tree.nodes:
-            if node.type == 'ShaderNodeBsdfPrincipled':
-                color = node.inputs[0].default_value   
-                print('unmade color', color) 
+            self.combiner_cycle_type = material.get('combiner_cycle_type', 0)
+         
+        self.color.unmake(material.material_color)
     
         # alternate way to detect if this material is on a skybox mesh
         mat = self.parent
@@ -1204,14 +1199,20 @@ class MaterialShader(DataStruct):
                         self.render_mode_2 = 0b11000000100010000000001000
                     break
         
+        self.color_combine_mode_cycle1 = int(material.get('color_combine_mode_cycle1', 0))
+        self.alpha_combine_mode_cycle1 = int(material.get('alpha_combine_mode_cycle1', 0))
+        self.color_combine_mode_cycle2 = int(material.get('color_combine_mode_cycle2', 0))
+        self.alpha_combine_mode_cycle2 = int(material.get('alpha_combine_mode_cycle2', 0))
+        
         return self
     
     def to_array(self):
-        return [self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, self.color.to_array(), self.unk]
+        return [self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, self.color.to_array(), self.unk]
     
     def write(self, buffer, cursor):
-        struct.pack_into(self.format_string, buffer, cursor, self.unk1, self.unk2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.unk5, self.render_mode_1, self.render_mode_2, self.unk8, 0, 0, 0, 0, 0, 0, 0)
+        struct.pack_into(self.format_string, buffer, cursor, self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, 0, 0, 0, 0, 0, 0, 0)
         self.color.write(buffer, cursor + 34)
+        print('color', [d for d in self.color.data])
         return cursor + self.size
     
 
@@ -1234,17 +1235,17 @@ class Material(DataStruct):
         #01000000   64  191 0 = draw frontface, 1 = do not draw frontface
         #10000000   128     1 = if texture offset is set https://github.com/tim-tim707/SW_RACER_RE/blob/fa8787540055d0bdf422b42e72ccf50cd3d72a07/src/types.h#L1410
 
-        #0000100 format 4 is only used for engine trail, binder, and flame effects
-        #0000110 format 6 seems to indicate doublesidedness
-        #0000111 format 7
-        #0001100 format 12 is for any kind of skybox material
-        #0001110 14/15/71 are used for a majority
-        #0001111 15
-        #1000110 70
-        #1000111 71
-        #0010111 23/31/87 are used exclusively with texture 35 possibly for sheen
-        #0011111
-        #1010111
+        # 0000100 format 4 is only used for engine trail, binder, and flame effects
+        # 0000110 format 6 seems to indicate doublesidedness
+        # 0000111 format 7
+        # 0001100 format 12 is for any kind of skybox material
+        # 0001110 14/15/71 are used for a majority
+        # 0001111 15
+        # 1000110 70
+        # 1000111 71
+        # 0010111 23/31/87 are used exclusively with texture 35 possibly for sheen
+        # 0011111
+        # 1010111
         self.texture = None
         self.texture_image = None
         self.write_location = None
@@ -1284,8 +1285,8 @@ class Material(DataStruct):
         material.node_tree.nodes.clear()
         output_node = material.node_tree.nodes.new(type='ShaderNodeOutputMaterial')
         node_0 = material.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
-        if material.shader:
-            node_0.inputs[0].default_value = [c/255 for c in material.shader.color.data[:3]]
+        node_0.inputs[0].default_value = [c/255 for c in self.shader.color.to_array()]
+        material.material_color = [c/255 for c in self.shader.color.to_array()]
         material.node_tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
         material['id'] = self.id
         material['format'] = self.format
@@ -1483,6 +1484,8 @@ class Material(DataStruct):
                 
             if material.use_backface_culling == False:
                 self.format &= 0b11110111
+                
+            self.format = material.get('format')
         
         if self.model: 
             self.model.materials[material_name] = self

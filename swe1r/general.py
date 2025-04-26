@@ -261,19 +261,20 @@ class RGB3Bytes(DataStruct):
         return [self.r, self.g, self.b]
     
 class RGBA4Bytes(DataStruct):
-    def __init__(self, r = 255, g = 255, b = 255, a = 255):
+    def __init__(self):
         super().__init__('>4B')
-        self.r = r
-        self.g = g
-        self.b = b
-        self.a = a
+        self.data = [255, 255, 255, 255]
     def to_array(self):
-        return [self.r, self.g, self.b, self.a]
+        return self.data
     def __eq__(self, other):
         return self.to_array() == other.to_array()
     def unmake(self, data):
-        self.r = round(data[0]*255)
-        self.g = round(data[1]*255)
-        self.b = round(data[2]*255)
-        self.a = round(data[3]*255)
+        r = round(data[0]*255)
+        g = round(data[1]*255)
+        b = round(data[2]*255)
+        if len(data)  > 3:
+            a = round(data[3]*255)
+        else:
+            a = 255
+        self.data = [r, g, b, a]
         return self

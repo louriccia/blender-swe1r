@@ -96,7 +96,16 @@ def get_mat_prop_value(context, prop_name, indeterminates):
     for obj in selected_meshes:
         if len(obj.material_slots):
             mats.append(obj.material_slots[0].material)
-    values = {getattr(mat, prop_name, None) for mat in mats}
+    values = set()
+    for mat in mats:
+        if prop_name == "use_backface_culling" or prop_name not in mat:
+            continue
+        if isinstance(mat[prop_name], Color):
+            frozen_copy = mat[prop_name].copy()
+            frozen_copy.freeze()
+            values.add(frozen_copy)
+        else:
+            values.add(mat[prop_name])
     if len(values) == 1:
         return values.pop()  # All values are the same
     elif len(values):
@@ -133,7 +142,7 @@ for flag in dir(SurfaceEnum):
         
 mat_props = [
     'use_backface_culling',
-    'material_color'
+    'material_color',
     'scroll_x',
     'scroll_y',
     'flip_x',
