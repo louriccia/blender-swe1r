@@ -1484,8 +1484,6 @@ class Material(DataStruct):
                 
             if material.use_backface_culling == False:
                 self.format &= 0b11110111
-                
-            self.format = material.get('format')
         
         if self.model: 
             self.model.materials[material_name] = self
@@ -1506,6 +1504,7 @@ class Material(DataStruct):
         self.model.highlight(material_start + 12)
         shader_addr = cursor
         cursor = self.shader.write(buffer, cursor)
+        print(material_start, self.format, tex_addr, shader_addr)
         struct.pack_into(self.format_string, buffer, material_start, self.format, tex_addr, shader_addr)
         return cursor
     def remake(self, material, tex_name = None):
