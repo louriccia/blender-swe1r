@@ -1180,8 +1180,12 @@ class MaterialShader(DataStruct):
                 self.render_mode_1 |= 0x800
             self.unk1 = material.get('unk1', 0)
             self.combiner_cycle_type = material.get('combiner_cycle_type', 0)
-         
-        self.color.unmake(material.material_color)
+            self.color.unmake(material.material_color)
+            
+            self.color_combine_mode_cycle1 = int(material.get('color_combine_mode_cycle1', 0))
+            self.alpha_combine_mode_cycle1 = int(material.get('alpha_combine_mode_cycle1', 0))
+            self.color_combine_mode_cycle2 = int(material.get('color_combine_mode_cycle2', 0))
+            self.alpha_combine_mode_cycle2 = int(material.get('alpha_combine_mode_cycle2', 0))
     
         # alternate way to detect if this material is on a skybox mesh
         mat = self.parent
@@ -1199,10 +1203,7 @@ class MaterialShader(DataStruct):
                         self.render_mode_2 = 0b11000000100010000000001000
                     break
         
-        self.color_combine_mode_cycle1 = int(material.get('color_combine_mode_cycle1', 0))
-        self.alpha_combine_mode_cycle1 = int(material.get('alpha_combine_mode_cycle1', 0))
-        self.color_combine_mode_cycle2 = int(material.get('color_combine_mode_cycle2', 0))
-        self.alpha_combine_mode_cycle2 = int(material.get('alpha_combine_mode_cycle2', 0))
+        
         
         return self
     
