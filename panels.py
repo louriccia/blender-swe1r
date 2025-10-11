@@ -172,11 +172,13 @@ def is_v_lighting_default(context):
         if not mesh.vertex_colors:
             continue
         
-        # Get the active vertex color layer
-        color_layer = mesh.vertex_colors.active.data
+        # Get the active vertex color layer if it exists
+        color_layer = mesh.vertex_colors.active
+        if color_layer is None:
+            return False
 
         # Convert to numpy for fast processing
-        colors = np.array([loop_col.color[:] for loop_col in color_layer])
+        colors = np.array([loop_col.color[:] for loop_col in color_layer.data])
 
         # Check if all colors are exactly (1.0, 1.0, 1.0, 1.0)
         if not np.allclose(colors, (1.0, 1.0, 1.0, 1.0)):

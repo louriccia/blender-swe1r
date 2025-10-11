@@ -885,7 +885,9 @@ class VisualsIndexBuffer():
             chunk_type = 6
             chunk_class = self.map.get(chunk_type)
             chunk = chunk_class(self, self.model, chunk_type)
-            chunk.from_array([f for face in faces[:2] for f in face])
+            face_chunk = [f for face in faces[:2] for f in face]
+            assert len(face_chunk) == 6, f"Invalid face chunk length in {self.parent.original_object.name} {face_chunk}"
+            chunk.from_array(face_chunk)
             index_buffer.append(chunk)
             faces = faces[2:]
                 
@@ -1007,10 +1009,10 @@ class MaterialTexture(DataStruct):
     def make(self):
         if self.id == 65535:
             return
-        textureblock = self.model.modelblock.textureblock
+        # textureblock = self.model.modelblock.textureblock
         self.texture = Texture(self.id, self.format, self.width, self.height)
-        pixel_buffer, palette_buffer = textureblock.fetch(self.id)
-        self.texture.read(pixel_buffer, palette_buffer)
+        # pixel_buffer, palette_buffer = textureblock.fetch(self.id)
+        # self.texture.read(pixel_buffer, palette_buffer)
         return self.texture.make()
 
     def unmake(self, image):
@@ -1154,7 +1156,6 @@ class MaterialShader(DataStruct):
     def read(self, buffer, cursor):
         self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, *self.unk = struct.unpack_from(self.format_string, buffer, cursor)
         self.color.read(buffer, cursor + 34)
-        print(self.to_array())
     
     def make(self, material):
         material['unk1'] = self.unk1
@@ -1213,7 +1214,6 @@ class MaterialShader(DataStruct):
     def write(self, buffer, cursor):
         struct.pack_into(self.format_string, buffer, cursor, self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, 0, 0, 0, 0, 0, 0, 0)
         self.color.write(buffer, cursor + 34)
-        print('color', [d for d in self.color.data])
         return cursor + self.size
     
 
@@ -1505,7 +1505,6 @@ class Material(DataStruct):
         self.model.highlight(material_start + 12)
         shader_addr = cursor
         cursor = self.shader.write(buffer, cursor)
-        print(material_start, self.format, tex_addr, shader_addr)
         struct.pack_into(self.format_string, buffer, material_start, self.format, tex_addr, shader_addr)
         return cursor
     def remake(self, material, tex_name = None):
@@ -1557,6 +1556,9 @@ class MeshBoundingBox(DataStruct):
         return self.size + cursor
     
 def get_uv_bounds(uv_coords):
+    if not uv_coords or len(uv_coords) == 0:
+        return 0, 0, 0, 0
+    
     """Calculate the bounding box of UV coordinates."""
     min_u = min(uv[0] for uv in uv_coords)
     max_u = max(uv[0] for uv in uv_coords)
@@ -1582,80 +1584,170 @@ def subdivide_face(bm, face, uv_layer, max_tile_size):
             use_grid_fill=True
         )
 
+def subdivide_face_to_tris(bm, face, cuts=1):
+    """
+    Subdivide 'face' by splitting its boundary edges, without grid fill,
+    then triangulate only the faces impacted by the split.
+
+    Returns:
+        set[BMFace]: the set of faces affected by the operation (post-op objects).
+    """
+    if not face.is_valid:
+        return set()
+
+    # Subdivide only the face’s boundary edges; avoid spreading quads/ngons
+    res = bmesh.ops.subdivide_edges(
+        bm,
+        edges=list(face.edges),
+        cuts=cuts,
+        use_grid_fill=False,
+        use_only_quads=False,
+        use_single_edge=False,
+    )
+
+    # Collect affected faces from the op result
+    affected = set()
+    for key in ("geom", "geom_inner", "geom_split"):
+        if key in res and res[key]:
+            for elem in res[key]:
+                if isinstance(elem, bmesh.types.BMFace) and elem.is_valid:
+                    affected.add(elem)
+                elif isinstance(elem, bmesh.types.BMEdge) and elem.is_valid:
+                    # include neighbors touched by newly split edges
+                    for lf in elem.link_faces:
+                        if lf.is_valid:
+                            affected.add(lf)
+
+    # If the result dict didn't include much, fall back to faces around the original boundary
+    if not affected and face.is_valid:
+        for e in face.edges:
+            for lf in e.link_faces:
+                if lf.is_valid:
+                    affected.add(lf)
+
+    # Triangulate only the local region
+    if affected:
+        bmesh.ops.triangulate(
+            bm,
+            faces=list(affected),
+            quad_method='BEAUTY',
+            ngon_method='BEAUTY'
+        )
+
+    # Refresh lookup tables after topology ops
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+
+    # Filter to valid faces after triangulation (in case any handles changed)
+    return {f for f in affected if f.is_valid}
+
 def get_uv_islands(obj, max_tile_size=16):
-    """Retrieve UV islands while limiting their size to max_tile_size, including vertex color data."""
+    """Retrieve UV islands while limiting their size to max_tile_size, including vertex color data.
+       Ensures triangles by locally triangulating regions affected by subdivision (Option A)."""
     if obj.type != 'MESH' or not obj.data.uv_layers.active:
         return []
 
-    # Ensure the mesh has vertex colors
-    color_layer = None
-    
     mesh = obj.data
     bm = bmesh.new()
     bm.from_mesh(mesh)
+
+    # Lookup tables for safe indexed access
     bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+
     uv_layer = bm.loops.layers.uv.active
 
-    # Verify the active vertex color layer
+    # Verify the active vertex color layer (if present)
+    color_layer = None
     if obj.data.vertex_colors:
-        color_layer = bm.loops.layers.color.verify()  # Ensures the vertex color layer is correctly accessed
+        # verify() will create if missing; safe for reading loop colors
+        color_layer = bm.loops.layers.color.verify()
 
     islands = []
+
+    # IMPORTANT: snapshot of faces; we will manage newly created faces by seeding DFS manually
+    original_faces = list(bm.faces)
+
+    # Use object references (BMFace) for visited to avoid brittle index-tracking across topology changes
     visited_faces = set()
 
-    for face in bm.faces:
-        if face.index in visited_faces:
+    for face in original_faces:
+        # Skip if the face got invalidated by earlier ops
+        if not face.is_valid or face in visited_faces:
             continue
 
-        # Subdivide the face if it's too large
-        uv_coords = [loop[uv_layer].uv for loop in face.loops]
+        # Determine seed set for DFS (either the face itself, or the affected region if subdivided)
+        seed_faces = {face}
+
+        # Subdivide if UV bounds exceed tile size; then seed with affected faces
+        uv_coords = [loop[uv_layer].uv.copy() for loop in face.loops]
         if not is_within_bounds(uv_coords, max_tile_size):
-            subdivide_face(bm, face, uv_layer, max_tile_size)
-        
-        # Create a new island
-        stack = [face]
+            affected = subdivide_face_to_tris(bm, face, cuts=1)
+            seed_faces = affected or {face}
+
+        # Start a new island group
+        stack = list(seed_faces)
         current_island = []
         island_uvs = []
 
         while stack:
             current_face = stack.pop()
-            if current_face.index in visited_faces:
-                continue
-            visited_faces.add(current_face.index)
 
-            # Check if adding this face would exceed the UV bounds
-            current_uv_coords = [loop[uv_layer].uv for loop in current_face.loops]
+            # Validity + visited checks
+            if not current_face.is_valid or current_face in visited_faces:
+                continue
+
+            # Enforce triangulation invariant
+            assert len(current_face.verts) == 3, (
+                f"Non-triangular face found after subdivision/triangulation in object "
+                f"{obj.name}, face index {current_face.index} with {len(current_face.verts)} vertices."
+            )
+
+            visited_faces.add(current_face)
+
+            # UV bound check for island growth
+            current_uv_coords = [loop[uv_layer].uv.copy() for loop in current_face.loops]
             combined_uvs = island_uvs + current_uv_coords
 
             if not is_within_bounds(combined_uvs, max_tile_size):
-                # Start a new island if the bounds are exceeded
-                islands.append(current_island)
+                # Commit the current island and start a new one
+                if current_island:
+                    islands.append(current_island)
                 current_island = []
                 island_uvs = []
-            
-            # Add the face to the current island
+
+            # Add the current face data
             face_data = {
                 "face_index": current_face.index,
-                "vertices": [v.co for v in current_face.verts],
+                "vertices": [v.co.copy() for v in current_face.verts],
                 "uvs": current_uv_coords,
-                "colors": [ [] if not color_layer else
-                    tuple(loop[color_layer])  # Safely access vertex colors
+                "colors": [
+                    [] if not color_layer else tuple(loop[color_layer])
                     for loop in current_face.loops
                 ],
             }
             current_island.append(face_data)
             island_uvs.extend(current_uv_coords)
 
-            # Traverse adjacent faces by shared UV coordinates
+            # Traverse adjacent faces (topological neighbors); your comment says "shared UVs"
+            # but the original code used edge adjacency, so we keep that behavior.
             for edge in current_face.edges:
                 for linked_face in edge.link_faces:
-                    if linked_face.index not in visited_faces:
+                    if linked_face.is_valid and linked_face not in visited_faces:
+                        # Sanity: ensure neighbor remains triangulated
+                        assert len(linked_face.verts) == 3, (
+                            f"Non-triangular linked face in object {obj.name}, "
+                            f"face index {linked_face.index} with {len(linked_face.verts)} vertices."
+                        )
                         stack.append(linked_face)
-        
-        # Add the final island
+
+        # Commit island at the end of this region
         if current_island:
             islands.append(current_island)
 
+    # Write back and free
     bm.to_mesh(mesh)
     bm.free()
     return islands
@@ -1709,6 +1801,7 @@ class Mesh(DataStruct):
         self.group_count = 0
         self.write_location = None
         self.original_object = None
+        self.layers = 0xFFFFFF00
         
     def has_visuals(self):
         return self.visuals_vert_buffer is not None and self.visuals_index_buffer is not None
@@ -1729,19 +1822,21 @@ class Mesh(DataStruct):
         col = Mesh(self.parent, self.model)
         
         vis.material = self.material
-        col.collision_tags = self.collision_tags
-        col.strip_count = self.strip_count
-        col.strip_size = self.strip_size
-        col.vert_strips = self.vert_strips
         vis.group_parent_id = self.group_parent_id
-        col.collision_vert_buffer = self.collision_vert_buffer
         vis.visuals_index_buffer = self.visuals_index_buffer
         vis.visuals_vert_buffer = self.visuals_vert_buffer
         vis.group_count = self.group_count
         
+        col.collision_tags = self.collision_tags
+        col.strip_count = self.strip_count
+        col.strip_size = self.strip_size
+        col.vert_strips = self.vert_strips
+        col.collision_vert_buffer = self.collision_vert_buffer
+        
         vis.original_object = self.original_object
-        col.original_object = self.original_object
         vis.bounding_box = MeshBoundingBox(self, self.model).unmake(vis)
+        
+        col.original_object = self.original_object
         col.bounding_box = MeshBoundingBox(self, self.model).unmake(col)
         return [vis, col]
         
@@ -1893,6 +1988,9 @@ class Mesh(DataStruct):
         self.id = node.name
         self.layers = get_object_view_layer_visibility(node) & 0xFFFFFF00
         
+        # ensure mesh is triangulated
+        triangulate_mesh([node])
+        
         if unmake_anim:
             get_animations(node, self.model, self)
 
@@ -1915,6 +2013,8 @@ class Mesh(DataStruct):
             
             if not len(faces) or not len(verts):
                 return None
+
+            print('raw faces', [len(face) for face in faces])
 
             # fix uvs
             if self.material and self.material.texture:
@@ -1941,6 +2041,10 @@ class Mesh(DataStruct):
                     for face in island:
                         new_face = []
                         #create vertices
+                        
+                        if len(face['vertices']) > 3:
+                            raise Exception(f"Failed to correct vertices for UVs in {node.name}")
+                        
                         for j, index in enumerate(face['vertices']):
                             uv = [x + y for x, y in zip(uv_offset, face['uvs'][j])]
                             vert = VisualsVertChunk(self.visuals_vert_buffer, self.model).unmake(
@@ -1958,6 +2062,8 @@ class Mesh(DataStruct):
             #TODO: Automatically split meshes?
             assert len(faces) <= 2048, f"Max faces reached in {node.name} {len(new_faces)}/2048"
             
+            print('uv_corrected_faces', [len(face) for face in faces])
+            
             # reorder faces to maximize shared edges
             ordered_faces = []
             ordered_faces.append(faces.pop(0))
@@ -1972,7 +2078,7 @@ class Mesh(DataStruct):
                     ordered_faces.append(faces.pop(shared))
                 else:
                     ordered_faces.append(faces.pop(0))
-
+                    
             # relist vertices so indices aren't too far apart    
             new_verts = []
             new_faces = []
@@ -1994,7 +2100,7 @@ class Mesh(DataStruct):
                         new_face.append(current_index)
 
                 new_faces.append(new_face)
-
+                
             # TODO: check if node has vertex group
             if False:
                 r_mesh.group_parent = None
@@ -2573,8 +2679,10 @@ class Group53350(Node):
     def unmake(self, node):
         super().unmake(node)
         self.node_type = 53350
-        self.follow_position = node['follow_position']
-        self.track_position = node['track_position']
+        if 'follow_position' in node:
+            self.follow_position = node['follow_position']
+        if 'track_position' in node:
+            self.track_position = node['track_position']
         return self
     def write(self, buffer, cursor):
         cursor = super().write(buffer, cursor)
@@ -3225,10 +3333,13 @@ def assign_objs_to_node_by_layer(objects, root, model):
     layers = {}
     #get unique layer ids from objects
     for obj in objects:
-        if obj.layers in layers:
-            layers[obj.layers].append(obj)
-            continue
-        layers[obj.layers] = [obj]
+        if hasattr(obj, 'layers'):
+            if obj.layers in layers:
+                layers[obj.layers].append(obj)
+                continue
+            layers[obj.layers] = [obj]
+        else: 
+            raise Exception('Object has no layers attribute')
     
     for id, meshes in layers.items():
         mesh_group = MeshGroup12388(root, model, 12388)
@@ -3247,6 +3358,7 @@ def assign_objs_to_node_by_type(objects, root, model):
     vis = []
     tpt = []
     other = []
+    
     for obj in objects:
         if obj is None:
             continue
@@ -3267,7 +3379,6 @@ def assign_objs_to_node_by_type(objects, root, model):
             else:
                 vis.append(obj)
         
-        
     for arr in [viscol, vis, col, tpt]:
         if len(arr):
             assign_objs_to_node_by_layer(arr, root, model)
@@ -3280,7 +3391,8 @@ def assign_objs_to_node_by_type(objects, root, model):
             
     # this is added last as a hack since hierarchies sometimes need to be drawn last (oovo skybox)
     for node in other:
-        root.children.append(node)
+        root.children.append(node) 
+        
 
 def get_obj_by_id(id):
     for obj in bpy.data.objects:
@@ -3518,6 +3630,8 @@ class Model():
         apply_scale(collection)
         objects = get_all_objects_in_collection(collection)
         triangulate_mesh(objects)
+        
+        # check for too many faces
         for obj in objects:
             if obj.type == 'MESH' and (obj.visible or (not obj.visible and not obj.collidable)):
                 faces = [[v for v in face.vertices] for face in obj.data.polygons]
@@ -3527,7 +3641,7 @@ class Model():
                     raise ValueError(f"Max faces reached in {obj.name} {len(faces)}/2048")
         
         # get all target objects
-        target_map = {b_obj.target.name: None for b_obj in get_all_objects_in_collection(collection) if b_obj.trigger_id and b_obj.target}
+        target_map = {b_obj.target.name: None for b_obj in objects if b_obj.trigger_id and b_obj.target}
         
         if self.type == '7':
             for child_collection in collection.children:

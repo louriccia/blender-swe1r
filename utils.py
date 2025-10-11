@@ -372,6 +372,12 @@ def reset_vertex_colors(b_obj):
         for color in b_obj.data.attributes[name_attr_colors].data:
             color.color = [1.0, 1.0, 1.0, 1.0]
 
+    #use first color layer if no active layer
+    if b_obj.data.vertex_colors.active is None:
+        b_obj.data.vertex_colors.active_index = 0
+
+    print(b_obj.data.vertex_colors, len(b_obj.data.vertex_colors), b_obj.data.vertex_colors[0])
+
     color_layer = b_obj.data.vertex_colors.active.data
     for loop in color_layer:
         loop.color = [1.0, 1.0, 1.0, 1.0]
