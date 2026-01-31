@@ -1411,7 +1411,7 @@ model_list = [
  },
  {
    "index": 282,
-   "name": "OrdIbanna",
+   "name": "Ord Ibanna",
    "extension": "Scen"
  },
  {
@@ -1421,7 +1421,7 @@ model_list = [
  },
  {
    "index": 284,
-   "name": "MonGazza",
+   "name": "Mon Gazza",
    "extension": "Scen"
  },
  {
@@ -1614,4 +1614,653 @@ model_list = [
    "name": "N64 Expansion Pak",
    "extension": "Part"
  }
+]
+
+tracks = [
+ {
+   "id": 0,
+   "name": "The Boonta Training Course",
+   "nickname": [
+      "btc",
+      "tbtc"
+   ],
+   "planet_id": 7,
+   "circuit_id": 0,
+   "model": 115,
+   "preview_model": 279
+},
+ {
+   "id": 1,
+   "name": "Mon Gazza Speedway",
+   "nickname": [
+      "mgs",
+   ],
+   "planet_id": 4,
+   "circuit_id": 0,
+   "model": 142,
+   "preview_model": 189
+},
+ {
+   "id": 2,
+   "name": "Beedo's Wild Ride",
+   "nickname": [
+      "bwr",
+   ],
+   "planet_id": 0,
+   "circuit_id": 0,
+   "model": 130,
+   "preview_model": 177
+},
+ {
+   "id": 3,
+   "name": "Aquilaris Classic",
+   "nickname": [
+      "aqc",
+      "ac"
+   ],
+   "planet_id": 1,
+   "circuit_id": 0,
+   "model": 133,
+   "preview_model": 180
+},
+ {
+   "id": 4,
+   "name": "Malastare 100",
+   "nickname": [
+      "m100",
+   ],
+   "planet_id": 3,
+   "circuit_id": 0,
+   "model": 232,
+   "preview_model": 182
+},
+ {
+   "id": 5,
+   "name": "Vengeance",
+   "nickname": [
+      "ven",
+   ],
+   "planet_id": 5,
+   "circuit_id": 0,
+   "model": 145,
+   "preview_model": 193
+},
+ {
+   "id": 6,
+   "name": "Spice Mine Run",
+   "nickname": [
+      "smr",
+   ],
+   "planet_id": 4,
+   "circuit_id": 0,
+   "model": 143,
+   "preview_model": 190
+},
+ {
+   "id": 7,
+   "name": "Sunken City",
+   "nickname": [
+      "sc",
+   ],
+   "planet_id": 1,
+   "circuit_id": 1,
+   "model": 134,
+   "preview_model": 181
+},
+ {
+   "id": 8,
+   "name": "Howler Gorge",
+   "nickname": [
+      "hg",
+   ],
+   "planet_id": 0,
+   "circuit_id": 1,
+   "model": 131,
+   "preview_model": 178
+},
+ {
+   "id": 9,
+   "name": "Dug Derby",
+   "nickname": [
+      "dd",
+   ],
+   "planet_id": 3,
+   "circuit_id": 1,
+   "model": 233,
+   "preview_model": 183
+},
+ {
+   "id": 10,
+   "name": "Scrapper's Run",
+   "nickname": [
+      "sr",
+   ],
+   "planet_id": 6,
+   "circuit_id": 1,
+   "model": 136,
+   "preview_model": 186
+},
+ {
+   "id": 11,
+   "name": "Zugga Challenge",
+   "nickname": [
+      "zc",
+   ],
+   "planet_id": 4,
+   "circuit_id": 1,
+   "model": 144,
+   "preview_model": 192
+},
+ {
+   "id": 12,
+   "name": "Baroo Coast",
+   "nickname": [
+      "bc",
+   ],
+   "planet_id": 2,
+   "circuit_id": 1,
+   "model": 139,
+   "preview_model": 236
+},
+ {
+   "id": 13,
+   "name": "Bumpy's Breakers",
+   "nickname": [
+      "bb",
+   ],
+   "planet_id": 1,
+   "circuit_id": 1,
+   "model": 135,
+   "preview_model": 185
+},
+ {
+   "id": 14,
+   "name": "Executioner",
+   "nickname": [
+      "exe",
+   ],
+   "planet_id": 5,
+   "circuit_id": 2,
+   "model": 148,
+   "preview_model": 194
+},
+ {
+   "id": 15,
+   "name": "Sebulba's Legacy",
+   "nickname": [
+      "sl",
+   ],
+   "planet_id": 3,
+   "circuit_id": 2,
+   "model": 315,
+   "preview_model": 184
+},
+ {
+   "id": 16,
+   "name": "Grabvine Gateway",
+   "nickname": [
+      "gvg",
+   ],
+   "planet_id": 2,
+   "circuit_id": 2,
+   "model": 140,
+   "preview_model": 249
+},
+ {
+   "id": 17,
+   "name": "Andobi Mountain Run",
+   "nickname": [
+      "amr",
+   ],
+   "planet_id": 0,
+   "circuit_id": 2,
+   "model": 132,
+   "preview_model": 179
+},
+ {
+   "id": 18,
+   "name": "Dethro's Revenge",
+   "nickname": [
+      "dr",
+   ],
+   "planet_id": 6,
+   "circuit_id": 2,
+   "model": 137,
+   "preview_model": 187
+},
+ {
+   "id": 19,
+   "name": "Fire Mountain Rally",
+   "nickname": [
+      "fmr",
+   ],
+   "planet_id": 2,
+   "circuit_id": 2,
+   "model": 141,
+   "preview_model": 250
+},
+ {
+   "id": 20,
+   "name": "The Boonta Classic",
+   "nickname": [
+      "tbc",
+      "bec"
+   ],
+   "planet_id": 7,
+   "circuit_id": 2,
+   "model": 1,
+   "preview_model": 280
+},
+ {
+   "id": 21,
+   "name": "Ando Prime Centrum",
+   "nickname": [
+      "apc",
+   ],
+   "planet_id": 0,
+   "circuit_id": 3,
+   "model": 128,
+   "preview_model": 122
+},
+ {
+   "id": 22,
+   "name": "Abyss",
+   "nickname": [
+      "aby",
+   ],
+   "planet_id": 6,
+   "circuit_id": 3,
+   "model": 138,
+   "preview_model": 188
+},
+ {
+   "id": 23,
+   "name": "The Gauntlet",
+   "nickname": [
+      "tg",
+      "gan"
+   ],
+   "planet_id": 5,
+   "circuit_id": 3,
+   "model": 231,
+   "preview_model": 195
+},
+ {
+   "id": 24,
+   "name": "Inferno",
+   "nickname": [
+      "inf",
+   ],
+   "planet_id": 2,
+   "circuit_id": 3,
+   "model": 129,
+   "preview_model": 191
+}
+]
+
+racers = [
+ {
+   "id": 0,
+   "name": "Anakin Skywalker",
+   "nickname": [
+      "as"
+   ],
+   "LOD1": 2,
+   "MAlt": 0,
+   "LOD2": 256,
+   "LOD3": 208,
+   "Pupp": 87
+},
+ {
+   "id": 1,
+   "name": "Teemto Pagalies",
+   "nickname": [
+      "tp"
+   ],
+   "LOD1": 4,
+   "MAlt": 3,
+   "LOD2": 257,
+   "LOD3": 227,
+   "Pupp": 86
+},
+ {
+   "id": 2,
+   "name": "Sebulba",
+   "nickname": [
+      "seb"
+   ],
+   "LOD1": 6,
+   "MAlt": 5,
+   "LOD2": 255,
+   "LOD3": 225,
+   "Pupp": 91
+},
+ {
+   "id": 3,
+   "name": "Ratts Tyerell",
+   "nickname": [
+      "rt"
+   ],
+   "LOD1": 8,
+   "MAlt": 7,
+   "LOD2": 258,
+   "LOD3": 220,
+   "Pupp": 93
+},
+ {
+   "id": 4,
+   "name": "Aldar Beedo",
+   "nickname": [
+      "ab"
+   ],
+   "LOD1": 9,
+   "MAlt": 10,
+   "LOD2": 259,
+   "LOD3": 207,
+   "Pupp": 105
+},
+ {
+   "id": 5,
+   "name": "Mawhonic",
+   "nickname": [
+      "mh"
+   ],
+   "LOD1": 12,
+   "MAlt": 11,
+   "LOD2": 260,
+   "LOD3": 222,
+   "Pupp": 89
+},
+ {
+   "id": 6,
+   "name": "Ark 'Bumpy' Roose",
+   "nickname": [
+      "ar"
+   ],
+   "LOD1": 14,
+   "MAlt": 13,
+   "LOD2": 261,
+   "LOD3": 213,
+   "Pupp": 96
+},
+ {
+   "id": 7,
+   "name": "Wan Sandage",
+   "nickname": [
+      "ws"
+   ],
+   "LOD1": 17,
+   "MAlt": 15,
+   "LOD2": 262,
+   "LOD3": 229,
+   "Pupp": 99
+},
+ {
+   "id": 8,
+   "name": "Mars Guo",
+   "nickname": [
+      "mg"
+   ],
+   "LOD1": 16,
+   "MAlt": 18,
+   "LOD2": 263,
+   "LOD3": 221,
+   "Pupp": 92
+},
+ {
+   "id": 9,
+   "name": "Ebe Endocott",
+   "nickname": [
+      "ee"
+   ],
+   "LOD1": 20,
+   "MAlt": 19,
+   "LOD2": 264,
+   "LOD3": 216,
+   "Pupp": 95
+},
+ {
+   "id": 10,
+   "name": "Dud Bolt",
+   "nickname": [
+      "db"
+   ],
+   "LOD1": 22,
+   "MAlt": 21,
+   "LOD2": 265,
+   "LOD3": 215,
+   "Pupp": 98
+},
+ {
+   "id": 11,
+   "name": "Gasgano",
+   "nickname": [
+      "gg"
+   ],
+   "LOD1": 24,
+   "MAlt": 23,
+   "LOD2": 266,
+   "LOD3": 219,
+   "Pupp": 88
+},
+ {
+   "id": 12,
+   "name": "Clegg Holdfast",
+   "nickname": [
+      "ch"
+   ],
+   "LOD1": 26,
+   "MAlt": 25,
+   "LOD2": 267,
+   "LOD3": 214,
+   "Pupp": 97
+},
+ {
+   "id": 13,
+   "name": "Elan Mak",
+   "nickname": [
+      "em"
+   ],
+   "LOD1": 28,
+   "MAlt": 27,
+   "LOD2": 268,
+   "LOD3": 217,
+   "Pupp": 100
+},
+ {
+   "id": 14,
+   "name": "Neva Kee",
+   "nickname": [
+      "nk"
+   ],
+   "LOD1": 30,
+   "MAlt": 29,
+   "LOD2": 269,
+   "LOD3": 223,
+   "Pupp": 103
+},
+ {
+   "id": 15,
+   "name": "Bozzie Baranta",
+   "nickname": [
+      "bb"
+   ],
+   "LOD1": 32,
+   "MAlt": 31,
+   "LOD2": 270,
+   "LOD3": 211,
+   "Pupp": 106
+},
+ {
+   "id": 16,
+   "name": "Boles Roor",
+   "nickname": [
+      "br"
+   ],
+   "LOD1": 34,
+   "MAlt": 33,
+   "LOD2": 271,
+   "LOD3": 210,
+   "Pupp": 107
+},
+ {
+   "id": 17,
+   "name": "Ody Mandrell",
+   "nickname": [
+      "om"
+   ],
+   "LOD1": 36,
+   "MAlt": 35,
+   "LOD2": 272,
+   "LOD3": 224,
+   "Pupp": 90
+},
+ {
+   "id": 18,
+   "name": "Fud Sang",
+   "nickname": [
+      "fs"
+   ],
+   "LOD1": 38,
+   "MAlt": 37,
+   "LOD2": 273,
+   "LOD3": 218,
+   "Pupp": 102
+},
+ {
+   "id": 19,
+   "name": "Ben Quadinaros",
+   "nickname": [
+      "bq"
+   ],
+   "LOD1": 40,
+   "MAlt": 39,
+   "LOD2": 274,
+   "LOD3": 209,
+   "Pupp": 94
+},
+ {
+   "id": 20,
+   "name": "Slide Paramita",
+   "nickname": [
+      "sp"
+   ],
+   "LOD1": 42,
+   "MAlt": 41,
+   "LOD2": 275,
+   "LOD3": 226,
+   "Pupp": 104
+},
+ {
+   "id": 21,
+   "name": "Toy Dampner",
+   "nickname": [
+      "td"
+   ],
+   "LOD1": 44,
+   "MAlt": 43,
+   "LOD2": 276,
+   "LOD3": 228,
+   "Pupp": 101
+},
+ {
+   "id": 22,
+   "name": "Bullseye' Navior",
+   "nickname": [
+      "bn"
+   ],
+   "LOD1": 46,
+   "MAlt": 45,
+   "LOD2": 277,
+   "LOD3": 212,
+   "Pupp": 108
+},
+ {
+   "id": 23,
+   "name": "Jinn Reeso",
+   "nickname": [
+      "jr"
+   ],
+   "LOD1": 299,
+   "MAlt": 298,
+   "LOD2": 302,
+   "Pupp": 304
+},
+ {
+   "id": 24,
+   "name": "Cy Yunga",
+   "nickname": [
+      "cy"
+   ],
+   "LOD1": 301,
+   "MAlt": 300,
+   "LOD2": 303,
+   "Pupp": 305
+}
+]
+
+planets = [
+ {
+   "id": 0,
+   "name": "Ando Prime"
+ },
+ {
+   "id": 1,
+   "name": "Aquilaris"
+ },
+ {
+   "id": 2,
+   "name": "Baroonda"
+ },
+ {
+   "id": 3,
+   "name": "Malastare"
+ },
+ {
+   "id": 4,
+   "name": "Mon Gazza"
+ },
+ {
+   "id": 5,
+   "name": "Oovo IV"
+ },
+ {
+   "id": 6,
+   "name": "Ord Ibanna"
+ },
+ {
+   "id": 7,
+   "name": "Tatooine"
+ }
+]
+
+circuits = [
+ {
+   "id": 0,
+   "name": "Amateur Circuit",
+   "nickname": [
+      "AMC"
+   ]
+},
+ {
+   "id": 1,
+   "name": "Semi-Pro Circuit",
+   "nickname": [
+      "SPC"
+   ]
+},
+ {
+   "id": 2,
+   "name": "Galactic Circuit",
+   "nickname": [
+      "GAL"
+   ]
+},
+ {
+   "id": 3,
+   "name": "Invitational Circuit",
+   "nickname": [
+      "INV"
+   ]
+}
 ]

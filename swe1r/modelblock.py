@@ -1009,10 +1009,10 @@ class MaterialTexture(DataStruct):
     def make(self):
         if self.id == 65535:
             return
-        # textureblock = self.model.modelblock.textureblock
+        textureblock = self.model.modelblock.textureblock
         self.texture = Texture(self.id, self.format, self.width, self.height)
-        # pixel_buffer, palette_buffer = textureblock.fetch(self.id)
-        # self.texture.read(pixel_buffer, palette_buffer)
+        pixel_buffer, palette_buffer = textureblock.fetch(self.id)
+        self.texture.read(pixel_buffer, palette_buffer)
         return self.texture.make()
 
     def unmake(self, image):
@@ -1271,8 +1271,7 @@ class Material(DataStruct):
     def to_array(self):
         return [self.format, 0, 0]
         
-    def make(self, remake = False, tex_name = None):
-        mat_name = "Unnamed Material"
+    def make(self, remake = False, tex_name = None, mat_name = "Unnamed Material"):
         material = None
         if self.id is not None:
             mat_name = str(self.id)
@@ -1408,8 +1407,6 @@ class Material(DataStruct):
             
             image_node = material.node_tree.nodes["Image Texture"]
             image_node.image = b_tex
-            
-            print('image', image_node.image)
             
             if self.texture_anim: # TODO
                 bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
@@ -2346,15 +2343,15 @@ class Node(DataStruct):
         for i in range(self.child_count):
             child_address = readUInt32BE(buffer, self.child_start + i * 4)
             if not child_address:
-                print('no child adress for child', i, 'on node', self.id)
+                #print('no child adress for child', i, 'on node', self.id)
                 if (self.child_start + i * 4) in self.model.AltN:
                     self.children.append({'id': self.child_start + i * 4, 'AltN': True})
                 else:
                     self.children.append({'id': None})  # remove later
                 continue
 
-            if child_address < self.id:
-                print('reference to previous node', child_address, 'on child', i, 'for node', self.id)
+            # if child_address < self.id:
+            #     print('reference to previous node', child_address, 'on child', i, 'for node', self.id)
 
             if self.model.ref_map.get(child_address):
                 self.children.append({'id': child_address})
@@ -2939,7 +2936,7 @@ class TexturePose(DataStruct):
         self.model = model
         
     def read(self, buffer, cursor):
-        self.data = MaterialTexture(self, self.model).read(buffer, cursor)
+        #self.data = MaterialTexture(self, self.model).read(buffer, cursor)
         return self
     
     def make(self, target):

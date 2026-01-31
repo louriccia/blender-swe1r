@@ -25,7 +25,7 @@ from .general import *
 from .textureblock import compute_hash
 
 class Block():
-    def __init__(self, path, items_per_asset, update_progress):
+    def __init__(self, path, items_per_asset, update_progress = None):
         self.data = []
         self.hash_table = {}
         self.items_per_asset = items_per_asset
@@ -34,7 +34,8 @@ class Block():
         self.update_progress = update_progress
         
     def read(self):
-        self.update_progress(f"Reading {self.path}...")
+        if self.update_progress:
+            self.update_progress(f"Reading {self.path}...")
         with open(self.path, 'rb') as file:
             file = file.read()
         

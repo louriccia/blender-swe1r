@@ -142,9 +142,9 @@ class FloatPosition(DataStruct):
     
 class FloatVector(FloatPosition):
     def from_array(self, data = None):
-        for d in data:
-            if d > 1.0 or d < -1.0:
-                print(f"Vec3 {d} in {data} is not normalized")
+        # for d in data:
+        #     if d > 1.0 or d < -1.0:
+        #         print(f"Vec3 {d} in {data} is not normalized")
         super().from_array(data)
         return self
     

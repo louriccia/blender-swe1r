@@ -430,3 +430,241 @@ def show_custom_popup(context, title, message):
 def reselect_obj(obj):
     obj.select_set(False)
     obj.select_set(True)
+    
+    
+def validate_folder_path(folder_path, file_name):
+    if folder_path == "":
+        show_custom_popup(bpy.context, "No set import folder", "Select your folder containing the .bin files")
+        return {'CANCELLED'}
+    if folder_path[:2] == '//':
+        folder_path = os.path.join(os.path.dirname(bpy.data.filepath), folder_path[2:])
+    if not os.path.exists(folder_path  + file_name):
+        show_custom_popup(bpy.context, "Missing required files", f"No {file_name} found in the selected folder.")
+        return {'CANCELLED'}
+    return folder_path
+
+def get_material_hash(material):
+    """
+    Generate a hash representing the material's properties for deduplication.
+    This compares node tree structure and key properties.
+    
+    Returns:
+        str: Hash string representing the material
+    """
+    if not material.use_nodes:
+        return None
+    
+    hash_parts = []
+    nodes = material.node_tree.nodes
+    
+    # Sort nodes by type and location for consistent ordering
+    sorted_nodes = sorted(nodes, key=lambda n: (n.type, n.location.x, n.location.y))
+    
+    for node in sorted_nodes:
+        # Add node type
+        hash_parts.append(node.type)
+        
+        # For image texture nodes, hash the image filepath
+        if node.type == 'TEX_IMAGE' and node.image:
+            hash_parts.append(node.image.filepath or node.image.name)
+        
+        # For value/color nodes, hash the values
+        elif node.type == 'VALUE':
+            hash_parts.append(str(node.outputs[0].default_value))
+        elif node.type == 'RGB':
+            hash_parts.append(str(node.outputs[0].default_value[:]))
+        
+        # For BSDF nodes, hash key input values
+        elif 'BSDF' in node.type:
+            for input in node.inputs:
+                if not input.is_linked:
+                    hash_parts.append(f"{input.name}:{input.default_value}")
+    
+    # Hash the connections
+    links = material.node_tree.links
+    for link in sorted(links, key=lambda l: (l.from_node.name, l.to_node.name)):
+        hash_parts.append(f"{link.from_socket.name}->{link.to_socket.name}")
+    
+    # Create hash from all parts
+    import hashlib
+    hash_string = "|".join(str(p) for p in hash_parts)
+    return hashlib.md5(hash_string.encode()).hexdigest()
+
+import bpy
+import os
+import hashlib
+import traceback
+
+def create_material_from_image(image_path, material_name):
+    """
+    Create a material with an image texture and return the material.
+    
+    Args:
+        image_path: Full path to the image file
+        material_name: Name for the material
+    
+    Returns:
+        bpy.types.Material: The created material
+    """
+    # Create new material
+    mat = bpy.data.materials.new(name=material_name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    
+    # Clear default nodes
+    nodes.clear()
+    
+    # Create nodes
+    node_tex = nodes.new(type='ShaderNodeTexImage')
+    node_bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
+    node_output = nodes.new(type='ShaderNodeOutputMaterial')
+    
+    # Load image
+    if os.path.exists(image_path):
+        img = bpy.data.images.load(image_path)
+        node_tex.image = img
+    
+    # Position nodes for cleaner node tree
+    node_tex.location = (-300, 0)
+    node_bsdf.location = (0, 0)
+    node_output.location = (300, 0)
+    
+    # Link nodes
+    links.new(node_tex.outputs['Color'], node_bsdf.inputs['Base Color'])
+    links.new(node_bsdf.outputs['BSDF'], node_output.inputs['Surface'])
+    
+    return mat
+
+
+def mark_material_as_asset(material, catalog_id=None, tags=None):
+    """
+    Mark a material as an asset and optionally assign it to a catalog.
+    
+    Args:
+        material: The material to mark as asset
+        catalog_id: UUID string of the catalog (e.g., "a8e1a507-d4e9-4f8f-a7e7-5e6f7d8e9f0a")
+        tags: List of tag strings to add to the asset
+    """
+    # Mark as asset
+    material.asset_mark()
+    
+    # Set catalog if provided (must be a valid UUID)
+    if catalog_id:
+        material.asset_data.catalog_id = catalog_id
+    
+    # Add tags if provided
+    if tags:
+        for tag in tags:
+            material.asset_data.tags.new(tag)
+    
+    # Generate preview (this will use default material preview)
+    material.asset_generate_preview()
+
+
+def get_material_hash(material):
+    """
+    Generate a hash representing the material's properties for deduplication.
+    This compares node tree structure and key properties.
+    
+    Returns:
+        str: Hash string representing the material
+    """
+    if not material.use_nodes:
+        return None
+    
+    hash_parts = []
+    nodes = material.node_tree.nodes
+    
+    # Sort nodes by type and location for consistent ordering
+    sorted_nodes = sorted(nodes, key=lambda n: (n.type, n.location.x, n.location.y))
+    
+    for node in sorted_nodes:
+        # Add node type
+        hash_parts.append(node.type)
+        
+        # For image texture nodes, hash the image filepath
+        if node.type == 'TEX_IMAGE' and node.image:
+            hash_parts.append(node.image.filepath or node.image.name)
+        
+        # For value/color nodes, hash the values
+        elif node.type == 'VALUE':
+            hash_parts.append(str(node.outputs[0].default_value))
+        elif node.type == 'RGB':
+            hash_parts.append(str(node.outputs[0].default_value[:]))
+        
+        # For BSDF nodes, hash key input values
+        elif 'BSDF' in node.type:
+            for input in node.inputs:
+                if not input.is_linked:
+                    hash_parts.append(f"{input.name}:{input.default_value}")
+    
+    # Hash the connections
+    links = material.node_tree.links
+    for link in sorted(links, key=lambda l: (l.from_node.name, l.to_node.name)):
+        hash_parts.append(f"{link.from_socket.name}->{link.to_socket.name}")
+    
+    # Create hash from all parts
+    import hashlib
+    hash_string = "|".join(str(p) for p in hash_parts)
+    return hashlib.md5(hash_string.encode()).hexdigest()
+
+
+def deduplicate_materials(materials):
+    """
+    Remove duplicate materials based on their properties.
+    
+    Args:
+        materials: List of materials to deduplicate
+    
+    Returns:
+        list: Deduplicated list of materials
+    """
+    # Filter out any materials that have already been removed
+    valid_materials = []
+    for mat in materials:
+        try:
+            # Try to access a property to check if material still exists
+            _ = mat.name
+            valid_materials.append(mat)
+        except ReferenceError:
+            # Material was already removed, skip it
+            continue
+    
+    # First, compute all hashes before removing anything
+    material_hashes = []
+    for mat in valid_materials:
+        mat_hash = get_material_hash(mat)
+        material_hashes.append((mat, mat_hash))
+    
+    # Now deduplicate based on hashes
+    seen_hashes = {}
+    unique_materials = []
+    duplicates_to_remove = []
+    
+    for mat, mat_hash in material_hashes:
+        if mat_hash is None:
+            # Can't hash this material, keep it
+            unique_materials.append(mat)
+            continue
+        
+        if mat_hash in seen_hashes:
+            # Duplicate found - mark for removal
+            duplicates_to_remove.append(mat)
+        else:
+            # New unique material
+            seen_hashes[mat_hash] = mat
+            unique_materials.append(mat)
+    
+    # Remove duplicates after processing
+    for mat in duplicates_to_remove:
+        try:
+            bpy.data.materials.remove(mat)
+        except ReferenceError:
+            # Material was already removed elsewhere
+            pass
+    
+    print(f"Started with {len(materials)} materials, {len(valid_materials)} were valid")
+    print(f"Removed {len(duplicates_to_remove)} duplicate materials")
+    print(f"Final unique materials: {len(unique_materials)}")
+    return unique_materials

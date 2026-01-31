@@ -68,6 +68,8 @@ def get_frozen_value(value):
     return value
 
 def get_obj_prop_value(context, prop_name, indeterminates):
+    if hasattr(context, 'selected_objects') == False:
+        return None
     selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
     if not selected_meshes:
         return None
@@ -89,6 +91,8 @@ def get_obj_prop_value(context, prop_name, indeterminates):
     return get_default(bpy.context.scene, prop_name)
 
 def get_mat_prop_value(context, prop_name, indeterminates):
+    if hasattr(context, 'selected_objects') == False:
+        return None
     selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
     if not selected_meshes:
         return None
@@ -259,6 +263,8 @@ def all_equal(lst):
 # MARK: on select
 @bpy.app.handlers.persistent
 def on_object_selection(context):
+    if hasattr(context, 'selected_objects') == False:
+        return None
     indeterminates = []
     for prop in obj_props:
         val = get_obj_prop_value(bpy.context, prop, indeterminates)
@@ -275,15 +281,18 @@ def on_object_selection(context):
             context[prop] = False
         
     textures = set()
+   
     for obj in bpy.context.selected_objects:
         if obj.type == 'MESH':
             mats = [slot.material for slot in obj.material_slots]
             for mat in mats:
+                print('mat', mat)
                 if mat is not None and mat.node_tree:
                     for node in mat.node_tree.nodes:
                         if node.type == 'TEX_IMAGE':
                             textures.add(node.image)
                             break
+    print('textures', textures)
     if len(textures) == 1:
         val = textures.pop()
         context['texture'] = val
@@ -450,6 +459,9 @@ class ToolPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         box = layout.box()
+        
+        row = box.row()
+        row.operator("object.generate_material_assets", text="Export Ass Library", icon='ASSET_MANAGER')
         
         row = box.row()
         row.label(text = "New", icon = "FILE_NEW")

@@ -124,8 +124,18 @@ class Texture():
             
         self.pixels = Pixels(self)
         self.pixels.read(pixel_buffer)
-    def make(self):
-        #TODO: Detect broken PC textures via hash and correct them automatically
+    def make(self, cache_dir=None):
+        """
+        Create and save texture image, using cached version if available.
+        
+        Args:
+            cache_dir: Directory to save texture files. If None, creates in-memory only.
+        
+        Returns:
+            bpy.types.Image: The created image (loaded from disk if cache_dir provided)
+        """
+        import os
+        
         if int(self.id) < 0:
             return
         if self.pixels is None or not self.pixels:
@@ -136,9 +146,41 @@ class Texture():
             print(f"Texture {self.id} is missing width/height/format data")
             return
         
+        cache_dir = "C:/Users/louri/Documents/Blender/swe1r_cache/textures"
         
         tex_name = str(self.id)
-        new_image = bpy.data.images.new(tex_name, self.width, self.height)
+        
+        # Check if cached version exists
+        if cache_dir:
+            os.makedirs(cache_dir, exist_ok=True)
+            filepath = os.path.join(cache_dir, f"texture_{self.id:04d}.png")
+            
+            if os.path.exists(filepath):
+                print(f"Loading texture {self.id} from cache")
+                # Load from cache
+                new_image = bpy.data.images.load(filepath)
+                new_image['format'] = self.format
+                new_image['id'] = self.id
+                new_image.name = tex_name
+                
+                # Set proper alpha mode
+                new_image.alpha_mode = 'CHANNEL_PACKED'  # or 'STRAIGHT'
+                
+                # Optionally verify/recompute hash
+                hash = compute_image_hash(new_image)
+                new_image['internal_hash'] = hash
+                
+                return new_image
+        
+        # Cache miss or no cache - generate the image
+        print(f"Generating texture {self.id}")
+        
+        # Create image WITH ALPHA CHANNEL
+        new_image = bpy.data.images.new(tex_name, self.width, self.height, alpha=True)
+        
+        # Set the alpha mode BEFORE setting pixels
+        new_image.alpha_mode = 'CHANNEL_PACKED'  # Use 'STRAIGHT' if your alpha is not premultiplied
+        
         image_pixels = []
         pixels = self.pixels.data
         palette = None if self.palette is None or self.palette.data is None else self.palette.data
@@ -169,11 +211,50 @@ class Texture():
                 
         if len(image_pixels):
             new_image.pixels = [p for p in image_pixels]
+        
         new_image['format'] = self.format
         new_image['id'] = self.id
 
         hash = compute_image_hash(new_image)
         new_image['internal_hash'] = hash
+        
+        # Save to disk if cache directory provided
+        if cache_dir:
+            # Important settings for transparency
+            new_image.file_format = 'PNG'
+            new_image.colorspace_settings.name = 'sRGB'  # or 'Non-Color' for data textures
+            
+            # Ensure alpha is saved
+            new_image.filepath_raw = filepath
+            
+            # For image settings when saving
+            scene = bpy.context.scene
+            old_file_format = scene.render.image_settings.file_format
+            old_color_mode = scene.render.image_settings.color_mode
+            
+            # Set PNG with RGBA
+            scene.render.image_settings.file_format = 'PNG'
+            scene.render.image_settings.color_mode = 'RGBA'
+            scene.render.image_settings.color_depth = '8'  # or '16' for higher precision
+            scene.render.image_settings.compression = 15  # 0-100, higher = smaller file
+            
+            new_image.save()
+            
+            # Restore old settings
+            scene.render.image_settings.file_format = old_file_format
+            scene.render.image_settings.color_mode = old_color_mode
+            
+            # Remove the in-memory image and reload from disk
+            # This frees up memory while keeping the reference
+            bpy.data.images.remove(new_image)
+            new_image = bpy.data.images.load(filepath)
+            
+            # Re-add custom properties and settings to the reloaded image
+            new_image['format'] = self.format
+            new_image['id'] = self.id
+            new_image['internal_hash'] = hash
+            new_image.name = tex_name
+            new_image.alpha_mode = 'CHANNEL_PACKED'
         
         return new_image
 

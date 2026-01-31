@@ -19,12 +19,14 @@
 #     along with this program; if not, see <https://www.gnu.org
 # /licenses>.
 
-import bpy
+import bpy 
+import pathlib
 import sys
 import importlib
 import traceback
+import uuid
 from bpy_extras.io_utils import ImportHelper
-from .swe1r.modelblock import SurfaceEnum
+from .swe1r.modelblock import SurfaceEnum, Model
 
 modules = [
     'swr_import',
@@ -67,15 +69,9 @@ class ImportOperator(bpy.types.Operator):
 
     def execute(self, context):
         
-        folder_path = context.scene.import_folder
-        if folder_path == "":
-            show_custom_popup(bpy.context, "No set import folder", "Select your folder containing the .bin files")
-            return {'CANCELLED'}
-        if folder_path[:2] == '//':
-            folder_path = os.path.join(os.path.dirname(bpy.data.filepath), folder_path[2:])
-        if not os.path.exists(folder_path  + 'out_modelblock.bin'):
-            show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
-            return {'CANCELLED'}
+        folder_path = validate_folder_path(context.scene.import_folder, "out_modelblock.bin")
+        if folder_path is None or folder_path == {"CANCELLED"}:
+            return {"CANCELLED"}
 
         context.scene.import_progress = 0.01
         context.scene.import_status = 'Importing...'
@@ -689,6 +685,511 @@ class AddImageTexture(bpy.types.Operator):
         open_url(self.url)
         return {"FINISHED"}
 
+def mark_material_as_asset(material, catalog_id=None, tags=None):
+    """
+    Mark a material as an asset and optionally assign it to a catalog.
+    
+    Args:
+        material: The material to mark as asset
+        catalog_id: UUID string of the catalog (e.g., "a8e1a507-d4e9-4f8f-a7e7-5e6f7d8e9f0a")
+        tags: List of tag strings to add to the asset
+    """
+    # Mark as asset first
+    material.asset_mark()
+    
+    # Set catalog if provided (must be a valid UUID)
+    if catalog_id:
+        material.asset_data.catalog_id = catalog_id
+    
+    # Add tags if provided
+    if tags:
+        for tag in tags:
+            material.asset_data.tags.new(tag)
+    
+    # Try to find an image texture in the material and use it as preview
+    preview_set = False
+    if material.use_nodes:
+        for node in material.node_tree.nodes:
+            if node.type == 'TEX_IMAGE' and node.image:
+                try:
+                    # Set the image as the preview icon
+                    material.preview_ensure()
+                    # Get image dimensions
+                    width, height = node.image.size[0], node.image.size[1]
+                    # Copy pixels
+                    pixels = list(node.image.pixels)
+                    if len(pixels) == width * height * 4:  # RGBA
+                        material.preview.image_size = (width, height)
+                        material.preview.image_pixels_float = pixels
+                        preview_set = True
+                        print(f"Set preview for {material.name} using texture {node.image.name}")
+                except Exception as e:
+                    print(f"Could not set preview image for {material.name}: {e}")
+                break
+    
+    # Only generate 3D preview if no texture was found
+    if not preview_set:
+        material.asset_generate_preview()
+
+def get_or_create_asset_catalog(asset_lib_path, catalog_path):
+    """
+    Get or create an asset catalog and return its UUID.
+    
+    Args:
+        asset_lib_path: Path to the asset library
+        catalog_path: Hierarchical path like "SWE1R/PODD" or "SWE1R/MODL"
+    
+    Returns:
+        str: UUID of the catalog
+    """
+    import os
+    
+    # Path to the catalog definition file
+    catalog_file = os.path.join(asset_lib_path, "blender_assets.cats.txt")
+    
+    # Read existing catalogs
+    catalogs = {}
+    if os.path.exists(catalog_file):
+        with open(catalog_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Skip comments and empty lines
+                if not line or line.startswith('#'):
+                    continue
+                # Format: UUID:catalog/path:simple_name
+                parts = line.split(':', 2)
+                if len(parts) == 3:
+                    cat_uuid, cat_path, cat_name = parts
+                    catalogs[cat_path] = cat_uuid
+    
+    # Check if catalog already exists
+    if catalog_path in catalogs:
+        return catalogs[catalog_path]
+    
+    # Create new catalog
+    new_uuid = str(uuid.uuid4())
+    
+    # Simple name is the last part of the path
+    simple_name = catalog_path.split('/')[-1]
+    
+    # Append to catalog file
+    with open(catalog_file, 'a', encoding='utf-8') as f:
+        # Add header if file is new
+        if not catalogs:
+            f.write("# This is an Asset Catalog Definition file for Blender.\n")
+            f.write("#\n")
+            f.write("# Empty lines and lines starting with `#` will be ignored.\n")
+            f.write("# The first non-ignored line should be the version indicator.\n")
+            f.write("# Other lines are of the format \"UUID:catalog/path/for/assets:simple catalog name\"\n")
+            f.write("\n")
+            f.write("VERSION 1\n")
+            f.write("\n")
+        
+        f.write(f"{new_uuid}:{catalog_path}:{simple_name}\n")
+    
+    print(f"Created catalog: {catalog_path} with UUID {new_uuid}")
+    return new_uuid
+
+def generate_tag_lookup(tracks, racers, planets, circuits):
+    """
+    Generate a lookup table from game data.
+    Returns dict mapping model_id -> list of tags
+    """
+    lookup = {}
+    
+    # Process tracks
+    for track in tracks:
+        model_id = track["model"]
+        tags = []
+        
+        # Add track name (sanitized)
+        track_name = track["name"].replace("'", "")
+        tags.append(track_name)
+        
+        # Add nicknames
+        tags.extend(track["nickname"])
+        
+        # Add planet name
+        planet = next((p for p in planets if p["id"] == track["planet_id"]), None)
+        if planet:
+            planet_name = planet["name"]
+            tags.append(f"planet:{planet_name}")
+            tags.append(planet_name)
+        
+        # Add circuit name
+        circuit = next((c for c in circuits if c["id"] == track["circuit_id"]), None)
+        if circuit:
+            circuit_name = circuit["name"]
+            tags.append(f"circuit:{circuit_name}")
+            # Add circuit nickname
+            tags.extend([f"circuit:{nick.lower()}" for nick in circuit["nickname"]])
+        
+        # Add category
+        tags.append("track")
+        
+        lookup[model_id] = tags
+        
+        # Also add preview model with similar tags
+        if "preview_model" in track:
+            preview_tags = [f"preview:{tag}" for tag in tags]
+            preview_tags.append("preview")
+            lookup[track["preview_model"]] = preview_tags
+    
+    # Process racers (pods)
+    for racer in racers:
+        racer_name_base = racer["name"].replace("'", "")
+        
+        # Process LOD1 (main pod model)
+        if "LOD1" in racer:
+            model_id = racer["LOD1"]
+            tags = []
+            
+            tags.append(racer_name_base)
+            tags.extend(racer["nickname"])
+            tags.append("pod")
+            tags.append("lod1")
+            tags.append("high_detail")
+            
+            lookup[model_id] = tags
+        
+        # Process MAlt (alternate pod model)
+        if "MAlt" in racer:
+            model_id = racer["MAlt"]
+            tags = []
+            
+            tags.append(racer_name_base)
+            tags.extend(racer["nickname"])
+            tags.append("pod")
+            tags.append("alternate")
+            
+            lookup[model_id] = tags
+        
+        # Process LOD2 (medium detail)
+        if "LOD2" in racer:
+            model_id = racer["LOD2"]
+            tags = []
+            
+            tags.append(racer_name_base)
+            tags.extend(racer["nickname"])
+            tags.append("pod")
+            tags.append("lod2")
+            tags.append("medium_detail")
+            
+            lookup[model_id] = tags
+        
+        # Process LOD3 (low detail)
+        if "LOD3" in racer:
+            model_id = racer["LOD3"]
+            tags = []
+            
+            tags.append(racer_name_base)
+            tags.extend(racer["nickname"])
+            tags.append("pod")
+            tags.append("lod3")
+            tags.append("low_detail")
+            
+            lookup[model_id] = tags
+        
+        # Process Pupp (character/puppet model)
+        if "Pupp" in racer:
+            model_id = racer["Pupp"]
+            tags = []
+            
+            tags.append(racer_name_base)
+            tags.extend(racer["nickname"])
+            tags.append("character")
+            tags.append("pilot")
+            tags.append("pupp")
+            
+            lookup[model_id] = tags
+    
+    return lookup
+
+
+class TagManager:
+    """Manages custom tags from JSON configuration and game data."""
+    
+    def __init__(self, config_path=None, game_data=None):
+        """
+        Initialize tag manager.
+        
+        Args:
+            config_path: Path to custom tags.json file
+            game_data: Dict with 'tracks', 'racers', 'planets', 'circuits' keys
+        """
+        if config_path is None:
+            addon_dir = os.path.dirname(os.path.realpath(__file__))
+            config_path = os.path.join(addon_dir, "tags.json")
+        
+        self.config_path = config_path
+        self.custom_tags = self._load_config()
+        
+        # Generate lookup from game data
+        self.generated_tags = {}
+        if game_data:
+            self.generated_tags = generate_tag_lookup(
+                game_data.get('tracks', []),
+                game_data.get('racers', []),
+                game_data.get('planets', []),
+                game_data.get('circuits', [])
+            )
+    
+    def _load_config(self):
+        """Load custom tags configuration from JSON."""
+        if not os.path.exists(self.config_path):
+            print(f"Custom tag config not found at {self.config_path}")
+            return {"version": "1.0", "models": {}, "textures": {}, "nodes": {}}
+        
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading custom tag config: {e}")
+            return {"version": "1.0", "models": {}, "textures": {}, "nodes": {}}
+    
+    def get_model_tags(self, model_id):
+        """
+        Get all tags for a model (generated + custom).
+        Custom tags take precedence and are added to generated tags.
+        """
+        tags = set()
+        
+        # Add generated tags
+        if model_id in self.generated_tags:
+            tags.update(self.generated_tags[model_id])
+        
+        # Add custom tags
+        custom = self.custom_tags.get("models", {}).get(str(model_id), [])
+        tags.update(custom)
+        
+        return list(tags)
+    
+    def get_texture_tags(self, texture_id):
+        """Get all tags for a texture (only custom for now)."""
+        return self.custom_tags.get("textures", {}).get(str(texture_id), [])
+    
+    def get_node_tags(self, model_id, node_name):
+        """Get all tags for a specific node in a model."""
+        key = f"{model_id}/{node_name}"
+        return self.custom_tags.get("nodes", {}).get(key, [])
+    
+    def get_combined_tags(self, model_id=None, texture_id=None, node_name=None):
+        """
+        Get combined tags from all sources.
+        
+        Returns:
+            set: Combined set of all applicable tags
+        """
+        tags = set()
+        
+        if model_id is not None:
+            tags.update(self.get_model_tags(model_id))
+            
+            if node_name is not None:
+                tags.update(self.get_node_tags(model_id, node_name))
+        
+        if texture_id is not None:
+            tags.update(self.get_texture_tags(texture_id))
+        
+        return tags
+
+class OBJECT_OT_generate_material_assets(bpy.types.Operator):
+    """Generate materials from custom file and add to asset library"""
+    bl_idname = "object.generate_material_assets"
+    bl_label = "Generate Material Assets"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+    
+        folder_path = validate_folder_path(context.scene.import_folder, "out_modelblock.bin")
+        if folder_path is None or folder_path == {"CANCELLED"}:
+            return {"CANCELLED"}
+        
+        # Initialize tag manager with game data
+        tag_manager = TagManager(game_data={
+            'tracks': tracks,
+            'racers': racers,
+            'planets': planets,
+            'circuits': circuits
+        })
+        
+        # Save current file state
+        current_file = bpy.data.filepath
+        
+        material_catalog = {}  # hash -> material
+        material_metadata = {}  # hash -> {extensions, model_ids, model_names, texture_ids}
+        texture_usage = set()
+        texture_models = {}
+        
+        try: 
+            # Get user's asset library path first
+            prefs = context.preferences
+            asset_libs = prefs.filepaths.asset_libraries
+            
+            if not asset_libs:
+                print("No asset library configured")
+                return {'CANCELLED'}
+            
+            asset_lib_path = asset_libs[0].path
+            
+            # Create catalog for materials
+            materials_catalog_uuid = get_or_create_asset_catalog(asset_lib_path, "SWE1R/Materials")
+            
+            # Create a new empty blend file
+            bpy.ops.wm.read_homefile(use_empty=True)
+            
+            # Create a collection to organize all materials
+            materials_collection = bpy.data.collections.new("SWE1R Materials")
+            bpy.context.scene.collection.children.link(materials_collection)
+            
+            modelblock = Block(folder_path + 'out_modelblock.bin', 2).read()
+            textureblock = Block(folder_path + 'out_textureblock.bin', 2).read()
+            modelblock.textureblock = textureblock
+            
+            # PASS 1: Process models and extract materials, collecting metadata
+            for model_id in range(len(modelblock.data)):
+                print(f"Processing model ID: {model_id}")
+                model_buffer = modelblock.fetch(model_id)[1]
+                model = Model(model_id)
+                model.modelblock = modelblock
+                model = model.read(model_buffer)
+                
+                if model is None:
+                    continue
+                
+                extension = model_list[model_id]['extension']
+                model_name = model_list[model_id]['name']
+                model_index = model_list[model_id]['index']
+            
+                for mat_id, material in model.materials.items():
+                    if material is None:
+                        continue
+                    mat = material.make(mat_name=f"Material_{model_id}_{mat_id}")
+                    
+                    texture_id = None
+                    if material.texture and material.texture.id:
+                        texture_usage.add(material.texture.id)
+                        texture_id = material.texture.id
+                        
+                    mat_hash = get_material_hash(mat)
+                    
+                    if texture_id is not None:
+                        if str(texture_id) not in texture_models:
+                            texture_models[str(texture_id)] = set()
+                        model_name = model_list[model_id]['name']
+                        model_ext = model_list[model_id]['extension']
+                        val = f"{model_name} ({model_ext})"
+                        texture_models[str(texture_id)].add(val)
+            
+                    if mat_hash and mat_hash not in material_catalog:
+                        mat.name = f"Model_{model_id:04d}_Mat_{mat_id:04d}"
+                        material_catalog[mat_hash] = mat
+                        
+                        # Get combined tags from all sources
+                        custom_tags = tag_manager.get_combined_tags(
+                            model_id=model_id,
+                            texture_id=texture_id
+                        )
+                        
+                        material_metadata[mat_hash] = {
+                            'extensions': set([extension]),
+                            'model_ids': set([model_index]),
+                            'model_names': set([model_name]),
+                            'texture_ids': set([texture_id]) if texture_id else set(),
+                            'has_texture': texture_id is not None,
+                            'custom_tags': custom_tags  # Now includes generated + custom tags
+                        }
+                    else:
+                        # Duplicate - add metadata
+                        custom_tags = tag_manager.get_combined_tags(
+                            model_id=model_id,
+                            texture_id=texture_id
+                        )
+                        
+                        material_metadata[mat_hash]['extensions'].add(extension)
+                        material_metadata[mat_hash]['model_ids'].add(model_index)
+                        material_metadata[mat_hash]['model_names'].add(model_name)
+                        material_metadata[mat_hash]['custom_tags'].update(custom_tags)
+                        if texture_id:
+                            material_metadata[mat_hash]['texture_ids'].add(texture_id)
+                        
+                        bpy.data.materials.remove(mat)
+
+
+            # convert texture_models sets to sorted lists for easier reading
+            for tex_id in texture_models:
+                texture_models[tex_id] = sorted(list(texture_models[tex_id]))
+
+            print(texture_models)
+            
+            # PASS 2: Mark all materials as assets with complete metadata
+            for mat_hash, mat in material_catalog.items():
+                metadata = material_metadata[mat_hash]
+                
+                # Build comprehensive tag list
+                tags = ["SWE1R"]
+                
+                # Add custom/generated tags FIRST (these are the most important)
+                tags.extend(sorted(metadata['custom_tags']))
+                
+                # Add all extensions this material is used in
+                for ext in sorted(metadata['extensions']):
+                    tags.append(f"extension:{ext}")
+                
+                # Add all model IDs
+                for mid in sorted(metadata['model_ids']):
+                    tags.append(f"model_id:{mid}")
+                
+                # Add all model names
+                for mname in sorted(metadata['model_names']):
+                    tags.append(f"model_name:{mname}")
+                
+                # Add texture info
+                if metadata['has_texture']:
+                    tags.append("textured")
+                    for tex_id in sorted(metadata['texture_ids']):
+                        tags.append(f"texture_id:{tex_id}")
+                else:
+                    tags.append("untextured")
+                
+                # Add count tag for easy identification
+                tags.append(f"used_in:{len(metadata['model_ids'])}_models")
+                
+                mark_material_as_asset(mat, 
+                                    catalog_id=materials_catalog_uuid,
+                                    tags=tags)
+                
+                print(f"Material {mat.name} used in {len(metadata['model_ids'])} models: {metadata['model_names']}")
+            
+            # Save the blend file with all materials
+            output_path = os.path.join(asset_lib_path, "swe1r_materials.blend")
+            bpy.ops.wm.save_as_mainfile(filepath=output_path)
+            print(f"Saved {len(material_catalog)} materials to {output_path}")
+            
+        except Exception as e:
+            print("Complete exception details:")
+            traceback.print_exception(type(e), e, e.__traceback__)
+            print(f"Error occurred: {str(e)}")
+            return {'CANCELLED'}
+        
+        finally:
+            # Always restore the original file
+            if current_file:
+                bpy.ops.wm.open_mainfile(filepath=current_file)
+            else:
+                bpy.ops.wm.read_homefile(use_empty=True)
+        
+        # Report after restoring context
+        self.report({'INFO'}, f"Created {len(material_catalog)} material assets")
+        return {'FINISHED'}
+    
+    
+    def generate_image(self, data, index):
+        """Replace this with your actual image generation logic"""
+        # Generate and save image, return path
+        return "/tmp/image.png"
+
+
 # MARK: REGISTER
 
 register_classes = (
@@ -714,7 +1215,8 @@ register_classes = (
     BakeVColors,
     OpenImageTexture,
     SelectFirstSplinePointOperator,
-    ToggleViewLayerState
+    ToggleViewLayerState,
+    OBJECT_OT_generate_material_assets
 )
 
 def register():
