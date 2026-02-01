@@ -134,6 +134,8 @@ def export_model_items(self, context):
 
 def update_selected(prop_name, update_mat = False, update_tex = False):
     def update_function(self, context):
+        if context.scene.podblock_syncing:
+            return
         for obj in context.selected_objects:
             if obj.type == 'MESH':
                 if update_mat:
@@ -189,12 +191,18 @@ def UpdateVisibleSelectable(self, context = None):
     if context is None:
         context = bpy.context
     for obj in bpy.context.scene.objects:
+        if obj.type != 'MESH':
+            continue
         if obj.collidable:
             obj.hide_viewport = not context.scene.collision_visible
             obj.hide_select = not context.scene.collision_selectable
+            obj.hide_set(not context.scene.collision_visible, view_layer=context.view_layer)
+            
         if obj.visible:
             obj.hide_viewport =  not context.scene.visuals_visible
             obj.hide_select = not context.scene.visuals_selectable
+            obj.hide_set(not context.scene.visuals_visible, view_layer=context.view_layer)
+            
             
     
 def save_settings(self, context):
@@ -375,8 +383,6 @@ def reset_vertex_colors(b_obj):
     #use first color layer if no active layer
     if b_obj.data.vertex_colors.active is None:
         b_obj.data.vertex_colors.active_index = 0
-
-    print(b_obj.data.vertex_colors, len(b_obj.data.vertex_colors), b_obj.data.vertex_colors[0])
 
     color_layer = b_obj.data.vertex_colors.active.data
     for loop in color_layer:

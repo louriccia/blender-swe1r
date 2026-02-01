@@ -23,15 +23,18 @@ from .swr_import import *
 from .swr_export import *
 import bpy
 from .swe1r.model_list import model_list
-from .swe1r.modelblock import SurfaceEnum, Material
+from .swe1r.modelblock import SurfaceEnum
 from .operators import *
 from .constants import *
 from . import bl_info
 import os
 from bpy.utils import previews
+from mathutils import Color, Vector, Euler, Quaternion
+
 
 models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
 classes = []    
+_in_selection_sync = False
 
 #https://blenderartists.org/t/bpy-types-pointerproperty-fpr-view-layer/1446387
 # For anyone who stumbles upon this topic in the future, you can create a custom enum like this:
@@ -67,49 +70,18 @@ def get_frozen_value(value):
         return frozen_copy
     return value
 
-def get_obj_prop_value(context, prop_name, indeterminates):
-    if hasattr(context, 'selected_objects') == False:
-        return None
-    selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
-    if not selected_meshes:
-        return None
-    values = set()
-    for obj in selected_meshes:
-        if prop_name in obj:
-            if isinstance(obj[prop_name], Color):
-                frozen_copy = obj[prop_name].copy()
-                frozen_copy.freeze()
-                values.add(frozen_copy)
-            else:
-                values.add(obj[prop_name])
-        else:
-            values.add(None)
-    if len(values) == 1:
-        return values.pop()  # All values are the same
-    elif len(values):
-        indeterminates.append(prop_name)
-    return get_default(bpy.context.scene, prop_name)
+def make_hashable(v):
+    if isinstance(v, (Color, Vector, Euler, Quaternion)):
+        return tuple(v)
+    return v
 
-def get_mat_prop_value(context, prop_name, indeterminates):
-    if hasattr(context, 'selected_objects') == False:
+def get_prop_value(prop_name, indeterminates, items):
+    if not items:
         return None
-    selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
-    if not selected_meshes:
-        return None
-    mats = []
-    for obj in selected_meshes:
-        if len(obj.material_slots):
-            mats.append(obj.material_slots[0].material)
     values = set()
-    for mat in mats:
-        if prop_name == "use_backface_culling" or prop_name not in mat:
-            continue
-        if isinstance(mat[prop_name], Color):
-            frozen_copy = mat[prop_name].copy()
-            frozen_copy.freeze()
-            values.add(frozen_copy)
-        else:
-            values.add(mat[prop_name])
+    for item in items:
+        value = getattr(item, prop_name, None)
+        values.add(make_hashable(value))
     if len(values) == 1:
         return values.pop()  # All values are the same
     elif len(values):
@@ -137,15 +109,13 @@ obj_props = ['visible',
             'fog_max',
             'fog_clear',
             'skybox_show',
-            'skybox_hide',
-            'load_trigger']
+            'skybox_hide']
 
 for flag in dir(SurfaceEnum):
     if not flag.startswith("__"):
         obj_props.append(flag)
         
 mat_props = [
-    'use_backface_culling',
     'material_color',
     'scroll_x',
     'scroll_y',
@@ -198,7 +168,7 @@ def is_texture_default(context):
         if mats[0] is None: continue
         if mats[0].use_backface_culling:
             return False
-        for prop in [prop for prop in mat_props if prop != "use_backface_culling"]:
+        for prop in mat_props:
             if prop in mats[0] and mats[0][prop] :
                 return False
     return True
@@ -261,77 +231,98 @@ def all_equal(lst):
     return all(x == lst[0] for x in lst) if lst and len(lst) else True
 
 # MARK: on select
-@bpy.app.handlers.persistent
-def on_object_selection(context):
-    if hasattr(context, 'selected_objects') == False:
-        return None
-    indeterminates = []
-    for prop in obj_props:
-        val = get_obj_prop_value(bpy.context, prop, indeterminates)
-        if val is not None and prop != 'lighting_light':
-            context[prop] = val
-        elif prop in context and isinstance(context[prop], int):
-            context[prop] = False
+_last_selection = set()
+def on_object_selection(scene, depsgraph):
+    global _last_selection
+    sel = {obj.name for obj in bpy.context.selected_objects}
+
+    if sel == _last_selection:
+        return
+    
+    _last_selection = sel
+    
+    global _in_selection_sync
+    if _in_selection_sync:
+        return
+    
+    _in_selection_sync = True
+    scene.podblock_syncing = True
+    
+    try:
+        context = scene
+        indeterminates = []
         
-    for prop in mat_props:
-        val = get_mat_prop_value(bpy.context, prop, indeterminates)
-        if val is not None:
-            context[prop] = val
-        elif prop in context and isinstance(context[prop], int):
-            context[prop] = False
+        selected_objects = set()
+        selected_materials = set()
+        selected_textures = set()
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                selected_objects.add(obj)
+                mats = [slot.material for slot in obj.material_slots]
+                for mat in mats:
+                    selected_materials.add(mat)
+                    if mat is not None and mat.node_tree:
+                        for node in mat.node_tree.nodes:
+                            if node.type == 'TEX_IMAGE':
+                                selected_textures.add(node.image)
+                                break
         
-    textures = set()
-   
-    for obj in bpy.context.selected_objects:
-        if obj.type == 'MESH':
-            mats = [slot.material for slot in obj.material_slots]
-            for mat in mats:
-                print('mat', mat)
-                if mat is not None and mat.node_tree:
-                    for node in mat.node_tree.nodes:
-                        if node.type == 'TEX_IMAGE':
-                            textures.add(node.image)
-                            break
-    print('textures', textures)
-    if len(textures) == 1:
-        val = textures.pop()
-        context['texture'] = val
-    elif len(textures):
-        context['texture'] = None
-        indeterminates.append('texture')
-    else:
-        context['texture'] = None
-    bpy.context.scene.indeterminates = ",".join(indeterminates)
-    
-    #TODO: may be a way to avoid these functions using the indeterminate value
-    bpy.context.scene.is_v_lighting_default = is_v_lighting_default(bpy.context)
-    bpy.context.scene.is_texture_default = is_texture_default(bpy.context)
-    bpy.context.scene.is_terrain_default = is_terrain_default(bpy.context)
-    bpy.context.scene.is_fog_default = is_fog_default(bpy.context)
-    bpy.context.scene.is_lighting_default = is_lighting_default(bpy.context)
-    bpy.context.scene.is_loading_default = is_loading_default(bpy.context)
-    
-    bpy.context.scene.is_visuals_default = is_visuals_default(bpy.context)
-    bpy.context.scene.is_collision_default = is_collision_default(bpy.context)
-    
-    toggle_map = {
-        0: "UNCHECKED",
-        1: "CHECKED",
-        2: "EXED"
-    }
-    
-    selected_meshes = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
-    context.load_trigger.clear()
-    for i, view_layer in enumerate(context.view_layers):
-        if i == 0: # skip the working layer
-            continue
-        if i > 24:
-            break
-        item = context.load_trigger.add()
-        vals = [obj.load_trigger[i-1] for obj in selected_meshes]
+        for prop in obj_props:
+            val = get_prop_value(prop, indeterminates, selected_objects)
+            if val is not None and prop != 'lighting_light':
+                setattr(context, prop, val)
+            elif hasattr(context, prop) and isinstance(getattr(context, prop), int):
+                setattr(context, prop, False)
+            
+        for prop in mat_props:
+            val = get_prop_value(prop, indeterminates, selected_materials)
+            if val is not None:
+                setattr(context, prop, val)
+            elif hasattr(context, prop) and isinstance(getattr(context, prop), int):
+                setattr(context, prop, False)
         
-        item.name = view_layer.name + ("*" if not all_equal(vals) else "")
-        item.toggle_state = toggle_map[vals[0] if len(vals) and all_equal(vals) else 0]
+        if len(selected_textures) == 1:
+            val = selected_textures.pop()
+            setattr(context, 'texture', val)
+        elif len(selected_textures):
+            setattr(context, 'texture', None)
+            indeterminates.append('texture')
+        else:
+            setattr(context, 'texture', None)
+        bpy.context.scene.indeterminates = ",".join(indeterminates)
+        
+        #TODO: may be a way to avoid these functions using the indeterminate value
+        bpy.context.scene.is_v_lighting_default = is_v_lighting_default(bpy.context)
+        bpy.context.scene.is_texture_default = is_texture_default(bpy.context)
+        bpy.context.scene.is_terrain_default = is_terrain_default(bpy.context)
+        bpy.context.scene.is_fog_default = is_fog_default(bpy.context)
+        bpy.context.scene.is_lighting_default = is_lighting_default(bpy.context)
+        bpy.context.scene.is_loading_default = is_loading_default(bpy.context)
+        
+        bpy.context.scene.is_visuals_default = is_visuals_default(bpy.context)
+        bpy.context.scene.is_collision_default = is_collision_default(bpy.context)
+        
+        toggle_map = {
+            0: "UNCHECKED",
+            1: "CHECKED",
+            2: "EXED"
+        }
+        
+        context.load_trigger.clear()
+        for i, view_layer in enumerate(context.view_layers):
+            if i == 0: # skip the working layer
+                continue
+            if i > 24:
+                break
+            item = context.load_trigger.add()
+            vals = [obj.load_trigger[i-1] for obj in selected_objects]
+            
+            item.name = view_layer.name + ("*" if not all_equal(vals) else "")
+            item.toggle_state = toggle_map[vals[0] if len(vals) and all_equal(vals) else 0]
+            
+    finally:
+        scene.podblock_syncing = False
+        _in_selection_sync = False
 
 def op_with_props(layout, op, text, props={}):
     """Helper to add an operator with dynamic properties."""
@@ -461,7 +452,7 @@ class ToolPanel(bpy.types.Panel):
         box = layout.box()
         
         row = box.row()
-        row.operator("object.generate_material_assets", text="Export Ass Library", icon='ASSET_MANAGER')
+        row.operator("object.generate_material_assets", text="Export Asset Library", icon='ASSET_MANAGER')
         
         row = box.row()
         row.label(text = "New", icon = "FILE_NEW")
@@ -493,13 +484,13 @@ def section_header(context, layout, operator, default, expanded, name, icon):
     row = layout.row()
     subrow = row.row()
     subrow.alignment = 'LEFT'
-    subrow.operator("view3d.open_url", text=name, emboss=False, icon = icon)
+    subrow.prop(context.scene, expanded, text=name, emboss=False, icon = icon)
     subrow = row.row()
     subrow.alignment = 'RIGHT'
-    if default not in context.scene or not context.scene[default]:
+    if default not in context.scene or not getattr(context.scene, default, False):
         subrow.operator(operator, text='', emboss=False, icon='LOOP_BACK')
     
-    icon = 'DOWNARROW_HLT' if expanded in context.scene and context.scene[expanded] else 'RIGHTARROW'
+    icon = 'DOWNARROW_HLT' if getattr(context.scene, expanded) else 'RIGHTARROW'
     subrow.prop(context.scene, expanded, icon = icon, text = '', emboss = False)
     
     
@@ -594,7 +585,7 @@ class SelectedPanel(bpy.types.Panel):
                         row.operator("view3d.reset_visuals", text = "Split mesh by material")
                     elif len(mats):
                         row = box.row()
-                        row.prop(context.scene, "material_color", text = f'Base color{is_indeterminate("material_color")}')
+                        row.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
                         row = box.row()
                         row.prop(context.scene, 'use_backface_culling', text = f'Backface Culling{is_indeterminate("use_backface_culling")}')
                         row = box.row(align=True)
@@ -645,24 +636,30 @@ class SelectedPanel(bpy.types.Panel):
                         
                         row = box.row()
                         col = row.column()
+                        r = col.row()
+                        r.label(text = "Gameplay")
+                        r.enabled = False
                         for flag in gameplay:
                             col.prop(context.scene, flag, text = f"{flag}{is_indeterminate(flag)}")
                         
                         r = col.row()
-                        r.label(text = "")
-                        r.scale_y = 0.5
+                        r.label(text = "Overrides")
+                        r.enabled = False
                         r = col.row()
                         r.prop(context.scene, "magnet", text = is_indeterminate('magnet'), icon = 'SNAP_ON')
                         r.prop(context.scene, "strict_spline", text = is_indeterminate('strict_spline'), icon = 'SEQ_LUMA_WAVEFORM')
                         r.prop(context.scene, "elevation", text = is_indeterminate('elevation'), icon = 'MOD_DISPLACE')
                             
                         col = row.column()
+                        r = col.row()
+                        r.label(text = "Effects")
+                        r.enabled = False
                         for flag in effects:
                             col.prop(context.scene, flag, text = f"{flag}{is_indeterminate(flag)}")
                             
                         r = col.row()
-                        r.label(text = "")
-                        r.scale_y = 0.5
+                        r.label(text = "Feedback")
+                        r.enabled = False
                         for flag in feedback:
                             col.prop(context.scene, flag, text = f"{flag}{is_indeterminate(flag)}")
                     
@@ -809,20 +806,24 @@ def register():
     for name, file in icon_files:
         pcoll.load(name, os.path.join(icons_dir, file), 'IMAGE')
     preview_collections["main"] = pcoll
-    bpy.app.handlers.depsgraph_update_post.append(on_object_selection)
+    if on_object_selection not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(on_object_selection)
     bpy.utils.register_class(InfoPanel)
     bpy.utils.register_class(ImportPanel)
     bpy.utils.register_class(MY_UL_CustomList)
     bpy.utils.register_class(ToolPanel)
     bpy.utils.register_class(SelectedPanel)
+    bpy.types.Scene.podblock_syncing = bpy.props.BoolProperty(name="PodBlock internal syncing", default = False, options={'HIDDEN', 'SKIP_SAVE'})
     
 def unregister():
-    bpy.app.handlers.depsgraph_update_post.remove(on_object_selection)
+    if on_object_selection in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(on_object_selection)
     bpy.utils.unregister_class(InfoPanel)
     bpy.utils.unregister_class(ImportPanel)
     bpy.utils.unregister_class(MY_UL_CustomList)
     bpy.utils.unregister_class(ToolPanel)
     bpy.utils.unregister_class(SelectedPanel)
+    del bpy.types.Scene.podblock_syncing
     
     # Remove icons
     for pcoll in preview_collections.values():

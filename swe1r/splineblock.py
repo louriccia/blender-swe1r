@@ -283,7 +283,6 @@ class Spline(DataStruct):
             start = self.find_closest(first.co , 'start')
             end = self.find_closest(last.co, 'end', ban = start)
             points = path.bezier_points[1:-1]
-            print(k, start, end)
             assert start != end, "Something went wrong during Spline export"
             
             # check if path needs to be inverted
@@ -350,7 +349,6 @@ class Spline(DataStruct):
                 continue
             distance_vec = (d - co[j] for j, d in enumerate(point.position.to_array()))
             distance = math.sqrt(sum([d**2 for d in distance_vec]))
-            print(i, co, point.position.to_array(), distance_vec, distance, closest_distance)
             
             if distance < closest_distance:
                 closest_index = i

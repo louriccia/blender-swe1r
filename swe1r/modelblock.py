@@ -21,6 +21,7 @@
 
 import struct
 import bpy
+from bpy_extras import anim_utils
 import bmesh
 import math
 import mathutils
@@ -42,6 +43,26 @@ def get_model_type(name):
         if model_name == name:
             return code
     return None 
+
+def ensure_cycles_first(fcurve):
+    mods = fcurve.modifiers
+
+    # If it already has a Cycles modifier, just make sure it's first.
+    idx = next((i for i, m in enumerate(mods) if m.type == 'CYCLES'), None)
+
+    # If it doesn't exist, create one (it will be appended at the end).
+    if idx is None:
+        m = mods.new('CYCLES')
+        idx = len(mods) - 1
+    else:
+        m = mods[idx]
+
+    # Move Cycles to index 0
+    while idx > 0:
+        mods.move(idx, idx - 1)
+        idx -= 1
+
+    return m
 
 class Lights(DataStruct):
     def __init__(self, model):
@@ -248,7 +269,7 @@ class CollisionTrigger(DataStruct):
         trigger_empty.location = self.position.data
         trigger_empty.rotation_euler = [math.asin(self.rotation.data[2]), 0, math.atan2(self.rotation.data[1], self.rotation.data[0])]
         trigger_empty.scale = [self.width/2, self.width/2, self.height/2]
-        trigger_empty['trigger_id'] = self.id
+        trigger_empty.trigger_id = self.id
         
         
         self.flags.make(trigger_empty)
@@ -391,12 +412,12 @@ class SurfaceFlags(DataStruct):
     
     def make(self, obj):
         for attr in self.flags:
-            obj[attr] = getattr(self, attr)
+            setattr(obj, attr, getattr(self, attr))
     
     def unmake(self, obj):
         for attr in self.flags:
-            if attr in obj:
-                setattr(self, attr, obj[attr])
+            if hasattr(obj, attr):
+                setattr(self, attr, getattr(obj, attr))
     
     def write(self, buffer, cursor):
         data = 0
@@ -450,7 +471,7 @@ class CollisionTags(DataStruct):
         self.flags.make(obj)
         self.fog.make(obj)
         self.lights.make(obj)
-        obj['collision_data'] = True
+        obj.collision_data = True
         
         obj.load_trigger = [0 for i in range(24)]
         for i in range(24):
@@ -1026,8 +1047,6 @@ class MaterialTexture(DataStruct):
         if 'format' in image:
             self.format = int(image['format'])
 
-        print(image.name, self.id, self.format)
-        
         self.width, self.height = image.size
         self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
 
@@ -1172,7 +1191,8 @@ class MaterialShader(DataStruct):
         if self.unk1 == 8 or self.render_mode_1 & 0x800 or self.render_mode_2 & 0x800:
             material.show_transparent_back = True
             material.blend_method = 'BLEND'
-            material['transparent'] = True
+            material.transparent = True
+            material.surface_render_method = 'DITHERED'
     
     def unmake(self, material):
         if material is not None:
@@ -1291,145 +1311,150 @@ class Material(DataStruct):
         material['id'] = self.id
         material['format'] = self.format
         
-        if (self.texture is not None or tex_name is not None):
-            tex_name = tex_name if tex_name is not None else str(self.texture.id)
-
-            material['scroll_x'] = self.scroll_x
-            material['scroll_y'] = self.scroll_y
-            material['clip_x'] = self.clip_x
-            material['clip_y'] = self.clip_y
-            
-            material.blend_method = 'OPAQUE'
-            self.shader.make(material)
-            
-            if self.texture and self.texture.format == 3:
-                material.blend_method = 'BLEND'
-            if (self.format & 8):
-                material.use_backface_culling = True
-            
-            node_1 = material.node_tree.nodes.new("ShaderNodeTexImage")
-            node_2 = material.node_tree.nodes.new("ShaderNodeVertexColor")
-            node_3 = material.node_tree.nodes.new("ShaderNodeMixRGB")
-            node_3.blend_type = 'MULTIPLY'
-            node_3.inputs['Fac'].default_value = 1
-            material.node_tree.links.new(node_1.outputs["Color"], node_3.inputs["Color2"])
-            material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color1"])
-            material.node_tree.links.new(node_3.outputs["Color"], node_0.inputs["Base Color"])
-            material.node_tree.links.new(node_1.outputs["Alpha"], node_0.inputs["Alpha"])
-            node_0.inputs["Specular IOR Level"].default_value = 0
-
-            if self.scroll_x != 0 or self.scroll_y != 0:
-                shader_node = material.node_tree.nodes.new("ShaderNodeTexCoord")
-                mapping_node = material.node_tree.nodes.new("ShaderNodeMapping")
-                material.node_tree.links.new(shader_node.outputs["UV"], mapping_node.inputs["Vector"])
-                material.node_tree.links.new(mapping_node.outputs["Vector"], node_1.inputs["Vector"])
-                
-                keyframes = [0, abs(self.scroll_x) if self.scroll_x != 0 else abs(self.scroll_y)]
-                poses = [0, 1]
-                
-                if self.scroll_x < 0 or self.scroll_y < 0:
-                    poses.reverse()
-                
-                for i, time in enumerate(keyframes):
-                    default_value = [0, 0, 0]
-                    if self.scroll_x: 
-                        default_value[0] = poses[i]
-                    elif self.scroll_y: 
-                        default_value[1] = poses[i]
-                        
-                    mapping_node.inputs[1].default_value = default_value
-                    mapping_node.inputs[1].keyframe_insert(data_path="default_value", frame = time * (bpy.context.scene.render.fps if remake else self.model.fps))
-                
-                if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
-                    for fcurves_f in material.node_tree.animation_data.action.fcurves:
-                        for k in fcurves_f.keyframe_points:
-                            k.interpolation = 'LINEAR'
-            
-            # NOTE: probably shouldn't do it this way
-            # TODO: find specific tag
-            if tex_name in ["1167", "1077", "1461", "1596"]:
-                material.blend_method = 'BLEND'
-                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Alpha"])
-            
-            if self.format in [31, 15, 7]:
-                material.node_tree.links.new(node_2.outputs["Color"], node_0.inputs["Normal"])
-                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
-            
-            chunk_tag = self.texture.chunks[0].unk1 if self.texture and len(self.texture.chunks) else 0
-            if(self.texture and self.texture.chunks and chunk_tag & 0x11 != 0):
-                node_4 = material.node_tree.nodes.new("ShaderNodeUVMap")
-                node_5 = material.node_tree.nodes.new("ShaderNodeSeparateXYZ")
-                node_6 = material.node_tree.nodes.new("ShaderNodeCombineXYZ")
-                material.node_tree.links.new(node_4.outputs["UV"], node_5.inputs["Vector"])
-                material.node_tree.links.new(node_6.outputs["Vector"], node_1.inputs["Vector"])
-
-                if self.scroll_x or self.scroll_y:
-                    material.node_tree.links.new(mapping_node.outputs["Vector"], node_5.inputs["Vector"])
-
-                if(chunk_tag & 0x1):
-                    material.flip_x = True
-                if(chunk_tag & 0x10):
-                    material.flip_y = True
-                if(chunk_tag & 0x2):
-                    material.clip_x = True
-                if(chunk_tag & 0x20):
-                    material.clip_y = True
-                    
-                if(chunk_tag & 0x11 == 0x11):
-                    node_7 = material.node_tree.nodes.new("ShaderNodeMath")
-                    node_7.operation = 'PINGPONG'
-                    node_7.inputs[1].default_value = 1
-                    material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
-                    material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
-                    node_8 = material.node_tree.nodes.new("ShaderNodeMath")
-                    node_8.operation = 'PINGPONG'
-                    node_8.inputs[1].default_value = 1
-                    material.node_tree.links.new(node_5.outputs["Y"], node_8.inputs["Value"])
-                    material.node_tree.links.new(node_8.outputs["Value"], node_6.inputs["Y"])
-                elif(chunk_tag & 0x11 == 0x01):
-                    material.node_tree.links.new(node_5.outputs["X"], node_6.inputs["X"])
-                    node_7 = material.node_tree.nodes.new("ShaderNodeMath")
-                    node_7.operation = 'PINGPONG'
-                    node_7.inputs[1].default_value = 1
-                    material.node_tree.links.new(node_5.outputs["Y"], node_7.inputs["Value"])
-                    material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["Y"])
-                elif(chunk_tag & 0x11 == 0x10):
-                    node_7 = material.node_tree.nodes.new("ShaderNodeMath")
-                    node_7.operation = 'PINGPONG'
-                    node_7.inputs[1].default_value = 1
-                    material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
-                    material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
-                    material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
-
-            b_tex = bpy.data.images.get(tex_name)
-            if b_tex is None and self.texture:
-                b_tex = self.texture.make()
-            
-            image_node = material.node_tree.nodes["Image Texture"]
-            image_node.image = b_tex
-            
-            if self.texture_anim: # TODO
-                bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
-                image_node.image = bpy.data.images.get('0.png')
-                bpy.data.images["0.png"].source = 'SEQUENCE'
-                node_1.image_user.use_auto_refresh = True
-                node_1.image_user.frame_duration = 1
-                for f in range(anim[child]['num_keyframes']):
-                    node_1.image_user.frame_offset = anim[child]['keyframe_poses'][f] - 1
-                    node_1.image_user.keyframe_insert(data_path="frame_offset", frame = round(anim[child]['keyframe_times'][f] * (bpy.context.scene.render.fps if remake else self.model.fps)))
-                if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
-                    for fcurves_f in material.node_tree.animation_data.action.fcurves:
-                        #new_modifier = fcurves_f.modifiers.new(type='CYCLES')
-                        for k in fcurves_f.keyframe_points:
-                            k.interpolation = 'CONSTANT'
-            material.preview_render_type = 'FLAT'
-            return material
-        else:
+        if (self.texture is None and tex_name is None):
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             node_0.inputs["Specular IOR Level"].default_value = 0
             material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
             material.preview_render_type = 'FLAT'
             return material
+    
+        tex_name = tex_name or str(self.texture.id)
+
+        material['scroll_x'] = self.scroll_x
+        material['scroll_y'] = self.scroll_y
+        material['clip_x'] = self.clip_x
+        material['clip_y'] = self.clip_y
+        
+        material.blend_method = 'OPAQUE'
+        self.shader.make(material)
+        
+        if self.texture and self.texture.format == 3:
+            material.blend_method = 'BLEND'
+            
+        if (self.format & 8):
+            material.use_backface_culling = True
+        
+        node_1 = material.node_tree.nodes.new("ShaderNodeTexImage")
+        node_2 = material.node_tree.nodes.new("ShaderNodeVertexColor")
+        node_3 = material.node_tree.nodes.new("ShaderNodeMixRGB")
+        node_3.blend_type = 'MULTIPLY'
+        node_3.inputs['Fac'].default_value = 1
+        material.node_tree.links.new(node_1.outputs["Color"], node_3.inputs["Color2"])
+        material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color1"])
+        material.node_tree.links.new(node_3.outputs["Color"], node_0.inputs["Base Color"])
+        material.node_tree.links.new(node_1.outputs["Alpha"], node_0.inputs["Alpha"])
+        node_0.inputs["Specular IOR Level"].default_value = 0
+
+        if self.scroll_x != 0 or self.scroll_y != 0:
+            shader_node = material.node_tree.nodes.new("ShaderNodeTexCoord")
+            mapping_node = material.node_tree.nodes.new("ShaderNodeMapping")
+            material.node_tree.links.new(shader_node.outputs["UV"], mapping_node.inputs["Vector"])
+            material.node_tree.links.new(mapping_node.outputs["Vector"], node_1.inputs["Vector"])
+            
+            keyframes = [0, abs(self.scroll_x) if self.scroll_x != 0 else abs(self.scroll_y)]
+            poses = [0, 1]
+            
+            if self.scroll_x < 0 or self.scroll_y < 0:
+                poses.reverse()
+            
+            for i, time in enumerate(keyframes):
+                default_value = [0, 0, 0]
+                if self.scroll_x: 
+                    default_value[0] = poses[i]
+                elif self.scroll_y: 
+                    default_value[1] = poses[i]
+                    
+                mapping_node.inputs[1].default_value = default_value
+                mapping_node.inputs[1].keyframe_insert(data_path="default_value", frame = time * (bpy.context.scene.render.fps if remake else self.model.fps))
+            
+            if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
+                bag = anim_utils.action_get_channelbag_for_slot(material.node_tree.animation_data.action, material.node_tree.animation_data.action_slot)
+                for fcurves_f in bag.fcurves:
+                    ensure_cycles_first(fcurves_f)
+                    for k in fcurves_f.keyframe_points:
+                        k.interpolation = 'LINEAR'
+        
+        # NOTE: probably shouldn't do it this way
+        # TODO: find specific tag
+        if tex_name in ["1167", "1077", "1461", "1596"]:
+            material.blend_method = 'BLEND'
+            material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Alpha"])
+        
+        if self.format in [31, 15, 7]:
+            material.node_tree.links.new(node_2.outputs["Color"], node_0.inputs["Normal"])
+            material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
+        
+        chunk_tag = self.texture.chunks[0].unk1 if self.texture and len(self.texture.chunks) else 0
+        if(self.texture and self.texture.chunks and chunk_tag & 0x11 != 0):
+            node_4 = material.node_tree.nodes.new("ShaderNodeUVMap")
+            node_5 = material.node_tree.nodes.new("ShaderNodeSeparateXYZ")
+            node_6 = material.node_tree.nodes.new("ShaderNodeCombineXYZ")
+            material.node_tree.links.new(node_4.outputs["UV"], node_5.inputs["Vector"])
+            material.node_tree.links.new(node_6.outputs["Vector"], node_1.inputs["Vector"])
+
+            if self.scroll_x or self.scroll_y:
+                material.node_tree.links.new(mapping_node.outputs["Vector"], node_5.inputs["Vector"])
+
+            if(chunk_tag & 0x1):
+                material.flip_x = True
+            if(chunk_tag & 0x10):
+                material.flip_y = True
+            if(chunk_tag & 0x2):
+                material.clip_x = True
+            if(chunk_tag & 0x20):
+                material.clip_y = True
+                
+            if(chunk_tag & 0x11 == 0x11):
+                node_7 = material.node_tree.nodes.new("ShaderNodeMath")
+                node_7.operation = 'PINGPONG'
+                node_7.inputs[1].default_value = 1
+                material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
+                material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
+                node_8 = material.node_tree.nodes.new("ShaderNodeMath")
+                node_8.operation = 'PINGPONG'
+                node_8.inputs[1].default_value = 1
+                material.node_tree.links.new(node_5.outputs["Y"], node_8.inputs["Value"])
+                material.node_tree.links.new(node_8.outputs["Value"], node_6.inputs["Y"])
+            elif(chunk_tag & 0x11 == 0x01):
+                material.node_tree.links.new(node_5.outputs["X"], node_6.inputs["X"])
+                node_7 = material.node_tree.nodes.new("ShaderNodeMath")
+                node_7.operation = 'PINGPONG'
+                node_7.inputs[1].default_value = 1
+                material.node_tree.links.new(node_5.outputs["Y"], node_7.inputs["Value"])
+                material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["Y"])
+            elif(chunk_tag & 0x11 == 0x10):
+                node_7 = material.node_tree.nodes.new("ShaderNodeMath")
+                node_7.operation = 'PINGPONG'
+                node_7.inputs[1].default_value = 1
+                material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
+                material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
+                material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
+
+        b_tex = bpy.data.images.get(tex_name)
+        if b_tex is None and self.texture:
+            b_tex = self.texture.make()
+        
+        image_node = material.node_tree.nodes["Image Texture"]
+        image_node.image = b_tex
+        
+        if self.texture_anim: # TODO
+            bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
+            image_node.image = bpy.data.images.get('0.png')
+            bpy.data.images["0.png"].source = 'SEQUENCE'
+            node_1.image_user.use_auto_refresh = True
+            node_1.image_user.frame_duration = 1
+            for f in range(anim[child]['num_keyframes']):
+                node_1.image_user.frame_offset = anim[child]['keyframe_poses'][f] - 1
+                node_1.image_user.keyframe_insert(data_path="frame_offset", frame = round(anim[child]['keyframe_times'][f] * (bpy.context.scene.render.fps if remake else self.model.fps)))
+            if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
+                bag = anim_utils.action_get_channelbag_for_slot(material.node_tree.animation_data.action, material.node_tree.animation_data.action_slot)
+                for fcurves_f in bag.fcurves:
+                    ensure_cycles_first(fcurves_f)
+                    for k in fcurves_f.keyframe_points:
+                        k.interpolation = 'CONSTANT'
+        material.preview_render_type = 'FLAT'
+        return material
+            
 
     def unmake(self, material):
         material_name: str = ""
@@ -1977,7 +2002,7 @@ class Mesh(DataStruct):
     def unmake(self, node, unmake_anim = True):
         self.original_object = node
         
-        if node.get('visible') is None and node.get('collidable') is None:
+        if not node.visible and not node.collidable:
             if self.model.type == '7':
                 node.collidable = True
             node.visible = True        
@@ -2010,8 +2035,6 @@ class Mesh(DataStruct):
             
             if not len(faces) or not len(verts):
                 return None
-
-            print('raw faces', [len(face) for face in faces])
 
             # fix uvs
             if self.material and self.material.texture:
@@ -2058,8 +2081,6 @@ class Mesh(DataStruct):
             
             #TODO: Automatically split meshes?
             assert len(faces) <= 2048, f"Max faces reached in {node.name} {len(new_faces)}/2048"
-            
-            print('uv_corrected_faces', [len(face) for face in faces])
             
             # reorder faces to maximize shared edges
             ordered_faces = []
@@ -2919,7 +2940,9 @@ class UVPose(DataStruct):
         mapping_node.inputs[1].keyframe_insert(data_path="default_value", frame = time * self.model.fps)
         
         if target.node_tree.animation_data is not None and target.node_tree.animation_data.action is not None:
-            for fcurves_f in target.node_tree.animation_data.action.fcurves:
+            bag = anim_utils.action_get_channelbag_for_slot(target.node_tree.animation_data.action, target.node_tree.animation_data.action_slot)
+            for fcurves_f in bag.fcurves:
+                ensure_cycles_first(fcurves_f)
                 for k in fcurves_f.keyframe_points:
                     k.interpolation = 'LINEAR'
     
@@ -2961,7 +2984,8 @@ def get_animations(obj, model, entity):
     
     #get all unique keyframes for each fcurve and data path
     keyframes = {}
-    for fcurve in obj.animation_data.action.fcurves:
+    bag = anim_utils.action_get_channelbag_for_slot(obj.animation_data.action, obj.animation_data.action_slot)
+    for fcurve in bag.fcurves:
         array_index = fcurve.array_index
         data_path = fcurve.data_path
         
@@ -2983,7 +3007,7 @@ def get_animations(obj, model, entity):
                     keyframes[data_path]['poses'][frame] = [None, None, None, None]
                 
     # for each keyframe, evaluate values
-    for fcurve in obj.animation_data.action.fcurves:
+    for fcurve in bag.fcurves:
         array_index = fcurve.array_index
         data_path = fcurve.data_path
         for keyframe in keyframes[data_path]['times']:
@@ -3116,12 +3140,16 @@ class Anim(DataStruct):
         if target is None:
             return
         #make linear
-        if target.animation_data is not None and target.animation_data.action is not None:
-            for fcurve in target.animation_data.action.fcurves:
-                if self.loop:
-                    fcurve.modifiers.new(type='CYCLES')
-                for keyframe in fcurve.keyframe_points:
-                    keyframe.interpolation = 'LINEAR'
+        if not target.animation_data or not target.animation_data.action: 
+            return
+        bag = anim_utils.action_get_channelbag_for_slot(target.animation_data.action, target.animation_data.action_slot)
+        if not bag:
+            return
+        for fcurve in bag.fcurves:
+            if self.loop:
+                ensure_cycles_first(fcurve)
+            for keyframe in fcurve.keyframe_points:
+                keyframe.interpolation = 'LINEAR'
     
         
     

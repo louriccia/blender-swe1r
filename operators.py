@@ -20,7 +20,6 @@
 # /licenses>.
 
 import bpy 
-import pathlib
 import sys
 import importlib
 import traceback
@@ -228,7 +227,7 @@ class SelectByProperty(bpy.types.Operator):
 
         # Select objects based on property
         for obj in bpy.context.scene.objects:
-            if self.property_name in obj and obj[self.property_name]:
+            if getattr(obj, self.property_name, False):
                 obj.hide_select = False
                 obj.select_set(True)
 
@@ -449,7 +448,7 @@ class BakeVColors(bpy.types.Operator):
 # MARK: COLLISION
     
 class PreviewLoadTrigger(bpy.types.Operator):
-    """Preview load trigger"""
+    """Show which objects would be loaded when the player touches this collision"""
     bl_label = "SWE1R Import/Export"
     bl_idname = "view3d.preview_load"
     
