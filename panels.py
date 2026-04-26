@@ -33,8 +33,9 @@ from mathutils import Color, Vector, Euler, Quaternion
 
 
 models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
-classes = []    
+classes = []
 _in_selection_sync = False
+_msgbus_owner = object()
 
 #https://blenderartists.org/t/bpy-types-pointerproperty-fpr-view-layer/1446387
 # For anyone who stumbles upon this topic in the future, you can create a custom enum like this:
@@ -123,7 +124,8 @@ mat_props = [
     'flip_y',
     'clip_x',
     'clip_y',
-    'transparent'
+    'transparent',
+    'use_backface_culling',
 ]
 
 def is_indeterminate(prop, text = ""):
@@ -231,22 +233,28 @@ def all_equal(lst):
     return all(x == lst[0] for x in lst) if lst and len(lst) else True
 
 # MARK: on select
-_last_selection = set()
-def on_object_selection(scene, depsgraph):
-    global _last_selection
-    sel = {obj.name for obj in bpy.context.selected_objects}
+_last_selection = (None, frozenset())
+def on_object_selection(scene = None, depsgraph = None):
+    global _last_selection, _in_selection_sync
 
-    if sel == _last_selection:
+    if scene is None:
+        scene = bpy.context.scene
+
+    view_layer = bpy.context.view_layer
+    active = view_layer.objects.active if view_layer else None
+    active_name = active.name if active else None
+    sel = frozenset(obj.name for obj in bpy.context.selected_objects)
+    key = (active_name, sel)
+
+    if key == _last_selection:
         return
-    
-    _last_selection = sel
-    
-    global _in_selection_sync
+
     if _in_selection_sync:
         return
-    
+
     _in_selection_sync = True
     scene.podblock_syncing = True
+    _last_selection = key
     
     try:
         context = scene
@@ -264,7 +272,8 @@ def on_object_selection(scene, depsgraph):
                     if mat is not None and mat.node_tree:
                         for node in mat.node_tree.nodes:
                             if node.type == 'TEX_IMAGE':
-                                selected_textures.add(node.image)
+                                if node.image is not None:
+                                    selected_textures.add(node.image)
                                 break
         
         for prop in obj_props:
@@ -323,6 +332,24 @@ def on_object_selection(scene, depsgraph):
     finally:
         scene.podblock_syncing = False
         _in_selection_sync = False
+        screen = bpy.context.screen
+        if screen:
+            for area in screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+
+def _subscribe_selection_msgbus():
+    bpy.msgbus.clear_by_owner(_msgbus_owner)
+    bpy.msgbus.subscribe_rna(
+        key=(bpy.types.LayerObjects, 'active'),
+        owner=_msgbus_owner,
+        args=(),
+        notify=on_object_selection,
+    )
+
+@bpy.app.handlers.persistent
+def _selection_msgbus_load_post(dummy):
+    _subscribe_selection_msgbus()
 
 def op_with_props(layout, op, text, props={}):
     """Helper to add an operator with dynamic properties."""
@@ -808,6 +835,9 @@ def register():
     preview_collections["main"] = pcoll
     if on_object_selection not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(on_object_selection)
+    if _selection_msgbus_load_post not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_selection_msgbus_load_post)
+    _subscribe_selection_msgbus()
     bpy.utils.register_class(InfoPanel)
     bpy.utils.register_class(ImportPanel)
     bpy.utils.register_class(MY_UL_CustomList)
@@ -818,6 +848,9 @@ def register():
 def unregister():
     if on_object_selection in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(on_object_selection)
+    if _selection_msgbus_load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_selection_msgbus_load_post)
+    bpy.msgbus.clear_by_owner(_msgbus_owner)
     bpy.utils.unregister_class(InfoPanel)
     bpy.utils.unregister_class(ImportPanel)
     bpy.utils.unregister_class(MY_UL_CustomList)

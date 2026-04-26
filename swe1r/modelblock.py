@@ -1063,13 +1063,26 @@ class MaterialTexture(DataStruct):
             #if user has made no changes
             if hash == image.get('internal_hash'):
                 if self.id < 1648: #do nothing for vanilla
-                    return self  
-                
-                # textureblock may have changed so we need to check
+                    return self
+
+                # prefer the image's already-assigned id if it still holds matching data,
+                # so re-exports stay deterministic even when two textureblock entries are byte-identical
+                # (fetch_by_hash returns whichever colliding entry was last loaded into hash_table)
+                stored_id = self.id
+                tb_data = self.model.textureblock.data
+                if 0 <= stored_id < len(tb_data) and tb_data[stored_id] and any(tb_data[stored_id]):
+                    stored_buffer = b''.join([item for item in tb_data[stored_id] if item])
+                    if compute_hash(stored_buffer) == image.get('external_hash'):
+                        self.model.image_map[image.name] = stored_id
+                        print('found', image.name, 'already in modelblock as', stored_id)
+                        return self
+
+                # fall back to hash search if the original slot is gone or out of date
                 id = self.model.textureblock.fetch_by_hash(image.get('external_hash'))
                 if id is not None:
                     self.id = id
                     image['id'] = id
+                    self.model.image_map[image.name] = id
                     print('found', image.name, 'already in modelblock as', id)
                     return self
             
@@ -1079,6 +1092,7 @@ class MaterialTexture(DataStruct):
             image['id'] = id
             texture = Texture(id, self.format).unmake(image, self.format)
             self.format = texture.format
+            image['format'] = self.format
             if self.format in [512, 513]:
                 self.unk0 = 1
             self.width = texture.width
@@ -1127,7 +1141,9 @@ class MaterialShader(DataStruct):
         # notes from tilman https://discord.com/channels/441839750555369474/441842584592056320/1222313834425876502
         self.model = model
         self.unk1 = 0
-        self.combiner_cycle_type = 2 # maybe "combiner cycle type"
+        # 0x8 = for alpha mask
+        self.combiner_cycle_type = 2 
+        # 1 for skyboxes + 114, 2 for everything else
         
         # combine mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetCombineLERP.htm
         # these values seem to be unused by the pc version
@@ -1139,6 +1155,10 @@ class MaterialShader(DataStruct):
         self.alpha_combine_mode_cycle2 = 0#0b111000001110000011100000000
         # render mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetRenderMode.htm
         self.render_mode_1 = 0x18 #initialize with zcmp and aa
+        # 0x008 = aa
+        # 0x010 = zcm (off for skybox)
+        # 0x800 = transparency
+        
         self.render_mode_2 = 0
         # 0b11001000000100000100100101111000	1	    weird material in bwr ice reflection
         # 0b11001000000100000100101101010000	1	    transparent death beam on oovo
@@ -1148,7 +1168,6 @@ class MaterialShader(DataStruct):
         #     0b1100000110000100100101001000    6	    transparent skybox (oovo asteroids)
         #     0b1111000010100010000000001000    342	    skybox materials
         # 0b11001000000100010010000000111000	2246	everything else
-        #                       100000000000 transparency
         #  0b1100 0000 1000 0010 0000 0000 1000
         #    0b11 0000 0010 0010 0000 0000 1000
         #http://n64devkit.square7.ch/header/gbi.htm
@@ -1196,9 +1215,7 @@ class MaterialShader(DataStruct):
     
     def unmake(self, material):
         if material is not None:
-            if material.transparent:
-                self.unk1 = 8
-                self.render_mode_1 |= 0x800
+            
             self.unk1 = material.get('unk1', 0)
             self.combiner_cycle_type = material.get('combiner_cycle_type', 0)
             self.color.unmake(material.material_color)
@@ -1207,6 +1224,17 @@ class MaterialShader(DataStruct):
             self.alpha_combine_mode_cycle1 = int(material.get('alpha_combine_mode_cycle1', 0))
             self.color_combine_mode_cycle2 = int(material.get('color_combine_mode_cycle2', 0))
             self.alpha_combine_mode_cycle2 = int(material.get('alpha_combine_mode_cycle2', 0))
+            
+            # preserve __init__ defaults (0x18 = zcmp|aa) when the material lacks the prop;
+            # otherwise opaque geometry exports without RDP flags the game requires and crashes.
+            if 'render_mode_1' in material:
+                self.render_mode_1 = int(material['render_mode_1'])
+            if 'render_mode_2' in material:
+                self.render_mode_2 = int(material['render_mode_2'])
+
+            if material.transparent:
+                self.unk1 = 8
+                self.render_mode_1 |= 0x800
     
         # alternate way to detect if this material is on a skybox mesh
         mat = self.parent
@@ -1310,11 +1338,17 @@ class Material(DataStruct):
         material.node_tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
         material['id'] = self.id
         material['format'] = self.format
+        material['normal_map'] = self.format & 0x1
+        
+        self.shader.make(material)
         
         if (self.texture is None and tex_name is None):
             node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
             node_0.inputs["Specular IOR Level"].default_value = 0
-            material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
+            if material.get('normal_map'):
+                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Normal"])
+            else:
+                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
             material.preview_render_type = 'FLAT'
             return material
     
@@ -1326,7 +1360,7 @@ class Material(DataStruct):
         material['clip_y'] = self.clip_y
         
         material.blend_method = 'OPAQUE'
-        self.shader.make(material)
+        
         
         if self.texture and self.texture.format == 3:
             material.blend_method = 'BLEND'
@@ -1340,7 +1374,10 @@ class Material(DataStruct):
         node_3.blend_type = 'MULTIPLY'
         node_3.inputs['Fac'].default_value = 1
         material.node_tree.links.new(node_1.outputs["Color"], node_3.inputs["Color2"])
-        material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color1"])
+        if material.get('normal_map'):
+            material.node_tree.links.new(node_2.outputs["Color"], node_0.inputs["Normal"])
+        else:
+            material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color1"])
         material.node_tree.links.new(node_3.outputs["Color"], node_0.inputs["Base Color"])
         material.node_tree.links.new(node_1.outputs["Alpha"], node_0.inputs["Alpha"])
         node_0.inputs["Specular IOR Level"].default_value = 0
@@ -1431,7 +1468,9 @@ class Material(DataStruct):
                 material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
 
         b_tex = bpy.data.images.get(tex_name)
-        if b_tex is None and self.texture:
+        if b_tex is None:
+            b_tex = self.texture_image
+        if b_tex is None and self.texture and self.model is not None:
             b_tex = self.texture.make()
         
         image_node = material.node_tree.nodes["Image Texture"]
@@ -1477,6 +1516,7 @@ class Material(DataStruct):
             for node in material.node_tree.nodes:
                 if node.type == 'TEX_IMAGE':
                     self.texture = MaterialTexture(self, self.model).unmake(node.image)
+                    self.texture_image = node.image
 
             if hasattr(material, 'id') and material['id']:
                 self.id = material.get('id')
@@ -1504,7 +1544,10 @@ class Material(DataStruct):
             self.format = material.get('format')
             if self.format is None:
                 self.format = 14
-                
+
+            if material.get('normal_map', False):
+                self.format |= 0x01
+
             if material.use_backface_culling == False:
                 self.format &= 0b11110111
         
@@ -1980,11 +2023,10 @@ class Mesh(DataStruct):
             #set vector colors / uv coords
             uv_layer = mesh.uv_layers.new(name = 'uv')
             color_layer = mesh.vertex_colors.new(name = 'colors') #color layer has to come after uv_layer
-            
             mesh.attributes.render_color_index = b_obj.data.attributes.active_color_index
-            # no idea why but 4.0 requires I do this:
             uv_layer = b_obj.data.uv_layers.active.data
             color_layer = b_obj.data.vertex_colors.active.data                
+            
             for poly in mesh.polygons:
                 for p in range(len(poly.vertices)):
                     v = self.visuals_vert_buffer.data[poly.vertices[p]]
@@ -1995,7 +2037,22 @@ class Mesh(DataStruct):
                 view_layer = bpy.context.scene.view_layers[i + 1]
                 if 'vis_flags' in parent or parent.vis_flags:
                     b_obj.hide_set(not bool(int(parent['vis_flags']) & (1 << (i+8))), view_layer = view_layer)
-    
+                    
+            if self.group_parent_id:
+                #convert vertices coordinates to global coordinates
+                inv_matrix_world = b_obj.matrix_world.inverted()
+                for i, v in enumerate(b_obj.data.vertices):
+                    if i < self.group_count:
+                        v.co = inv_matrix_world @ (b_obj.matrix_world @ v.co)
+                vg = b_obj.vertex_groups.get(f'{self.id}')
+                if vg is None:
+                    vg = b_obj.vertex_groups.new(name=f'{self.id}')
+                vg.add(range(self.group_count), 1.0, 'REPLACE')
+                
+                hook = b_obj.modifiers.new(name=f"Hook_{self.id}", type='HOOK')
+                hook.vertex_group = vg.name
+                hook.object = get_obj_by_id(self.group_parent_id)
+                hook.falloff_type = 'NONE'
 
         
     
@@ -2118,11 +2175,6 @@ class Mesh(DataStruct):
                         new_face.append(current_index)
 
                 new_faces.append(new_face)
-                
-            # TODO: check if node has vertex group
-            if False:
-                r_mesh.group_parent = None
-                r_mesh.group_count = None
 
             self.visuals_vert_buffer.data = new_verts
             
@@ -2306,12 +2358,12 @@ class Mesh(DataStruct):
             
 def create_node(node_type, parent, model):
     NODE_MAPPING = {
-        12388: MeshGroup12388,
+        12388: MeshGroup,
         20580: Group20580,
         20581: Group20581,
         20582: Group20582,
-        53348: Group53348,
-        53349: Group53349,
+        53348: NodeTransformed,
+        53349: NodeTransformedWithPivot,
         53350: Group53350
     }
 
@@ -2324,7 +2376,7 @@ def create_node(node_type, parent, model):
 class Node(DataStruct):
     
     def __init__(self, parent, model, type, header = []):
-        super().__init__('>7I')
+        super().__init__('>3I2H3I')
         self.parent = parent
         self.type = type
         self.id = None
@@ -2338,8 +2390,9 @@ class Node(DataStruct):
         self.vis_flags = 0xFF
         self.col_flags = 0xFF
         self.flags_set = False
-        self.unk1 = 0
-        self.unk2 = 0
+        self.transform_flags = 0x3
+        self.light_index = 0
+        self.mirror_flags = 0
         self.model = model
         self.child_count = 0
         self.child_start = None
@@ -2348,7 +2401,7 @@ class Node(DataStruct):
         
     def read(self, buffer, cursor):
         self.id = cursor
-        self.node_type, self.vis_flags, self.col_flags, self.unk1, self.unk2, self.child_count, self.child_start = struct.unpack_from(self.format_string, buffer, cursor)
+        self.node_type, self.vis_flags, self.col_flags, self.transform_flags, self.light_index, self.mirror_flags, self.child_count, self.child_start = struct.unpack_from(self.format_string, buffer, cursor)
         
         if self.model.AltN and cursor in self.model.AltN:
             self.AltN = [i for i, h in enumerate(self.model.AltN) if h == cursor]
@@ -2378,7 +2431,7 @@ class Node(DataStruct):
                 self.children.append({'id': child_address})
                 continue
 
-            if isinstance(self, MeshGroup12388):
+            if isinstance(self, MeshGroup):
                 self.children.append(Mesh(self, self.model).read(buffer, child_address))
             else:
                 node = create_node(readUInt32BE(buffer, child_address), self, self.model)
@@ -2412,11 +2465,11 @@ class Node(DataStruct):
             b_node = bpy.data.objects.new(name, None)
             collection.objects.link(b_node)
             #new_empty.empty_display_size = 2
-            if self.unk1 &  1048576 != 0:
+            if self.transform_flags & 0x10 != 0:
                 b_node.empty_display_type = 'ARROWS'
                 b_node.empty_display_size = 0.5
                 
-            elif self.unk1 & 524288 != 0:
+            elif self.transform_flags & 524288 != 0:
                 b_node.empty_display_type = 'CIRCLE'
                 b_node.empty_display_size = 0.5
             else:
@@ -2434,15 +2487,22 @@ class Node(DataStruct):
         b_node['node_type'] = self.node_type
         b_node['vis_flags'] = str(self.vis_flags)
         b_node['col_flags'] = str(self.col_flags)
-        b_node['unk1'] = self.unk1
-        b_node['unk2'] = self.unk2
+        b_node['transform_flags'] = self.transform_flags
+        b_node['light_index'] = self.light_index
+        b_node['mirror_flags'] = self.mirror_flags
+        b_node['was_transformed'] = self.transform_flags & 3
+        b_node['has_transform'] = self.transform_flags & 0x10
+        
+        if hasattr(self, 'bonus') and self.bonus is not None:
+            b_node['bonus'] = self.bonus.to_array()
             
         #assign parent
         if parent is not None:
             b_node.parent = parent
-                
+            if 'bonus' in parent and False:
+                b_node.location += mathutils.Vector(parent['bonus'][:3]) * self.model.scale * -1
         
-        for node in self.children :
+        for node in self.children:
             if not isinstance(node, dict):
                 node.make(b_node, collection)
             
@@ -2463,10 +2523,20 @@ class Node(DataStruct):
             
         get_animations(node, self.model, self)
             
-        if 'unk1' in node:
-            self.unk1 =  node['unk1']
-        if 'unk2' in node:
-            self.unk2 = node['unk2']
+        if 'transform_flags' in node:
+            self.transform_flags =  node['transform_flags']
+        elif 'unk1' in node:
+            # backward-compat: legacy import stored the >I packed unk1 (high half = transform_flags, low half = light_index)
+            legacy_unk1 = int(node['unk1'])
+            self.transform_flags = (legacy_unk1 >> 16) & 0xFFFF
+            if 'light_index' not in node:
+                self.light_index = legacy_unk1 & 0xFFFF
+        if 'light_index' in node:
+            self.light_index = node['light_index']
+        if 'mirror_flags' in node:
+            self.mirror_flags = node['mirror_flags']
+        elif 'unk2' in node:
+            self.mirror_flags = int(node['unk2'])
         # if 'header' in node:
         #     self.header = node['header']
         
@@ -2493,7 +2563,7 @@ class Node(DataStruct):
         for i in self.header:
             struct.pack_into(f">{len(self.header)}I", buffer, 4 + 4*i, *[cursor]*len(self.header))
              
-        struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.vis_flags, self.col_flags, self.unk1, self.unk2, 0, 0)
+        struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.vis_flags, self.col_flags, self.transform_flags, self.light_index, self.mirror_flags, 0, 0)
         return cursor + self.size
     
     def write_children(self, buffer, cursor, child_data_addr):
@@ -2527,10 +2597,10 @@ class Node(DataStruct):
             
         return cursor
     
-    def set_flags(self, vis_flags = None, col_flags = None, unk1 = None):
+    def set_flags(self, vis_flags = None, col_flags = None, transform_flags = None):
         
-        if unk1 is not None:
-            self.unk1 = unk1
+        if transform_flags is not None:
+            self.transform_flags = transform_flags
         if vis_flags is not None or col_flags is not None:
             if vis_flags is not None:
                 self.vis_flags = vis_flags
@@ -2561,7 +2631,7 @@ class Node(DataStruct):
                     self.vis_flags &= (child.vis_flags & 0x000000FF)
         return self
 
-class MeshGroup12388(Node):
+class MeshGroup(Node):
     
     def __init__(self, parent, model, type, header = []):
         super().__init__( parent,model, type, header)
@@ -2599,7 +2669,7 @@ class MeshGroup12388(Node):
         cursor = super().write_children(buffer, cursor, child_info_start)
         return cursor
         
-class Group53348(Node):
+class NodeTransformed(Node):
     #NodeTransformed  https://github.com/tim-tim707/SW_RACER_RE/blob/fa8787540055d0bdf422b42e72ccf50cd3d72a07/src/types.h#L1290
     def __init__(self, parent, model, type, header = []):
         super().__init__(parent, model, type, header)
@@ -2630,12 +2700,12 @@ class Group53348(Node):
         cursor = super().write_children(buffer, cursor, child_info_start)
         return cursor
         
-class Group53349(Node):
+class NodeTransformedWithPivot(Node):
     #NodeTransformedWithPivot https://github.com/tim-tim707/SW_RACER_RE/blob/fa8787540055d0bdf422b42e72ccf50cd3d72a07/src/types.h#L1296
     def __init__(self, parent, model, type, header = []):
         super().__init__(parent, model, type, header)
         self.parent = parent
-        self.matrix = FloatMatrix()
+        self.matrix = FloatMatrix() 
         self.matrix.data[0].data[0] = 1.0
         self.matrix.data[1].data[1] = 1.0
         self.matrix.data[2].data[2] = 1.0
@@ -2649,8 +2719,10 @@ class Group53349(Node):
         empty = super().make(parent, collection)
         if not isinstance(empty, bpy.types.Collection):
             empty.matrix_world = self.matrix.make(self.model.scale)
-        
+            v = mathutils.Vector(self.bonus.to_array()[:3])
+            # empty.location += v * self.model.scale
         empty['bonus'] = self.bonus.to_array()
+        
         return empty
     def unmake(self, node, make_children = False):
         super().unmake(node, False)
@@ -2671,7 +2743,7 @@ class Group53349(Node):
         
 class Group53350(Node):
     # NodeTransformedComputed https://github.com/tim-tim707/SW_RACER_RE/blob/fa8787540055d0bdf422b42e72ccf50cd3d72a07/src/types.h#L1304
-    # parents to camera
+    # follows (mirrors position) and tracks (rotates to) camera
     def __init__(self, parent, model, type, header = []):
         super().__init__(parent, model, type, header)
         self.parent = parent
@@ -2823,7 +2895,8 @@ class ModelData():
         return cursor
     def make(self):
         for d in self.data:
-            d.make()
+            if isinstance(d, LStr):
+                d.make()
     def unmake(self):
         # TODO: only get objects from collection
         for obj in bpy.data.objects:
@@ -3146,7 +3219,7 @@ class Anim(DataStruct):
         if not bag:
             return
         for fcurve in bag.fcurves:
-            if self.loop:
+            if self.loop and self.model.type == '7':
                 ensure_cycles_first(fcurve)
             for keyframe in fcurve.keyframe_points:
                 keyframe.interpolation = 'LINEAR'
@@ -3367,7 +3440,7 @@ def assign_objs_to_node_by_layer(objects, root, model):
             raise Exception('Object has no layers attribute')
     
     for id, meshes in layers.items():
-        mesh_group = MeshGroup12388(root, model, 12388)
+        mesh_group = MeshGroup(root, model, 12388)
         mesh_group.vis_flags |= id
         mesh_group.col_flags |= id
         for child in meshes: 
@@ -3459,8 +3532,8 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
         if obj.get('node_type') == 53350 and not skybox:
             empty = Group53350(parent, model, 53350).unmake(obj)
         else:
-            empty = Group53349(parent, model, 53349).unmake(obj)
-        empty.unk1 = 196608 #TODO:what the heck
+            empty = NodeTransformedWithPivot(parent, model, 53349).unmake(obj)
+        empty.transform_flags = 0x3 #TODO:what the heck
         # empty.matrix = FloatMatrix()
         # empty.matrix.data[0].data[0] = 1.0
         # empty.matrix.data[1].data[1] = 1.0
@@ -3625,6 +3698,16 @@ class Model():
                 target = get_obj_by_id(trigger['target_id'])
                 trigger.target = target
                 
+        # transform parents with transforms
+        # bpy.context.scene.tool_settings.use_transform_skip_children = True
+        # for obj in collection.objects:
+        #     if 'bonus' in obj:
+        #         obj.select_set(True)
+        #         bpy.ops.transform.translate(value=([v * self.scale for v in obj['bonus']] ))
+        #         obj.select_set(False)
+        # bpy.context.scene.tool_settings.use_transform_skip_children = False
+
+                
         #header should be made last for the animations
         self.header.make()
 
@@ -3641,7 +3724,7 @@ class Model():
         root = Group20580(self, self, 20580)
         
         if self.type == '3':
-            root = Group53349(self, self, 53349)
+            root = NodeTransformedWithPivot(self, self, 53349)
             root.header = [0]
             root.col_flags &= 0xFFFFFFFD
         
@@ -3668,7 +3751,7 @@ class Model():
         # get all target objects
         target_map = {b_obj.target.name: None for b_obj in objects if b_obj.trigger_id and b_obj.target}
         
-        if self.type == '7':
+        if self.type == '7': #TRAK
             for child_collection in collection.children:
                 r_root_node = Group20580(root, self, 20580)
                 
@@ -3678,7 +3761,7 @@ class Model():
                     root.children.append(r_root_node)
                 
                 elif child_collection.collection_type == '1': #skybox
-                    sky_empty = Group53349(r_root_node, self, 53349)
+                    sky_empty = NodeTransformedWithPivot(r_root_node, self, 53349)
                     sky_empty.header = [2]
                     sky_to_camera = Group53350(sky_empty, self, 53350)
                     sky_to_camera.follow_position = 1
@@ -3699,19 +3782,17 @@ class Model():
                 assign_objs_to_node_by_type(unmade, append_root, self)
                 #r_root_node.set_flags()
             
-        elif self.type == '3': #part
-            for o in collection.objects:
-                if o.type == 'MESH':
-                    immediate_children = get_immediate_children(collection)
-                    unmade = []
-                    for obj in immediate_children:
-                        unmade.extend(deep_unmake(obj, root, self, target_map))
-                    assign_objs_to_node_by_type(unmade, root, self)
+        elif self.type == '3' or self.type == '5': #PART
+            unmade = []
+            immediate_children = get_immediate_children(collection)
+            for obj in immediate_children:
+                unmade.extend(deep_unmake(obj, root, self, target_map))
+            assign_objs_to_node_by_type(unmade, root, self)
                     
-        elif self.type == '4':
+        elif self.type == '4': #PODD
             def create_podd_component(mesh, type):
-                comp_a = Group53349(None, self, 53349)
-                comp_b = Group53348(None, self, 53348)
+                comp_a = NodeTransformedWithPivot(None, self, 53349)
+                comp_b = NodeTransformed(None, self, 53348)
                 comp_b.matrix.data[0].data[0] = 0.016
                 comp_b.matrix.data[1].data[1] = 0.016
                 comp_b.matrix.data[2].data[2] = 0.016
@@ -3723,12 +3804,12 @@ class Model():
                 return comp_a
             
             def create_air_stream(mesh, top_header, bottom_header):
-                air_a = Group53349(None, self, 53349, header = [top_header])
+                air_a = NodeTransformedWithPivot(None, self, 53349, header = [top_header])
                 air_b = Group53350(None, self, 53350)
                 link_nodes(air_a, [air_b])
-                air_c = Group53349(None, self, 53349, header = [bottom_header])
+                air_c = NodeTransformedWithPivot(None, self, 53349, header = [bottom_header])
                 link_nodes(air_b, [air_c])
-                air_d = Group53349(None, self, 53349)
+                air_d = NodeTransformedWithPivot(None, self, 53349)
                 link_nodes(air_c, [air_d])
                 if len(mesh):
                     assign_objs_to_node_by_type([Mesh(None, self).unmake(obj) for obj in mesh], air_d, self)
@@ -3737,13 +3818,13 @@ class Model():
             root = Group20581(root, self, 20581, header = [0])
             
             podd_a_node = Group20580(None, self, 20580)
-            podd_74_node = Group53349(None, self, 53349, header = [74])
+            podd_74_node = NodeTransformedWithPivot(None, self, 53349, header = [74])
             link_nodes(root, [podd_a_node, podd_74_node])
             
             podd_shadows_node = Group20580(None, self, 20580)
-            podd_engine_r_shadow = Group53349(None, self, 53349, header = [62])
-            podd_engine_l_shadow = Group53349(None, self, 53349, header = [63])
-            podd_cockpit_shadow = Group53349(None, self, 53349, header = [64])
+            podd_engine_r_shadow = NodeTransformedWithPivot(None, self, 53349, header = [62])
+            podd_engine_l_shadow = NodeTransformedWithPivot(None, self, 53349, header = [63])
+            podd_cockpit_shadow = NodeTransformedWithPivot(None, self, 53349, header = [64])
             link_nodes(podd_shadows_node, [podd_engine_r_shadow, podd_engine_l_shadow, podd_cockpit_shadow])
             
             podd_b_node = Group20580(None, self, 20580)
@@ -3751,12 +3832,12 @@ class Model():
             podd_71_node = Group20580(None, self, 20580, header = [71])
             link_nodes(podd_b_node, [podd_71_node])
             
-            podd_sparks = Group53349(None, self, 53349, header = [65])
-            podd_sparks_ai = Group53349(None, self, 53349, header = [66])
-            podd_72_node = Group53349(None, self, 53349, header = [72])
-            podd_73_node = Group53349(None, self, 53349, header = [73])
-            podd_binder1 = Group53349(None, self, 53349, header = [6])
-            podd_binder2 = Group53349(None, self, 53349, header = [7])
+            podd_sparks = NodeTransformedWithPivot(None, self, 53349, header = [65])
+            podd_sparks_ai = NodeTransformedWithPivot(None, self, 53349, header = [66])
+            podd_72_node = NodeTransformedWithPivot(None, self, 53349, header = [72])
+            podd_73_node = NodeTransformedWithPivot(None, self, 53349, header = [73])
+            podd_binder1 = NodeTransformedWithPivot(None, self, 53349, header = [6])
+            podd_binder2 = NodeTransformedWithPivot(None, self, 53349, header = [7])
             link_nodes(podd_binder1, [podd_binder2])
             podd_airsream_right = create_air_stream([], 67, 69)
             podd_airsream_left = create_air_stream([], 68, 70)
@@ -3773,28 +3854,28 @@ class Model():
                     right_engine_mesh = get_all_objects_in_collection(child_collection)
                     right_engine = create_podd_component(right_engine_mesh, 'engine_r')
                     link_nodes(podd_71_node, [right_engine])
-                    podd_engine_r = Group53349(None, self, 53349, header = [1])
+                    podd_engine_r = NodeTransformedWithPivot(None, self, 53349, header = [1])
                     link_nodes(podd_engine_r, right_engine.children)
                     right_engine.header = [14]
                 elif child_collection.collection_type == '3':
                     left_engine_mesh = get_all_objects_in_collection(child_collection)
                     left_engine = create_podd_component(left_engine_mesh, 'engine_l')
                     link_nodes(podd_71_node, [left_engine])
-                    podd_engine_l = Group53349(None, self, 53349, header = [2])
+                    podd_engine_l = NodeTransformedWithPivot(None, self, 53349, header = [2])
                     link_nodes(podd_engine_l, left_engine.children)
                     left_engine.header = [15]
                 elif child_collection.collection_type == '4':
                     cockpit_mesh = get_all_objects_in_collection(child_collection)
                     cockpit = create_podd_component(cockpit_mesh, 'cockpit')
                     link_nodes(podd_71_node, [cockpit])
-                    podd_cockpit = Group53349(None, self, 53349, header = [5])
+                    podd_cockpit = NodeTransformedWithPivot(None, self, 53349, header = [5])
                     link_nodes(podd_cockpit, cockpit.children)
                     link_nodes(podd_a_node, [podd_cockpit])
                     cockpit.header = [16]
                 elif child_collection.collection_type == '5':
                     cable_mesh = get_all_objects_in_collection(child_collection)
-                    podd_cable1 = Group53349(None, self, 53349, header = [10])
-                    podd_cable2 = Group53349(None, self, 53349, header = [11])
+                    podd_cable1 = NodeTransformedWithPivot(None, self, 53349, header = [10])
+                    podd_cable2 = NodeTransformedWithPivot(None, self, 53349, header = [11])
                     assign_objs_to_node_by_type([Mesh(podd_cable1, self).unmake(obj) for obj in cable_mesh], podd_cable1, self)
                     assign_objs_to_node_by_type([Mesh(podd_cable2, self).unmake(obj) for obj in cable_mesh], podd_cable2, self)
                     link_nodes(podd_a_node, [podd_cable1, podd_cable2])

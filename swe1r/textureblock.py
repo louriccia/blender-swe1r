@@ -146,17 +146,14 @@ class Texture():
             print(f"Texture {self.id} is missing width/height/format data")
             return
         
-        cache_dir = "C:/Users/louri/Documents/Blender/swe1r_cache/textures"
-        
         tex_name = str(self.id)
-        
+
         # Check if cached version exists
         if cache_dir:
             os.makedirs(cache_dir, exist_ok=True)
             filepath = os.path.join(cache_dir, f"texture_{self.id:04d}.png")
-            
+
             if os.path.exists(filepath):
-                print(f"Loading texture {self.id} from cache")
                 # Load from cache
                 new_image = bpy.data.images.load(filepath)
                 new_image['format'] = self.format
@@ -173,8 +170,7 @@ class Texture():
                 return new_image
         
         # Cache miss or no cache - generate the image
-        print(f"Generating texture {self.id}")
-        
+
         # Create image WITH ALPHA CHANNEL
         new_image = bpy.data.images.new(tex_name, self.width, self.height, alpha=True)
         
@@ -294,12 +290,13 @@ class Texture():
             if not np.all(color[:3] == color[0]):
                 greyscale = False
             
-        if greyscale:    
-            self.format = 1024   
+        if greyscale:
+            self.format = 1024
+            image['format'] = self.format
             self.pixels = Pixels(self).unmake(image, self.format)
             self.palette = Palette(self)
             return self
-            
+
         if len(palette > 255): #check if we need palettization
             reduced_image, palette = reduce_colors(image_data, num_colors=255, max_iter = 1)
             self.format = 513
@@ -311,8 +308,8 @@ class Texture():
             return self
         elif len(palette) <= 16: #check if we can optimize for smaller palettes
             self.format = 512
-            
-        
+
+        image['format'] = self.format
         self.palette = Palette(self).unmake(image, self.format)
         self.pixels = Pixels(self).unmake(image, self.format)
         return self
