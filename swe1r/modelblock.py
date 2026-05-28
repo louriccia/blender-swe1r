@@ -627,8 +627,12 @@ class VisualsVertChunk(DataStruct):
         return self.co
     
     def __eq__(self, other):
-        return self.co == other.co and self.uv == other.uv and self.color == other.color
-    
+        if self.co != other.co or self.uv != other.uv or self.color != other.color:
+            return False
+        # Hooked verts are anchored to a different node than the rest of the mesh;
+        # they must not collapse with non-hooked verts at the same position.
+        return getattr(self, '_hooked', False) == getattr(other, '_hooked', False)
+
     def clone(self, other):
         self.co = other.co
         self.uv = other.uv
@@ -1787,6 +1791,7 @@ def get_uv_islands(obj, max_tile_size=16):
             face_data = {
                 "face_index": current_face.index,
                 "vertices": [v.co.copy() for v in current_face.verts],
+                "vertex_indices": [v.index for v in current_face.verts],
                 "uvs": current_uv_coords,
                 "colors": [
                     [] if not color_layer else tuple(loop[color_layer])
@@ -2039,16 +2044,11 @@ class Mesh(DataStruct):
                     b_obj.hide_set(not bool(int(parent['vis_flags']) & (1 << (i+8))), view_layer = view_layer)
                     
             if self.group_parent_id:
-                #convert vertices coordinates to global coordinates
-                inv_matrix_world = b_obj.matrix_world.inverted()
-                for i, v in enumerate(b_obj.data.vertices):
-                    if i < self.group_count:
-                        v.co = inv_matrix_world @ (b_obj.matrix_world @ v.co)
                 vg = b_obj.vertex_groups.get(f'{self.id}')
                 if vg is None:
                     vg = b_obj.vertex_groups.new(name=f'{self.id}')
                 vg.add(range(self.group_count), 1.0, 'REPLACE')
-                
+
                 hook = b_obj.modifiers.new(name=f"Hook_{self.id}", type='HOOK')
                 hook.vertex_group = vg.name
                 hook.object = get_obj_by_id(self.group_parent_id)
@@ -2058,20 +2058,45 @@ class Mesh(DataStruct):
     
     def unmake(self, node, unmake_anim = True):
         self.original_object = node
-        
+
         if not node.visible and not node.collidable:
             if self.model.type == '7':
                 node.collidable = True
-            node.visible = True        
+            node.visible = True
 
         self.id = node.name
         self.layers = get_object_view_layer_visibility(node) & 0xFFFFFF00
-        
+
         # ensure mesh is triangulated
         triangulate_mesh([node])
-        
+
         if unmake_anim:
             get_animations(node, self.model, self)
+
+        # Detect HOOK modifier — the first N output vertices must belong to the
+        # hooked vertex group so the game anchors them to group_parent_id at runtime.
+        hooked_blender_indices = set()
+        if node.type == 'MESH':
+            for mod in node.modifiers:
+                if mod.type != 'HOOK' or not mod.object or not mod.vertex_group:
+                    continue
+                target_id_str = mod.object.id if hasattr(mod.object, 'id') else None
+                if not target_id_str:
+                    continue
+                try:
+                    self.group_parent_id = int(target_id_str)
+                except (ValueError, TypeError):
+                    continue
+                vg = node.vertex_groups.get(mod.vertex_group)
+                if vg is None:
+                    continue
+                vg_index = vg.index
+                for v in node.data.vertices:
+                    for g in v.groups:
+                        if g.group == vg_index and g.weight > 0:
+                            hooked_blender_indices.add(v.index)
+                            break
+                break
 
         if node.visible:
             
@@ -2088,8 +2113,13 @@ class Mesh(DataStruct):
             
             self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
             verts = self.visuals_vert_buffer.data
+            # Tag verts created in Blender-vertex-index order with their hooked status
+            # so the dedup pass can keep hooked verts distinct from non-hooked verts at
+            # coincident positions (the seam case).
+            for i, vc in enumerate(verts):
+                vc._hooked = (i in hooked_blender_indices)
             faces = [[v for v in face.vertices] for face in node.data.polygons]
-            
+
             if not len(faces) or not len(verts):
                 return None
 
@@ -2125,10 +2155,12 @@ class Mesh(DataStruct):
                         for j, index in enumerate(face['vertices']):
                             uv = [x + y for x, y in zip(uv_offset, face['uvs'][j])]
                             vert = VisualsVertChunk(self.visuals_vert_buffer, self.model).unmake(
-                                co = face['vertices'][j], 
+                                co = face['vertices'][j],
                                 uv = uv,
                                 color = face['colors'][j]
                                 )
+                            blender_idx = face.get('vertex_indices', [None]*len(face['vertices']))[j]
+                            vert._hooked = (blender_idx is not None and blender_idx in hooked_blender_indices)
                             new_face.append(vert)
                         new_faces.append(new_face)
                 faces = new_faces
@@ -2176,8 +2208,26 @@ class Mesh(DataStruct):
 
                 new_faces.append(new_face)
 
+            # Reorder so hooked verts occupy indices [0, group_count). The runtime
+            # anchors that prefix to group_parent_id; the suffix stays with the mesh's
+            # own parent node.
+            if self.group_parent_id and any(getattr(v, '_hooked', False) for v in new_verts):
+                hooked_first = [i for i, v in enumerate(new_verts) if getattr(v, '_hooked', False)]
+                rest = [i for i, v in enumerate(new_verts) if not getattr(v, '_hooked', False)]
+                new_order = hooked_first + rest
+                old_to_new = {old: new_idx for new_idx, old in enumerate(new_order)}
+                new_verts = [new_verts[i] for i in new_order]
+                new_faces = [[old_to_new[i] for i in face] for face in new_faces]
+                self.group_count = len(hooked_first)
+            else:
+                self.group_count = 0
+                if self.group_parent_id and not hooked_blender_indices:
+                    # HOOK modifier was removed but group_parent_id was set elsewhere;
+                    # clear it so we don't reference a stale anchor.
+                    self.group_parent_id = 0
+
             self.visuals_vert_buffer.data = new_verts
-            
+
             self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
             #return True
 
@@ -2499,9 +2549,8 @@ class Node(DataStruct):
         #assign parent
         if parent is not None:
             b_node.parent = parent
-            if 'bonus' in parent and False:
-                b_node.location += mathutils.Vector(parent['bonus'][:3]) * self.model.scale * -1
-        
+            b_node.matrix_parent_inverse.identity()
+
         for node in self.children:
             if not isinstance(node, dict):
                 node.make(b_node, collection)
@@ -2684,7 +2733,8 @@ class NodeTransformed(Node):
         return self
     def make(self, parent = None, collection = None):
         empty = super().make(parent, collection)
-        empty.matrix_world = self.matrix.make(self.model.scale)
+        empty.matrix_parent_inverse.identity()
+        empty.matrix_basis = mathutils.Matrix(self.matrix.make(self.model.scale))
         return empty
     def unmake(self, node):
         super().unmake(node)
@@ -2699,7 +2749,7 @@ class NodeTransformed(Node):
         cursor = self.matrix.write(buffer, cursor)
         cursor = super().write_children(buffer, cursor, child_info_start)
         return cursor
-        
+
 class NodeTransformedWithPivot(Node):
     #NodeTransformedWithPivot https://github.com/tim-tim707/SW_RACER_RE/blob/fa8787540055d0bdf422b42e72ccf50cd3d72a07/src/types.h#L1296
     def __init__(self, parent, model, type, header = []):
@@ -2717,12 +2767,31 @@ class NodeTransformedWithPivot(Node):
         return self
     def make(self, parent = None, collection = None):
         empty = super().make(parent, collection)
-        if not isinstance(empty, bpy.types.Collection):
-            empty.matrix_world = self.matrix.make(self.model.scale)
-            v = mathutils.Vector(self.bonus.to_array()[:3])
-            # empty.location += v * self.model.scale
+        empty.matrix_parent_inverse.identity()
+        empty.matrix_basis = mathutils.Matrix(self.matrix.make(self.model.scale))
         empty['bonus'] = self.bonus.to_array()
-        
+
+        # Pivot semantic: worldMat[N] = worldMat[parent] · M_node · T(-pivot).
+        # In Blender we model T(-pivot) with a translation-only helper empty inserted
+        # between this node and its file-children so that rotating this node pivots
+        # around the file's pivot point (not around the empty's origin).
+        pivot = self.bonus.to_array()[:3]
+        if any(abs(p) > 1e-7 for p in pivot):
+            scale = self.model.scale
+            file_children = [c for c in empty.children]
+            helper = bpy.data.objects.new(empty.name + "_pivot", None)
+            helper.empty_display_type = 'PLAIN_AXES'
+            helper.empty_display_size = 0.25
+            collection.objects.link(helper)
+            helper.parent = empty
+            helper.matrix_parent_inverse.identity()
+            helper.location = (-pivot[0] * scale, -pivot[1] * scale, -pivot[2] * scale)
+            helper['pivot_helper'] = True
+
+            for child in file_children:
+                child.parent = helper
+                child.matrix_parent_inverse.identity()
+
         return empty
     def unmake(self, node, make_children = False):
         super().unmake(node, False)
@@ -3523,36 +3592,38 @@ def get_immediate_children(collection):
 def deep_unmake(obj, parent, model, target_map, skybox = False):
     if obj is None:
         return []
-    
+
+    # Pivot-helper empties are inserted on import to realise T(-pivot) on
+    # NodeTransformedWithPivot nodes. They do not correspond to a file node — descend
+    # through them transparently so the helper's children attach to the file parent.
+    if obj.get('pivot_helper'):
+        children = []
+        for child in obj.children:
+            children.extend(deep_unmake(child, parent, model, target_map, skybox))
+        return children
+
     children = []
-    
+
     if (obj.get('node_type') == 53349) or (obj.get('node_type') == 53350 and not skybox)  or obj.animation_data or obj.name in target_map.keys(): # cases in which we need to retain hierarchy
-        # empty = create_node(obj['node_type'] if 'node_type' in obj else 53349, parent, model)
-        # empty.unmake(obj)
         if obj.get('node_type') == 53350 and not skybox:
             empty = Group53350(parent, model, 53350).unmake(obj)
         else:
             empty = NodeTransformedWithPivot(parent, model, 53349).unmake(obj)
-        empty.transform_flags = 0x3 #TODO:what the heck
-        # empty.matrix = FloatMatrix()
-        # empty.matrix.data[0].data[0] = 1.0
-        # empty.matrix.data[1].data[1] = 1.0
-        # empty.matrix.data[2].data[2] = 1.0
-        
+
         empty_children = []
-        
+
         if obj.name in target_map.keys():
             target_map[obj.name] = empty
-        
-        if obj.type == 'MESH': 
+
+        if obj.type == 'MESH':
             mesh = Mesh(empty, model).unmake(obj)
             empty_children.append(mesh)
-        
+
         for child in obj.children:
             empty_children = empty_children + deep_unmake(child, empty, model, target_map)
         assign_objs_to_node_by_type(empty_children, empty, model)
         children.append(empty)
-            
+
         return children # early return since we've already dealt with descendants
     
     elif obj.type == 'MESH':
