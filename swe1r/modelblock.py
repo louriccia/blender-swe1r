@@ -1380,7 +1380,11 @@ class Material(DataStruct):
         material.node_tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
         material['id'] = self.id
         material['format'] = self.format
-        material['normal_map'] = self.format & 0x1
+        # RE: a mesh uses the Vtx_tn (normals) vertex format when the material
+        # type has bit 0x1 OR 0x10 set. Recognize both so the shader wires the
+        # per-vertex data into the Normal input for either variant (previously
+        # only 0x1 was detected, so 0x10-only materials were mis-wired as color).
+        material['normal_map'] = bool(self.format & 0x11)
         
         self.shader.make(material)
         
@@ -1588,7 +1592,11 @@ class Material(DataStruct):
             if self.format is None:
                 self.format = 14
 
-            if material.get('normal_map', False):
+            # Only force the normals bit when the preserved format doesn't
+            # already carry one (0x1 or 0x10). This keeps a vanilla 0x10 material
+            # from being silently changed to 0x11 on re-export, while still
+            # tagging a material the user newly marked as a normal map.
+            if material.get('normal_map', False) and not (self.format & 0x11):
                 self.format |= 0x01
 
             if material.use_backface_culling == False:
