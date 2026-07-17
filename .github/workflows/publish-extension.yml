@@ -48,9 +48,11 @@ jobs:
           series="${BLENDER_VERSION%.*}"
           url="https://download.blender.org/release/Blender${series}/blender-${BLENDER_VERSION}-linux-x64.tar.xz"
           echo "Downloading $url"
-          curl -fsSL "$url" -o blender.tar.xz
+          # Download/extract OUTSIDE the checkout so the tarball is never seen by
+          # `extension build --source-dir .` and bundled into the package.
+          curl -fsSL "$url" -o "${RUNNER_TEMP}/blender.tar.xz"
           mkdir -p "$HOME/blender"
-          tar -xf blender.tar.xz -C "$HOME/blender" --strip-components=1
+          tar -xf "${RUNNER_TEMP}/blender.tar.xz" -C "$HOME/blender" --strip-components=1
           echo "$HOME/blender" >> "$GITHUB_PATH"
 
       - name: Build extension and generate repository
