@@ -302,8 +302,7 @@ def unregister():
     del bpy.types.Object.fog_clear
     del bpy.types.Object.skybox_show
     del bpy.types.Object.skybox_hide
-   
-    bpy.types.Object.load_trigger = bpy.props.EnumProperty(
-        name="View Layer",
-        items= populate_enum
-    )
+
+    del bpy.types.Object.load_trigger
+    del bpy.types.Scene.load_trigger
+    del bpy.types.Scene.load_trigger_index
