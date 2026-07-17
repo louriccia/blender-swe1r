@@ -103,5 +103,5 @@ def import_model(file_path, selector=None, update_progress=None):
 
     print(f'Successfully unpacked {len(selector)} models')
 
-    show_custom_popup(bpy.context, "IMPORTED!", f"Successfully unpacked {len(selector)} models.")
+    show_custom_popup(bpy.context, "Imported", f"Successfully unpacked {len(selector)} models.")
     

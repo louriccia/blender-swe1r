@@ -258,6 +258,7 @@ class ResetVisuals(bpy.types.Operator):
         return {'FINISHED'}
 
 class ResetVColor(bpy.types.Operator):
+    """Reset vertex colors to white on the selected objects"""
     bl_label = "Reset Vertex Colors"
     bl_idname = "view3d.reset_v_color"
     
