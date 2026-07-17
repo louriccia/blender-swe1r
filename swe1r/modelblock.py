@@ -80,8 +80,18 @@ def ensure_cycles_first(fcurve):
     return m
 
 class Lights(DataStruct):
+    # RE swrModel_Behavior light region: light_flags(u16), ambient_color[3],
+    # light_color[3], unk10(u16 = the two bytes below), light_vector[3] (a
+    # direction vector), unk14_node (a swrModel_Node* pointer), unk15, unk16.
+    # NOTE: light_vector is a DIRECTION per the RE, but is currently represented
+    # in Blender as the position of a point light (unchanged for now to avoid a
+    # speculative point->sun conversion). unk14_node/unk15/unk16 are written as
+    # 0 on export: unk14_node is a runtime pointer (null on disk) and the two
+    # unknowns default to 0, matching how unk10 already exports. This replaces
+    # the previous code that misread these 12 bytes as a float "rotation" and
+    # wrote Blender rotation values back into the pointer slot.
     def __init__(self, model):
-        super().__init__('>h8b6f')
+        super().__init__('>h8b3f3I')
         self.model = model
         self.flag = 0
         # 00100 = invert affected?
@@ -91,72 +101,71 @@ class Lights(DataStruct):
         self.color = RGB3Bytes()
         self.unk1 = 0
         self.unk2 = 0
-        self.pos = FloatPosition()
-        self.rot = FloatVector()
-        
+        self.light_vector = FloatPosition()
+        self.unk14_node = 0
+        self.unk15 = 0
+        self.unk16 = 0
+
     def read(self, buffer, cursor):
-        self.flag, ambient_r, ambient_g, ambient_b, color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, rx, ry, rz = struct.unpack_from(self.format_string, buffer, cursor)
+        self.flag, ambient_r, ambient_g, ambient_b, color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, self.unk14_node, self.unk15, self.unk16 = struct.unpack_from(self.format_string, buffer, cursor)
         self.ambient.from_array([ambient_r, ambient_g, ambient_b])
         self.color.from_array([color_r, color_g, color_b])
-        self.pos.from_array([x, y, z])
-        self.rot.from_array([rx, ry, rz])
+        self.light_vector.from_array([x, y, z])
         return self
-    
+
     def make(self, obj):
-        
+
         if self.flag & 0x3 > 0:
             objects = get_all_objects_in_collection(self.model.collection)
-            existing_light = find_existing_light(objects, mathutils.Color(self.color.make()), mathutils.Vector([a * self.model.scale for a in self.pos.make()]),  mathutils.Euler(self.rot.make()))
+            existing_light = find_existing_light(objects, mathutils.Color(self.color.make()), mathutils.Vector([a * self.model.scale for a in self.light_vector.make()]), mathutils.Euler((0, 0, 0)))
             if existing_light is None:
                 # Create a new light if no existing light is found
-                
+
                 new_light = bpy.data.lights.new(type='POINT', name='pod_lighting')
                 new_light.color = self.color.make()
-                
+
                 light_object = bpy.data.objects.new(name="pod_lighting", object_data=new_light)
                 self.model.collection.objects.link(light_object)
 
-                # Set the location and rotation
-                light_object.location = [a * self.model.scale for a in self.pos.make()]
-                light_object.rotation_euler = self.rot.make()
-                
+                # Set the location (light_vector; see class note re: direction)
+                light_object.location = [a * self.model.scale for a in self.light_vector.make()]
+
                 obj.lighting_light = new_light
-            else: 
+            else:
                 obj.lighting_light = existing_light.data
         obj.lighting_color = self.ambient.make()
         obj.lighting_invert = self.flag & 0x4 > 0
         obj.lighting_flicker = self.flag & 0x8 > 0
         obj.lighting_persistent = self.flag & 0x10 > 0
-        
+
     def unmake(self, obj):
         if obj.lighting_light is not None:
             light_object = bpy.data.objects.get(obj.lighting_light.name)
             self.flag |= 0x3
-            
+
             if light_object:
                 self.color.unmake(light_object.data.color)
-                self.pos.from_array([round(a/self.model.scale) for a in light_object.location])
-                self.rot.from_array(light_object.rotation_euler)
-        
+                self.light_vector.from_array([round(a/self.model.scale) for a in light_object.location])
+
         self.ambient.unmake(obj.lighting_color)
-        
+
         if obj.lighting_invert:
             self.flag |= 0x4
         if obj.lighting_flicker:
             self.flag |= 0x8
         if obj.lighting_persistent:
                 self.flag |= 0x10
-        
+
         return self
-    
+
     def to_array(self):
-        return [self.flag, *self.ambient.to_array(), *self.color.to_array(), self.unk1, self.unk2, *self.pos.to_array(), *self.rot.to_array()]
-        
+        return [self.flag, *self.ambient.to_array(), *self.color.to_array(), self.unk1, self.unk2, *self.light_vector.to_array(), self.unk14_node, self.unk15, self.unk16]
+
     def from_array(self, arr):
-        self.flag, ambient_r, ambient_g, ambient_b,color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, a, b, c = arr
+        self.flag, ambient_r, ambient_g, ambient_b,color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, self.unk14_node, self.unk15, self.unk16 = arr
         self.ambient.from_array([ambient_r, ambient_g, ambient_b])
         self.color.from_array([color_r, color_g, color_b])
-        self.pos.from_array([x, y, z])
+        self.light_vector.from_array([x, y, z])
         self.rot.from_array([a, b, c])
         return self
 
@@ -452,7 +461,11 @@ class SurfaceFlags(DataStruct):
 class CollisionTags(DataStruct):
     def __init__(self, parent, model):
         
-        super().__init__('>H4B3H8B6fI2H3I')
+        # The light region's tail is light_vector(3f) + unk14_node(pointer) +
+        # unk15 + unk16 (RE swrModel_Behavior), not six floats. Same 24 bytes and
+        # same value count, so no field offsets move; the last three are read as
+        # uint32 rather than misread as a float "rotation".
+        super().__init__('>H4B3H8B3f3II2H3I')
         self.parent = parent
         self.model = model
         self.unk = SpecialSurfaceFlags()
