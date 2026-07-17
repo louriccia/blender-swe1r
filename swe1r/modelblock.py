@@ -1521,22 +1521,11 @@ class Material(DataStruct):
         
         image_node = material.node_tree.nodes["Image Texture"]
         image_node.image = b_tex
-        
-        if self.texture_anim: # TODO
-            bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
-            image_node.image = bpy.data.images.get('0.png')
-            bpy.data.images["0.png"].source = 'SEQUENCE'
-            node_1.image_user.use_auto_refresh = True
-            node_1.image_user.frame_duration = 1
-            for f in range(anim[child]['num_keyframes']):
-                node_1.image_user.frame_offset = anim[child]['keyframe_poses'][f] - 1
-                node_1.image_user.keyframe_insert(data_path="frame_offset", frame = round(anim[child]['keyframe_times'][f] * (bpy.context.scene.render.fps if remake else self.model.fps)))
-            if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
-                bag = anim_utils.action_get_channelbag_for_slot(material.node_tree.animation_data.action, material.node_tree.animation_data.action_slot)
-                for fcurves_f in bag.fcurves:
-                    ensure_cycles_first(fcurves_f)
-                    for k in fcurves_f.keyframe_points:
-                        k.interpolation = 'CONSTANT'
+
+        # NOTE: texture-swap animation (self.texture_anim) is not implemented.
+        # The previous stub here referenced a hardcoded local path and undefined
+        # variables and could never run; it was removed. See TexturePose.write,
+        # which is likewise a stub, for the export side of this feature.
         material.preview_render_type = 'FLAT'
         return material
             

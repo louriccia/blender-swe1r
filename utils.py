@@ -468,53 +468,6 @@ def validate_folder_path(folder_path, file_name):
         return {'CANCELLED'}
     return folder_path
 
-def get_material_hash(material):
-    """
-    Generate a hash representing the material's properties for deduplication.
-    This compares node tree structure and key properties.
-    
-    Returns:
-        str: Hash string representing the material
-    """
-    if not material.use_nodes:
-        return None
-    
-    hash_parts = []
-    nodes = material.node_tree.nodes
-    
-    # Sort nodes by type and location for consistent ordering
-    sorted_nodes = sorted(nodes, key=lambda n: (n.type, n.location.x, n.location.y))
-    
-    for node in sorted_nodes:
-        # Add node type
-        hash_parts.append(node.type)
-        
-        # For image texture nodes, hash the image filepath
-        if node.type == 'TEX_IMAGE' and node.image:
-            hash_parts.append(node.image.filepath or node.image.name)
-        
-        # For value/color nodes, hash the values
-        elif node.type == 'VALUE':
-            hash_parts.append(str(node.outputs[0].default_value))
-        elif node.type == 'RGB':
-            hash_parts.append(str(node.outputs[0].default_value[:]))
-        
-        # For BSDF nodes, hash key input values
-        elif 'BSDF' in node.type:
-            for input in node.inputs:
-                if not input.is_linked:
-                    hash_parts.append(f"{input.name}:{input.default_value}")
-    
-    # Hash the connections
-    links = material.node_tree.links
-    for link in sorted(links, key=lambda l: (l.from_node.name, l.to_node.name)):
-        hash_parts.append(f"{link.from_socket.name}->{link.to_socket.name}")
-    
-    # Create hash from all parts
-    import hashlib
-    hash_string = "|".join(str(p) for p in hash_parts)
-    return hashlib.md5(hash_string.encode()).hexdigest()
-
 import bpy
 import os
 import hashlib

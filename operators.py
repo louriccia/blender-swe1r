@@ -709,16 +709,6 @@ class OpenUrl(bpy.types.Operator):
         open_url(self.url)
         return {"FINISHED"}
 
-class AddImageTexture(bpy.types.Operator):
-    """Open link"""
-    bl_idname = "view3d.open_url"
-    bl_description = "Open URL"
-    bl_label = "Open URL"
-
-    def execute(self, context):
-        open_url(self.url)
-        return {"FINISHED"}
-
 def mark_material_as_asset(material, catalog_id=None, tags=None):
     """
     Mark a material as an asset and optionally assign it to a catalog.
@@ -1216,12 +1206,6 @@ class OBJECT_OT_generate_material_assets(bpy.types.Operator):
         # Report after restoring context
         self.report({'INFO'}, f"Created {len(material_catalog)} material assets")
         return {'FINISHED'}
-    
-    
-    def generate_image(self, data, index):
-        """Replace this with your actual image generation logic"""
-        # Generate and save image, return path
-        return "/tmp/image.png"
 
 
 # MARK: REGISTER
