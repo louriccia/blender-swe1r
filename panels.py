@@ -445,6 +445,7 @@ class ExportPanel(bpy.types.Panel):
             row.enabled = False
             
         layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
+        layout.prop(context.scene, "is_export_debug", text = "Write model debug dump (.txt)")
         row = layout.row()
             
             
@@ -606,9 +607,9 @@ class SelectedPanel(bpy.types.Panel):
                 if context.scene.textures_expanded:
                     if len(mats) > 1:
                         row = box.row()
-                        row.label("Only one material per mesh is supported")
+                        row.label(text = "Only one material per mesh is supported")
                         row = box.row()
-                        row.operator("view3d.reset_visuals", text = "Split mesh by material")
+                        row.operator("view3d.split_by_material", text = "Split mesh by material")
                     elif len(mats):
                         row = box.row()
                         row.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
@@ -634,7 +635,7 @@ class SelectedPanel(bpy.types.Panel):
                             row.prop(context.scene, 'clip_y', text = f'y{is_indeterminate("clip_y")}')
                     else:
                         row = box.row()
-                        row.operator('view3d.bake_vcolors', text = "Add material")
+                        row.operator('view3d.remake_materials', text = "Add material")
             
             parent_box = layout.box()
             row = parent_box.row()

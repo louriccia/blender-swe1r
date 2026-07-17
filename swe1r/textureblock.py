@@ -297,7 +297,7 @@ class Texture():
             self.palette = Palette(self)
             return self
 
-        if len(palette > 255): #check if we need palettization
+        if len(palette) > 255: #check if we need palettization
             reduced_image, palette = reduce_colors(image_data, num_colors=255, max_iter = 1)
             self.format = 513
             image['format'] = self.format

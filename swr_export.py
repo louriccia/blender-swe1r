@@ -26,7 +26,7 @@ from .swe1r.textureblock import Texture
 from .swe1r.block import Block
 from .swe1r.general import *
 from .swe1r.textureblock import compute_hash
-from .utils import Podd_MAlt, show_custom_popup
+from .utils import Podd_MAlt, show_custom_popup, backup_original
 from datetime import datetime
     
 scale = 100
@@ -45,9 +45,10 @@ def export_model(col, file_path, exports, update_progress):
     model_export, texture_export, spline_export = exports
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    if not len(exports):
+    if not any(exports):
         show_custom_popup(bpy.context, "No Export", f"Please select an element to export")
-        
+        return
+
     if 'MESH' in types and model_export:
         
         update_progress("Parsing .bin files...")
@@ -58,10 +59,10 @@ def export_model(col, file_path, exports, update_progress):
         update_progress(f'Unmaking {col.name}...')
         
         model = Model(col.export_model).unmake(col, texture_export, textureblock)
-        id = model.id
         if model is None:
             show_custom_popup(bpy.context, "Model Error", "There was an issue while exporting the model")
             return
+        id = model.id
         
         update_progress(f'Writing {col.name}...')
         
@@ -76,32 +77,45 @@ def export_model(col, file_path, exports, update_progress):
             MAlt_offset_buffer, MAlt_model_buffer = MAlt.write()
             modelblock.inject([MAlt_offset_buffer, MAlt_model_buffer], MAlt_id)
         
+        backup_original(file_path + 'out_modelblock.bin')
         with open(file_path + 'out_modelblock.bin', 'wb') as file:
             file.write(modelblock.write())
-            
+
         if texture_export:
             update_progress(f'Writing textures...')
-            
+
+            backup_original(file_path + 'out_textureblock.bin')
             with open(file_path + 'out_textureblock.bin', 'wb') as file:
                 file.write(textureblock.write())
             
         if bpy.context.scene.is_export_separate:
             update_progress(f'Writing separate .bin file...')
+
+            # Pack the pointer-map (mask) and model into a single RawModelChunk:
+            #   char magic[4] = "RAWM"
+            #   uint32 mask_size   (little-endian, multiple of 4)
+            #   uint32 model_size  (little-endian)
+            #   uint8  mask[mask_size]    -> offset_buffer (the highlight/pointer bitmap)
+            #   uint8  model[model_size]  -> model_buffer
+            chunk = bytearray(b'RAWM')
+            chunk += len(offset_buffer).to_bytes(4, 'little')
+            chunk += len(model_buffer).to_bytes(4, 'little')
+            chunk += offset_buffer
+            chunk += model_buffer
+
+            with open(file_path + 'model_' + str(model.id) + '_' + timestamp + '.bin', 'wb') as file:
+                file.write(chunk)
             
-            with open(file_path + 'model_' + str(model.id) + '_' + timestamp +'.bin', 'wb') as file:
-                file.write(model_buffer)
-            with open(file_path + 'offset_' + str(model.id) + '_' + timestamp +'.bin', 'wb') as file:
-                file.write(offset_buffer)
-            
-        # write debug file
-        debug_text = ["float, int32, int16_1, int16_2, int8_1, int8_2, int8_3, int8_4, local_offset, pointer"]
-        for i in range(0, len(model_buffer), 4):
-            debug_string = f"{readFloatBE(model_buffer, i)}, {readUInt32BE(model_buffer, i)}, {readInt16BE(model_buffer, i)}, {readInt16BE(model_buffer, i+2)}, {readUInt8(model_buffer, i)}, {readUInt8(model_buffer, i + 1)}, {readUInt8(model_buffer, i + 2)}, {readUInt8(model_buffer, i + 3)}, {i}, {readUInt8(offset_buffer, i//32)}, {(readUInt8(offset_buffer, i//32) >> (7-((i//4)%8)) )& 1 }"
-            debug_text.append(debug_string)
-            
-        with open(file_path + 'model_' + str(model.id) + '_' + timestamp + 'debug.txt', 'a') as file:
-            for string in debug_text:
-                file.write(string + '\n')
+        # write debug file (opt-in only; unconditional writes littered the game
+        # folder and dominated export time)
+        if bpy.context.scene.is_export_debug:
+            debug_text = ["float, int32, int16_1, int16_2, int8_1, int8_2, int8_3, int8_4, local_offset, pointer"]
+            for i in range(0, len(model_buffer), 4):
+                debug_string = f"{readFloatBE(model_buffer, i)}, {readUInt32BE(model_buffer, i)}, {readInt16BE(model_buffer, i)}, {readInt16BE(model_buffer, i+2)}, {readUInt8(model_buffer, i)}, {readUInt8(model_buffer, i + 1)}, {readUInt8(model_buffer, i + 2)}, {readUInt8(model_buffer, i + 3)}, {i}, {readUInt8(offset_buffer, i//32)}, {(readUInt8(offset_buffer, i//32) >> (7-((i//4)%8)) )& 1 }"
+                debug_text.append(debug_string)
+
+            with open(file_path + 'model_' + str(model.id) + '_' + timestamp + '_debug.txt', 'w') as file:
+                file.write('\n'.join(debug_text) + '\n')
     
     if 'CURVE' in types and spline_export:
         update_progress(f'Unmaking spline...')
@@ -117,7 +131,8 @@ def export_model(col, file_path, exports, update_progress):
         
         spline_buffer = spline.write()
         splineblock.inject([spline_buffer], spline.id)
-        
+
+        backup_original(file_path + 'out_splineblock.bin')
         with open(file_path + 'out_splineblock.bin', 'wb') as file:
             file.write(splineblock.write())
         

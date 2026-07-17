@@ -42,7 +42,22 @@ def get_model_type(name):
     for code, model_name, description in model_types:
         if model_name == name:
             return code
-    return None 
+    return None
+
+def set_material_blend(material, blend):
+    """Set a material's transparency mode across Blender versions.
+
+    `blend` is 'OPAQUE' or 'BLEND'. `Material.blend_method` and
+    `show_transparent_back` were removed in EEVEE-Next (Blender 4.3+) and
+    replaced by `surface_render_method`. Assigning the old attributes on 4.3+
+    raises AttributeError, so guard every write with hasattr and set whichever
+    API the running Blender exposes."""
+    if hasattr(material, 'blend_method'):
+        material.blend_method = blend
+    if hasattr(material, 'surface_render_method'):
+        material.surface_render_method = 'BLENDED' if blend == 'BLEND' else 'DITHERED'
+    if blend == 'BLEND' and hasattr(material, 'show_transparent_back'):
+        material.show_transparent_back = True
 
 def ensure_cycles_first(fcurve):
     mods = fcurve.modifiers
@@ -1122,7 +1137,14 @@ class MaterialTexture(DataStruct):
     def write(self, buffer, cursor):
         chunk_addr = cursor + 28
         self.model.highlight(cursor + 56)
-        #struct.pack_into(self.format_string, buffer, cursor, self.unk0, min(self.width*4, 65535), min(self.height*4, 65535), self.format, self.unk4, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), self.unk7, self.unk8, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
+        # NOTE: several fields here (the 2H scale params, unk4, the two mip-size
+        # params, and unk7/unk8) are synthesized rather than round-tripped. On
+        # export this struct is always built via unmake() from Blender data, so
+        # the original values read on import are not available. The constants and
+        # width/height-derived formulas below produce files the game loads
+        # correctly (verified in-game over long use); making this a true byte
+        # round-trip would require persisting the read values on the image's
+        # custom properties. See RE swrModel_MaterialTexture for field meanings.
         struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 65535), min(self.height*8, 65535), self.format, 3, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), 683, 503, *[3, 3, 3, 3, 3, 3], self.unk9, self.id)
         cursor += self.size
 
@@ -1208,10 +1230,8 @@ class MaterialShader(DataStruct):
         material['render_mode_2'] = str(self.render_mode_2)
         
         if self.unk1 == 8 or self.render_mode_1 & 0x800 or self.render_mode_2 & 0x800:
-            material.show_transparent_back = True
-            material.blend_method = 'BLEND'
             material.transparent = True
-            material.surface_render_method = 'DITHERED'
+            set_material_blend(material, 'BLEND')
     
     def unmake(self, material):
         if material is not None:
@@ -1359,11 +1379,11 @@ class Material(DataStruct):
         material['clip_x'] = self.clip_x
         material['clip_y'] = self.clip_y
         
-        material.blend_method = 'OPAQUE'
-        
-        
+        set_material_blend(material, 'OPAQUE')
+
+
         if self.texture and self.texture.format == 3:
-            material.blend_method = 'BLEND'
+            set_material_blend(material, 'BLEND')
             
         if (self.format & 8):
             material.use_backface_culling = True
@@ -1414,7 +1434,7 @@ class Material(DataStruct):
         # NOTE: probably shouldn't do it this way
         # TODO: find specific tag
         if tex_name in ["1167", "1077", "1461", "1596"]:
-            material.blend_method = 'BLEND'
+            set_material_blend(material, 'BLEND')
             material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Alpha"])
         
         if self.format in [31, 15, 7]:
@@ -3720,7 +3740,22 @@ class Model():
         self.id = collection.export_model
         self.nodes = []
         self.texture_export = texture_export
-        
+
+        # Guard unsupported model types up front. Previously types 1/2/6 fell
+        # through every branch below and silently wrote an EMPTY model over the
+        # game file (data loss). Types 2 (Modl) and 6 (Scen) are now handled by
+        # the generic branch; type 1 (MAlt) is exported automatically alongside
+        # its Podd (see swr_export.py), not on its own.
+        supported_types = ('2', '3', '4', '5', '6', '7')
+        if str(self.type) not in supported_types:
+            try:
+                type_name = model_types[int(self.type)][1]
+            except (ValueError, IndexError):
+                type_name = str(self.type)
+            if str(self.type) == '1':
+                raise ValueError("MAlt (High-LOD pod) models are exported automatically with their Podd, not on their own.")
+            raise ValueError(f"Exporting model type '{type_name}' is not supported.")
+
         root = Group20580(self, self, 20580)
         
         if self.type == '3':
@@ -3782,7 +3817,9 @@ class Model():
                 assign_objs_to_node_by_type(unmade, append_root, self)
                 #r_root_node.set_flags()
             
-        elif self.type == '3' or self.type == '5': #PART
+        elif self.type in ('2', '3', '5', '6'): #Modl / Part / Pupp / Scen
+            # All four are plain node/mesh hierarchies rooted at a basic (20580)
+            # node, so they share the generic traversal.
             unmade = []
             immediate_children = get_immediate_children(collection)
             for obj in immediate_children:

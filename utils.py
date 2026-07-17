@@ -27,8 +27,27 @@ import webbrowser
 import bpy
 import mathutils
 import copy
+import shutil
 
 from .swe1r.model_list import *
+
+def backup_original(path):
+    """Create a one-time pristine backup of a .bin file before it is first
+    overwritten. The '.bak' copy is written only if it does not already exist,
+    so it always preserves the state of the file before this add-on ever
+    modified it — letting the user recover the original game data.
+    Returns the backup path if one was created, else None."""
+    if not os.path.exists(path):
+        return None
+    backup_path = path + '.bak'
+    if os.path.exists(backup_path):
+        return None
+    try:
+        shutil.copy2(path, backup_path)
+        return backup_path
+    except OSError as e:
+        print(f"Could not back up {path}: {e}")
+        return None
 
 # 'bswe1r' for 'blender swe1r'
 # NOTE: use 3-letter code for data_type and group_id

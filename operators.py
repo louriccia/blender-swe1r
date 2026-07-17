@@ -444,7 +444,33 @@ class BakeVColors(bpy.types.Operator):
         bpy.ops.view3d.remake_materials()
 
         return {"FINISHED"}
-    
+
+class SplitByMaterial(bpy.types.Operator):
+    bl_idname = "view3d.split_by_material"
+    bl_label = "Split Mesh by Material"
+    bl_description = "Separate the active mesh into one object per material. SWE1R supports only one material per mesh, so multi-material meshes must be split before export"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj is None or obj.type != 'MESH':
+            self.report({'ERROR'}, "Select a mesh object to split")
+            return {'CANCELLED'}
+        if len(obj.material_slots) < 2:
+            self.report({'INFO'}, "Mesh has fewer than two materials; nothing to split")
+            return {'CANCELLED'}
+
+        # mesh.separate operates on the active object in Edit Mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.separate(type='MATERIAL')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        return {'FINISHED'}
+
 # MARK: COLLISION
     
 class PreviewLoadTrigger(bpy.types.Operator):
@@ -538,17 +564,26 @@ class InvertSpline(bpy.types.Operator):
 
         for spline in curve.splines:
             if spline.type == 'BEZIER':
-                num_points = len(bezier_points)
-                bezier_points = list(spline.bezier_points)  # Convert to a list
+                bezier_points = spline.bezier_points
 
-                # Reverse the order of points
-                new_points = [bezier_points[i] for i in range(num_points - 1, -1, -1)]
+                # Snapshot every point before mutating (co + handles must be
+                # copied, otherwise reassignment aliases live data)
+                snapshot = [(
+                    p.co.copy(),
+                    p.handle_left.copy(),
+                    p.handle_right.copy(),
+                    p.handle_left_type,
+                    p.handle_right_type,
+                ) for p in bezier_points]
 
-                # Swap handle positions to maintain curve shape
-                for i in range(num_points):
-                    new_points[i].co, bezier_points[i].co = bezier_points[i].co, new_points[i].co
-                    new_points[i].handle_left, bezier_points[i].handle_left = bezier_points[i].handle_right, new_points[i].handle_right
-                    new_points[i].handle_right, bezier_points[i].handle_right = bezier_points[i].handle_left, new_points[i].handle_right
+                # Write points back in reversed order. When a point moves to the
+                # opposite end its left/right handles must also swap so the curve
+                # keeps its original shape, just traversed backwards.
+                for i, (co, hl, hr, hl_type, hr_type) in enumerate(reversed(snapshot)):
+                    p = bezier_points[i]
+                    p.co = co
+                    p.handle_left, p.handle_right = hr, hl
+                    p.handle_left_type, p.handle_right_type = hr_type, hl_type
 
         # Return to Edit Mode
         bpy.ops.object.mode_set(mode='EDIT')
@@ -1212,6 +1247,7 @@ register_classes = (
     ReconstructSpline,
     OpenUrl,
     BakeVColors,
+    SplitByMaterial,
     OpenImageTexture,
     SelectFirstSplinePointOperator,
     ToggleViewLayerState,

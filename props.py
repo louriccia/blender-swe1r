@@ -50,7 +50,8 @@ def register():
     bpy.types.Scene.is_export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('is_export_texture', True))
     bpy.types.Scene.is_export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('is_export_spline', True))
     bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =save_settings, default=get_setting('export_separate', False), description = "Save a copy of the exported elements as individual .bin files")
-    
+    bpy.types.Scene.is_export_debug = bpy.props.BoolProperty(name ="Debug", update =save_settings, default=get_setting('export_debug', False), description = "Write a human-readable debug dump of the exported model buffer alongside the .bin files (for troubleshooting only)")
+
     bpy.types.Scene.flags_expanded = bpy.props.BoolProperty(name = 'flags_expanded', update=save_settings, default=get_setting('flags_expanded', False))
     bpy.types.Scene.fog_expanded = bpy.props.BoolProperty(name = 'fog_expanded', update=save_settings, default=get_setting('fog_expanded', False))
     bpy.types.Scene.lighting_expanded = bpy.props.BoolProperty(name = 'lighting_expanded', update=save_settings, default=get_setting('lighting_expanded', False))
@@ -237,6 +238,7 @@ def unregister():
     del bpy.types.Scene.is_export_texture
     del bpy.types.Scene.is_export_spline
     del bpy.types.Scene.is_export_separate
+    del bpy.types.Scene.is_export_debug
     del bpy.types.Scene.collision_visible
     del bpy.types.Scene.collision_selectable
     del bpy.types.Scene.visuals_visible
