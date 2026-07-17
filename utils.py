@@ -472,13 +472,21 @@ def reselect_obj(obj):
     
     
 def validate_folder_path(folder_path, file_name):
+    """Validate that folder_path exists and contains the required .bin file(s).
+
+    file_name may be a single filename or a list of filenames; every entry must
+    be present. Returns the (possibly resolved) folder path, or {'CANCELLED'}
+    with a popup naming exactly which files are missing.
+    """
     if folder_path == "":
-        show_custom_popup(bpy.context, "No set import folder", "Select your folder containing the .bin files")
+        show_custom_popup(bpy.context, "No set folder", "Select your folder containing the .bin files")
         return {'CANCELLED'}
     if folder_path[:2] == '//':
         folder_path = os.path.join(os.path.dirname(bpy.data.filepath), folder_path[2:])
-    if not os.path.exists(folder_path  + file_name):
-        show_custom_popup(bpy.context, "Missing required files", f"No {file_name} found in the selected folder.")
+    file_names = [file_name] if isinstance(file_name, str) else list(file_name)
+    missing = [f for f in file_names if not os.path.exists(folder_path + f)]
+    if missing:
+        show_custom_popup(bpy.context, "Missing required files", f"The selected folder is missing: {', '.join(missing)}")
         return {'CANCELLED'}
     return folder_path
 

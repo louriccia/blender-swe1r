@@ -68,7 +68,7 @@ class ImportOperator(bpy.types.Operator):
 
     def execute(self, context):
         
-        folder_path = validate_folder_path(context.scene.import_folder, "out_modelblock.bin")
+        folder_path = validate_folder_path(context.scene.import_folder, ["out_modelblock.bin", "out_textureblock.bin", "out_splineblock.bin"])
         if folder_path is None or folder_path == {"CANCELLED"}:
             return {"CANCELLED"}
 
@@ -128,10 +128,20 @@ class ExportOperator(bpy.types.Operator):
         if folder_path == "":
             show_custom_popup(bpy.context, "No set export folder", "Select your folder containing the .bin files")
             return {'CANCELLED'}
-        if not os.path.exists(folder_path  + 'out_modelblock.bin'):
-            show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
-            return {'CANCELLED'}
-        
+        # Require the block files that will actually be read/written for this
+        # export, so a missing one gives a clear message instead of a cryptic
+        # FileNotFoundError deeper in the export.
+        required_files = []
+        if context.scene.is_export_model:
+            required_files += ['out_modelblock.bin', 'out_textureblock.bin']
+        if context.scene.is_export_spline:
+            required_files.append('out_splineblock.bin')
+        if required_files:
+            validated = validate_folder_path(folder_path, required_files)
+            if validated == {'CANCELLED'}:
+                return {'CANCELLED'}
+            folder_path = validated
+
         context.scene.export_progress = 0.01
         context.scene.export_status = 'Exporting...'
         
@@ -1025,10 +1035,10 @@ class OBJECT_OT_generate_material_assets(bpy.types.Operator):
     
     def execute(self, context):
     
-        folder_path = validate_folder_path(context.scene.import_folder, "out_modelblock.bin")
+        folder_path = validate_folder_path(context.scene.import_folder, ["out_modelblock.bin", "out_textureblock.bin"])
         if folder_path is None or folder_path == {"CANCELLED"}:
             return {"CANCELLED"}
-        
+
         # Initialize tag manager with game data
         tag_manager = TagManager(game_data={
             'tracks': tracks,
