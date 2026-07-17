@@ -1289,11 +1289,16 @@ class MaterialShader(DataStruct):
 
 class Material(DataStruct):
     def __init__(self, parent, model):
-        super().__init__('>I4xII')
+        # Layout per RE swrModel_MeshMaterial: uint32 type, int16 texture_offset[2],
+        # MaterialTexture*, Material*. The two shorts after the type were being
+        # skipped (4x) and written as zero, dropping any texture offset. They are
+        # read/stored/written now so materials with type & 0x80 round-trip.
+        super().__init__('>I2hII')
         self.parent = parent
         self.id = None
         self.model = model
         self.format = 14
+        self.texture_offset = [0, 0]
         self.name = ""
         #00000001   1   254 1 = lightmap
         #00000010   2   253
@@ -1327,17 +1332,18 @@ class Material(DataStruct):
         
     def read(self, buffer, cursor):
         self.id = cursor
-        self.format, texture_addr, shader_addr = struct.unpack_from(self.format_string, buffer, cursor)
-            
+        self.format, off_x, off_y, texture_addr, shader_addr = struct.unpack_from(self.format_string, buffer, cursor)
+        self.texture_offset = [off_x, off_y]
+
         self.texture = MaterialTexture(self, self.model).read(buffer, texture_addr)
-        
+
         # there should always be a shader_addr otherwise game will crash
         assert shader_addr > 0, "Material should have shader"
         self.shader.read(buffer, shader_addr)
         return self
-        
+
     def to_array(self):
-        return [self.format, 0, 0]
+        return [self.format, self.texture_offset[0], self.texture_offset[1], 0, 0]
         
     def make(self, remake = False, tex_name = None, mat_name = "Unnamed Material"):
         material = None
@@ -1355,6 +1361,9 @@ class Material(DataStruct):
         node_0 = material.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
         node_0.inputs[0].default_value = [c/255 for c in self.shader.color.to_array()]
         material.material_color = [c/255 for c in self.shader.color.to_array()]
+        # Preserve the texture offset (RE texture_offset[2]) so it survives a
+        # round-trip even though it is not exposed in the UI.
+        material['texture_offset'] = self.texture_offset
         material.node_tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
         material['id'] = self.id
         material['format'] = self.format
@@ -1531,6 +1540,7 @@ class Material(DataStruct):
             self.scroll_y = material.get('scroll_y', 0.0)
             self.clip_x = material.get('clip_x', False)
             self.clip_y = material.get('clip_y', False)
+            self.texture_offset = list(material.get('texture_offset', [0, 0]))
             
             # if material.node_tree:
             for node in material.node_tree.nodes:
@@ -1590,7 +1600,7 @@ class Material(DataStruct):
         self.model.highlight(material_start + 12)
         shader_addr = cursor
         cursor = self.shader.write(buffer, cursor)
-        struct.pack_into(self.format_string, buffer, material_start, self.format, tex_addr, shader_addr)
+        struct.pack_into(self.format_string, buffer, material_start, self.format, self.texture_offset[0], self.texture_offset[1], tex_addr, shader_addr)
         return cursor
     def remake(self, material, tex_name = None):
         self.unmake(material)
