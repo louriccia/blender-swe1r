@@ -46,46 +46,37 @@ def compute_image_hash(image):
 
 def reduce_colors(image_array, num_colors=255, max_iter=3):
     """
-    Reduce the number of colors in an image to a specified number using k-means clustering.
-    
+    Reduce an image to at most num_colors colors.
+
+    Uses popularity quantization: the most frequently used colors are kept
+    EXACTLY and every remaining pixel is mapped to its nearest kept color. This
+    preserves solid regions (a large white area stays pure white), unlike the
+    previous k-means approach whose cluster means pulled bright colors toward
+    grey and made white areas render noticeably darker in game.
+
     Parameters:
     - image_array: numpy array of shape (height, width, 4) or (num_pixels, 4)
-    - num_colors: number of colors to reduce to (default 255)
-    - max_iter: maximum number of iterations for convergence
-    
+    - num_colors: maximum number of palette colors
+    - max_iter: unused, kept for backwards compatibility
+
     Returns:
-    - reduced_image: numpy array of the same shape as image_array with reduced colors
+    - indices: per-pixel index into the palette
+    - palette: (num_colors, 4) array of RGBA colors in 0..1
     """
-    # Reshape image to (num_pixels, 4)
-    pixels = image_array.reshape(-1, 4).astype(np.float32)  # Ensure float for computations
-    # Handle small images by limiting num_colors
-    unique_pixels = np.unique(pixels, axis=0)
-    actual_num_colors = min(len(unique_pixels), num_colors)
-    
-    if len(unique_pixels) < num_colors:
-        centroids = unique_pixels
+    pixels = image_array.reshape(-1, 4).astype(np.float32)
+    unique_pixels, counts = np.unique(pixels, axis=0, return_counts=True)
+
+    if len(unique_pixels) <= num_colors:
+        palette = unique_pixels
     else:
-        np.random.seed(42)
-        centroids = pixels[np.random.choice(pixels.shape[0], actual_num_colors, replace=False)]
+        # keep the num_colors most-used colors, exactly
+        top = np.argsort(counts)[::-1][:num_colors]
+        palette = unique_pixels[top]
 
-    for iteration in range(max_iter):
-        distances = np.linalg.norm(pixels[:, None, :] - centroids[None, :, :], axis=2)
-        labels = np.argmin(distances, axis=1)
-        
-        new_centroids = np.array([
-            pixels[labels == k].mean(axis=0) if np.any(labels == k) else centroids[k]
-            for k in range(actual_num_colors)
-        ])
-        
-        if np.allclose(centroids, new_centroids, atol=1e-4):
-            break
-        
-        centroids = new_centroids
+    # map every pixel to its nearest kept color
+    distances = np.linalg.norm(pixels[:, None, :] - palette[None, :, :], axis=2)
+    indices = np.argmin(distances, axis=1)
 
-    indices = labels
-    # Convert centroids to uint8 for palette
-    palette = centroids
-    
     return indices, palette
 
 
