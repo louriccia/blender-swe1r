@@ -54,9 +54,9 @@ def export_model(col, file_path, exports, update_progress):
         update_progress("Parsing .bin files...")
         
         modelblock = Block(file_path + 'out_modelblock.bin', 2, update_progress).read()
-        textureblock = Block(file_path + 'out_textureblock.bin', 2, update_progress).read()
+        textureblock = Block(file_path + 'out_textureblock.bin', 2, update_progress, hash_assets=True).read()
 
-        update_progress(f'Unmaking {col.name}...')
+        update_progress(f'Processing {col.name}...')
         
         model = Model(col.export_model).unmake(col, texture_export, textureblock)
         if model is None:
@@ -118,7 +118,7 @@ def export_model(col, file_path, exports, update_progress):
                 file.write('\n'.join(debug_text) + '\n')
     
     if 'CURVE' in types and spline_export:
-        update_progress(f'Unmaking spline...')
+        update_progress(f'Processing spline...')
         
         splineblock = Block(file_path + 'out_splineblock.bin', 1, update_progress).read()
         spline = Spline().unmake(col)
@@ -140,5 +140,5 @@ def export_model(col, file_path, exports, update_progress):
             with open(file_path + 'spline_' + str(spline.id) + '_' + timestamp + '.bin', 'wb') as file:
                 file.write(spline_buffer)
             
-    show_custom_popup(bpy.context, "Exported!", f"Model {col.export_model} was successfully exported")
+    show_custom_popup(bpy.context, "Exported", f"'{col.name}' was successfully exported to {file_path}")
     

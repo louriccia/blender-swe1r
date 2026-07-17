@@ -441,7 +441,7 @@ class ExportPanel(bpy.types.Panel):
         
         if context.scene.is_export_texture:
             row = layout.row()
-            row.label(text = "New custom textures may require game restart")
+            row.label(text = "New custom textures may require a game restart")
             row.enabled = False
             
         layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
@@ -801,7 +801,7 @@ class SelectedPanel(bpy.types.Panel):
             
             if context.scene.is_export_texture:
                 row = layout.row()
-                row.label(text = "New custom textures may require game restart")
+                row.label(text = "New custom textures may require a game restart")
                 row.enabled = False
                 
             layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")

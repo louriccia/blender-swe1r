@@ -61,7 +61,7 @@ from .utils import *
 
 class ImportOperator(bpy.types.Operator):
     """Import the selected model to the Blender scene"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Import"
     bl_idname = "view3d.import_operator"
     bl_info = "Import the selected model"
     
@@ -107,7 +107,7 @@ class ImportOperator(bpy.types.Operator):
 
 class ExportOperator(bpy.types.Operator):
     """Export the selected collection to the game files"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Export"
     bl_idname = "view3d.export_operator"
 
     def execute(self, context):
@@ -133,7 +133,7 @@ class ExportOperator(bpy.types.Operator):
             return {'CANCELLED'}
         
         context.scene.export_progress = 0.01
-        context.scene.export_status = 'Importing...'
+        context.scene.export_status = 'Exporting...'
         
         def update_progress(status):
             context.scene.export_progress = context.scene.export_progress + 0.1*(1.0 - context.scene.export_progress)
@@ -160,7 +160,7 @@ class ExportOperator(bpy.types.Operator):
     
 class NewModelOperator(bpy.types.Operator):
     """Create a new model"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "New Model"
     bl_idname = "view3d.new_model"
     
     def execute(self, context):
@@ -212,7 +212,7 @@ class NewModelOperator(bpy.types.Operator):
     
 class SelectByProperty(bpy.types.Operator):
     """Select mesh objects based on a specified property"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Select by Property"
     bl_idname = "view3d.select_by_property"
 
     property_name: bpy.props.StringProperty()
@@ -238,7 +238,7 @@ class SelectByProperty(bpy.types.Operator):
     
 class ResetVisuals(bpy.types.Operator):
     """Reset visual data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Visuals"
     bl_idname = "view3d.reset_visuals"
     
     def execute(self, context):
@@ -248,7 +248,7 @@ class ResetVisuals(bpy.types.Operator):
         return {'FINISHED'}
 
 class ResetVColor(bpy.types.Operator):
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Vertex Colors"
     bl_idname = "view3d.reset_v_color"
     
     def execute(self, context):
@@ -260,7 +260,7 @@ class ResetVColor(bpy.types.Operator):
     
 class ResetTexture(bpy.types.Operator):
     """Reset texture data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Texture"
     bl_idname = "view3d.reset_texture"
     
     def execute(self, context):
@@ -280,7 +280,7 @@ class ResetTexture(bpy.types.Operator):
 
 class ResetCollidable(bpy.types.Operator):
     """Reset collidable data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Collidable"
     bl_idname = "view3d.reset_collidable"
     
     def execute(self, context):
@@ -298,7 +298,7 @@ class ResetCollidable(bpy.types.Operator):
 
 class ResetTerrain(bpy.types.Operator):
     """Reset terrain data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Terrain"
     bl_idname = "view3d.reset_terrain"
     
     def execute(self, context):
@@ -316,7 +316,7 @@ class ResetTerrain(bpy.types.Operator):
     
 class ResetLighting(bpy.types.Operator):
     """Reset lighting data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Lighting"
     bl_idname = "view3d.reset_lighting"
     
     def execute(self, context):
@@ -331,8 +331,8 @@ class ResetLighting(bpy.types.Operator):
         return {'FINISHED'}
     
 class ResetFog(bpy.types.Operator):
-    """Reset lighting data"""
-    bl_label = "SWE1R Import/Export"
+    """Reset fog data"""
+    bl_label = "Reset Fog"
     bl_idname = "view3d.reset_fog"
     
     def execute(self, context):
@@ -351,7 +351,7 @@ class ResetFog(bpy.types.Operator):
     
 class ResetLoading(bpy.types.Operator):
     """Reset loading data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Loading"
     bl_idname = "view3d.reset_loading"
     
     def execute(self, context):
@@ -475,7 +475,7 @@ class SplitByMaterial(bpy.types.Operator):
     
 class PreviewLoadTrigger(bpy.types.Operator):
     """Show which objects would be loaded when the player touches this collision"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Preview Load Trigger"
     bl_idname = "view3d.preview_load"
     
     def execute(self, context):
@@ -521,7 +521,7 @@ class ToggleViewLayerState(bpy.types.Operator):
     
 class AddTrigger(bpy.types.Operator):
     """Add a gameplay trigger to the selected collision"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Add Trigger"
     bl_idname = "view3d.add_trigger"
 
     def execute(self, context):
