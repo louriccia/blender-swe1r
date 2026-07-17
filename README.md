@@ -20,7 +20,7 @@ This project is currently under active development. While it may be functional f
 This add-on ships as a Blender **extension**. Installing it from the extension repository is recommended, since that lets Blender update it for you automatically.
 
 1. In Blender, go to **Edit → Preferences → Get Extensions**.
-2. Click the **▼** dropdown in the top-right and choose **Add Remote Repository…**.
+2. Inside the **Repositories** dropdown in the top-right, click the **+** button and choose **Add Remote Repository…**.
 3. Paste this URL, tick **Check for Updates on Startup**, then click **Create**:
    ```
    https://louriccia.github.io/blender-swe1r/index.json
