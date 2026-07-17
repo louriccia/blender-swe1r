@@ -100,6 +100,20 @@ Podd_MAlt = {
     "301": 300
 }
 
+def model_enum_item(i, model):
+    """Build a (identifier, label, description) tuple for a model enum.
+
+    The identifier is the model index as a string (unchanged, so saved
+    selections keep working). The label includes the name, the extension, and
+    the numeric id so otherwise-identical entries (e.g. the several
+    "Anakin Skywalker" variants) are distinguishable.
+    """
+    return (
+        str(i),
+        f"{model['name']}  ({model['extension']} {i})",
+        f"{model['extension']} model '{model['name']}' (id {i})",
+    )
+
 showbytes = {
     "115": 16,
     "142": 16,
@@ -134,10 +148,10 @@ def update_model_dropdown(self, context):
     model_type = model_types[int(context.scene.import_type)][1]
     
     if model_type == 'All':
-        items_for_selected_category = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
+        items_for_selected_category = [model_enum_item(i, model) for i, model in enumerate(model_list)]
     else:
-        items_for_selected_category = [(str(i), f"{model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_type]
-        items_for_selected_category.insert(0, ('-1', 'All', 'Import all models'))
+        items_for_selected_category = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_type]
+        items_for_selected_category.insert(0, ('-1', 'All', f'Import all {model_type} models'))
         
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
         items=items_for_selected_category,
@@ -148,7 +162,7 @@ def update_model_dropdown(self, context):
     
 def export_model_items(self, context):
     model_type = model_types[int(self.export_type)][1]
-    items_for_selected_category = [(str(i), f"{model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_type]
+    items_for_selected_category = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_type]
     return items_for_selected_category
 
 def update_selected(prop_name, update_mat = False, update_tex = False):

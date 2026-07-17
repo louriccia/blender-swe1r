@@ -1,5 +1,5 @@
 import bpy
-from .utils import save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable
+from .utils import save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item
 from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
 
@@ -34,9 +34,9 @@ def register():
         default=get_setting('new_type', 0)
     )
     
-    import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_types[int(get_setting('import_type', 0))][1]]
+    import_items = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_types[int(get_setting('import_type', 0))][1]]
     if not len(import_items):
-        import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
+        import_items = [model_enum_item(i, model) for i, model in enumerate(model_list)]
     import_items.append(("-1", "All", "Import all models of this type"))
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
         items=import_items,

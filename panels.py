@@ -22,7 +22,6 @@
 from .swr_import import *
 from .swr_export import *
 import bpy
-from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum
 from .operators import *
 from .constants import *
@@ -32,7 +31,6 @@ from bpy.utils import previews
 from mathutils import Color, Vector, Euler, Quaternion
 
 
-models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
 classes = []
 _in_selection_sync = False
 _msgbus_owner = object()
