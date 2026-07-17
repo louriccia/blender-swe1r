@@ -166,7 +166,6 @@ class Lights(DataStruct):
         self.ambient.from_array([ambient_r, ambient_g, ambient_b])
         self.color.from_array([color_r, color_g, color_b])
         self.light_vector.from_array([x, y, z])
-        self.rot.from_array([a, b, c])
         return self
 
 class Fog(DataStruct):
