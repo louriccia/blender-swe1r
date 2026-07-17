@@ -223,18 +223,23 @@ def EmptyVis(self, context):
 def UpdateVisibleSelectable(self, context = None):
     if context is None:
         context = bpy.context
+    # Convenience show/hide must only ever touch the working view layer (index 0),
+    # which the exporter skips. Writing to context.view_layer could land on one of
+    # the 23 game/detail view layers and corrupt the vis/col flags read on export
+    # (e.g. hiding a collision mesh here would clear its collision in-game).
+    working_layer = context.scene.view_layers[0]
     for obj in bpy.context.scene.objects:
         if obj.type != 'MESH':
             continue
         if obj.collidable:
             obj.hide_viewport = not context.scene.collision_visible
             obj.hide_select = not context.scene.collision_selectable
-            obj.hide_set(not context.scene.collision_visible, view_layer=context.view_layer)
-            
+            obj.hide_set(not context.scene.collision_visible, view_layer=working_layer)
+
         if obj.visible:
             obj.hide_viewport =  not context.scene.visuals_visible
             obj.hide_select = not context.scene.visuals_selectable
-            obj.hide_set(not context.scene.visuals_visible, view_layer=context.view_layer)
+            obj.hide_set(not context.scene.visuals_visible, view_layer=working_layer)
             
             
     
