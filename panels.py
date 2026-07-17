@@ -26,7 +26,7 @@ from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum
 from .operators import *
 from .constants import *
-from . import bl_info
+from . import NAME, VERSION
 import os
 from bpy.utils import previews
 from mathutils import Color, Vector, Euler, Quaternion
@@ -372,17 +372,16 @@ class InfoPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         row = layout.row()
-        row.label(text = bl_info['name'])
+        row.label(text = NAME)
         row.operator("view3d.open_url", text="", icon = "QUESTION", emboss = False).url = URL_WIKI
         row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["discord"].icon_id, emboss = False).url = URL_DISCORD
         row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["github"].icon_id, emboss = False).url = URL_GITHUB
         row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["kofi"].icon_id, emboss = False).url = URL_KOFI
         
         row = layout.row()
-        row.label(text = "Version: " + ".".join(map(str, bl_info['version'])))
-        row.operator("view3d.open_url", text="Update").url = ""
-        
-        
+        row.label(text = "Version: " + VERSION)
+
+
 # Global variable to store icons
 preview_collections = {}
 
