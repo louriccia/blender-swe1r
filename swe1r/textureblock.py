@@ -198,7 +198,13 @@ class Texture():
                 
         if len(image_pixels):
             new_image.pixels = [p for p in image_pixels]
-        
+
+        # A generated image only keeps its pixels in an in-memory buffer, which
+        # Blender's undo stack does not serialize - after undo/redo the image
+        # comes back regenerated as black. Packing embeds the pixels into the
+        # datablock so they survive undo/redo (and .blend save/reload).
+        new_image.pack()
+
         new_image['format'] = self.format
         new_image['id'] = self.id
 
