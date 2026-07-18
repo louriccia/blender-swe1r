@@ -3785,9 +3785,23 @@ class Model():
         
         
         target_map = {}
-        
+
         #TODO: Resolve multi-user objects
-        
+
+        # Convenience-hidden meshes can't be entered into Edit mode by the mesh
+        # operators below (split/scale/triangulate) - Blender refuses to edit a
+        # hidden object. Export reads visibility from the game view layers (1..),
+        # not the working layer, so force every mesh visible in the working layer
+        # first; the exported vis/col flags are unaffected. The operator restores
+        # the user's convenience visibility afterward.
+        working_layer = bpy.context.scene.view_layers[0]
+        bpy.context.window.view_layer = working_layer
+        for obj in get_all_objects_in_collection(collection):
+            if obj.type == 'MESH':
+                obj.hide_viewport = False
+                obj.hide_select = False
+                obj.hide_set(False, view_layer=working_layer)
+
         split_meshes_by_material(collection)
         apply_scale(collection)
         objects = get_all_objects_in_collection(collection)

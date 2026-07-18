@@ -162,6 +162,10 @@ class ExportOperator(bpy.types.Operator):
             context.scene.export_progress = 1.0
             context.scene.export_status = ""
             return {'CANCELLED'}
+        finally:
+            # Export forces meshes visible in the working layer so the mesh
+            # operators can run; restore the user's convenience visibility.
+            UpdateVisibleSelectable(context)
         
         context.scene.export_progress = 1.0
         context.scene.export_status = ""
