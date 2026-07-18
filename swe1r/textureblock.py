@@ -508,7 +508,11 @@ class Pixels():
         elif format in [512, 513]:
             for i in range(0, len(image.pixels), 4):
                 pixel = image.pixels[i: i+4]
-                color = RGBA5551().from_array([int(p*255) for p in pixel])
+                # Palette colors are stored as 0..1 floats (see Palette.unmake),
+                # so the lookup color must use the same scale - building it in
+                # 0..255 made every nearest-color match wrong and garbled the
+                # image.
+                color = RGBA5551().from_array([max(0, min(p, 1.0)) for p in pixel])
                 closest = palette.closest(color)
                 self.data.append(closest)
                 
