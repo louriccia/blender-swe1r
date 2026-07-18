@@ -544,8 +544,6 @@ class Pixels():
         #         buffer[cursor] = pixel
         #         cursor += 1
                 
-        print('writing', self.texture.id, self.texture.height, self.texture.width, self.texture.format)
-        
         data = np.array(self.data, dtype=np.float32)  # Convert to NumPy array for faster processing
         buffer = np.array(buffer, dtype=np.uint8)    # Use NumPy for the buffer
         height, width = self.texture.height, self.texture.width
