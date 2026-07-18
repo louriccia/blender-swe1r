@@ -367,30 +367,31 @@ def calculate_total_light_for_object(obj, falloff_factor=2.0, ambient_light_inte
 
     return total_lights
 
-updating_objects = set()
+# Single re-entrancy flag for the whole selection-sync cascade. Each setattr
+# below re-fires this same callback on the target object; a per-object guard
+# doesn't stop that (siblings keep re-triggering each other and it blows up
+# combinatorially, hanging Blender). One flag makes every nested call no-op.
+_syncing_prop = False
 
 def create_update_function(prop_name):
     def update_function(self, context):
-        global updating_objects
-        
-        # Check if the current object is already being updated
-        if self in updating_objects:
+        global _syncing_prop
+
+        if _syncing_prop:
             return
-        
+
         try:
-            # Add the current object to the set of updating objects
-            updating_objects.add(self)
-            
+            _syncing_prop = True
+
             # Update the property for all selected objects except the current one
             for obj in context.selected_objects:
                 if obj != self and hasattr(obj, prop_name):
                     setattr(obj, prop_name, getattr(self, prop_name))
                 elif hasattr(obj.data, prop_name):
                     setattr(obj.data, prop_name, getattr(self, prop_name))
-                    
+
         finally:
-            # Remove the current object from the updating set after updating
-            updating_objects.discard(self)
+            _syncing_prop = False
     return update_function
 
 name_attr_colors = data_name_format_short.format(label='colors')
