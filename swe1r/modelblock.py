@@ -1306,7 +1306,8 @@ class Material(DataStruct):
         self.shader = MaterialShader(self, self.model)
         
     def read(self, buffer, cursor):
-        self.id = cursor
+        # offsets are only unique within one model, so namespace the id by model
+        self.id = f"{self.model.id}_{cursor}"
         self.format, texture_addr, shader_addr = struct.unpack_from(self.format_string, buffer, cursor)
             
         self.texture = MaterialTexture(self, self.model).read(buffer, texture_addr)
@@ -1983,7 +1984,7 @@ class Mesh(DataStruct):
             b_obj = bpy.data.objects.new(mesh_name, mesh)
             
             b_obj.collidable = True   
-            b_obj.id = str(self.id)
+            b_obj.id = self.model.obj_key(self.id)
             b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
             collection.objects.link(b_obj)
@@ -2008,7 +2009,7 @@ class Mesh(DataStruct):
             mesh = bpy.data.meshes.new(mesh_name)
             b_obj = bpy.data.objects.new(mesh_name, mesh)
             b_obj.visible = True
-            b_obj.id = str(self.id)
+            b_obj.id = self.model.obj_key(self.id)
             b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
             collection.objects.link(b_obj)
@@ -2051,7 +2052,7 @@ class Mesh(DataStruct):
                 
                 hook = b_obj.modifiers.new(name=f"Hook_{self.id}", type='HOOK')
                 hook.vertex_group = vg.name
-                hook.object = get_obj_by_id(self.group_parent_id)
+                hook.object = get_obj_by_id(self.model.obj_key(self.group_parent_id), self.model.collection)
                 hook.falloff_type = 'NONE'
 
         
@@ -2418,8 +2419,12 @@ class Node(DataStruct):
             child_address = readUInt32BE(buffer, self.child_start + i * 4)
             if not child_address:
                 #print('no child adress for child', i, 'on node', self.id)
-                if (self.child_start + i * 4) in self.model.AltN:
-                    self.children.append({'id': self.child_start + i * 4, 'AltN': True})
+                slot_addr = self.child_start + i * 4
+                alt_node = self.model.read_alt_node(slot_addr, self)
+                if alt_node is not None:
+                    self.children.append(alt_node)
+                elif slot_addr in self.model.AltN:
+                    self.children.append({'id': slot_addr, 'AltN': True})
                 else:
                     self.children.append({'id': None})  # remove later
                 continue
@@ -2483,7 +2488,12 @@ class Node(DataStruct):
             collection.objects.link(b_node)
 
         #set group tags
-        b_node.id  = str(self.id)
+        b_node.id  = self.model.obj_key(self.id)
+        if self.model.type == '1':
+            # node comes from the high detail MAlt overlay of a Podd
+            b_node['MAlt'] = True
+        if self.AltN:
+            b_node['AltN'] = self.AltN
         b_node['node_type'] = self.node_type
         b_node['vis_flags'] = str(self.vis_flags)
         b_node['col_flags'] = str(self.col_flags)
@@ -2806,18 +2816,24 @@ class Group20581(Node):
     #NodeSelector https://github.com/tim-tim707/SW_RACER_RE/blob/fa8787540055d0bdf422b42e72ccf50cd3d72a07/src/types.h#L1273
     def __init__(self, parent, model, type, header = []):
         super().__init__(parent, model, type, header)
+        self.selected_child = 0 # -2 = none, -1 = all, >= 0 = only that child
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
+        self.selected_child = struct.unpack_from(">i", buffer, cursor + 28)[0]
         return self
     def make(self, parent = None, collection = None):
-        return super().make(parent, collection)
+        empty = super().make(parent, collection)
+        empty['selected_child'] = self.selected_child
+        return empty
     def unmake(self, node):
-        return super().unmake(node)
+        super().unmake(node)
+        self.selected_child = node.get('selected_child', 0)
+        return self
     def write(self, buffer, cursor):
         cursor = super().write(buffer, cursor)
         child_data_start = cursor - 8
-        if len(self.children):
-            cursor += 4
+        struct.pack_into(">i", buffer, cursor, self.selected_child)
+        cursor += 4
         cursor = super().write_children(buffer, cursor, child_data_start)
         return cursor
     
@@ -2833,7 +2849,7 @@ class Group20582(Node):
     def make(self, parent = None, collection = None):
         empty = super().make(parent, collection)
         empty['floats'] = self.floats
-        return self
+        return empty
     def unmake(self, node):
         super().unmake(node)
         self.floats = node['floats']
@@ -3156,7 +3172,7 @@ class Anim(DataStruct):
         self.loop = self.flag2 & 0x10 > 0
         target = None
         if self.flag2 in [27, 28]: #uv
-            target = get_mat_by_id(self.target)
+            target = get_mat_by_id(f"{self.model.id}_{self.target}")
             if target is None:
                 return
             
@@ -3175,13 +3191,13 @@ class Anim(DataStruct):
             material.make(remake = True)
 
         elif self.flag2 in [2, 18]: #texture
-            target = get_mat_by_id(self.target)
+            target = get_mat_by_id(f"{self.model.id}_{self.target}")
             if target is None:
                 return
             
             
         elif self.flag2 in [56, 8, 24, 40, 4152]: #rotation
-            target = get_obj_by_id(self.target)
+            target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
             if target is None:
                 return
             
@@ -3203,7 +3219,7 @@ class Anim(DataStruct):
                 previous_q = R
         
         elif self.flag2 in [57, 41, 25, 4153]: #location
-            target = get_obj_by_id(self.target)
+            target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
             if target is None:
                 return
 
@@ -3492,15 +3508,17 @@ def assign_objs_to_node_by_type(objects, root, model):
         root.children.append(node) 
         
 
-def get_obj_by_id(id):
-    for obj in bpy.data.objects:
+def get_obj_by_id(id, collection = None):
+    # node offsets repeat between models, so search only the model's own collection when we have it
+    objects = collection.all_objects if collection is not None else bpy.data.objects
+    for obj in objects:
         if obj.id == str(id):
             return obj
     return None
 
 def get_mat_by_id(id):
     for mat in bpy.data.materials:
-        if 'id' in mat and mat['id'] is not None and int(mat['id']) == int(id):
+        if 'id' in mat and mat['id'] is not None and str(mat['id']) == str(id):
             return mat
     return None
 
@@ -3640,6 +3658,11 @@ class Model():
         self.AltN = []
         self.Anim = None
         
+        # Podd models get their high detail parts from a paired MAlt model (see read_alt_model)
+        self.alt_model = None
+        self.alt_buffer = None
+        self.id_prefix = ''
+        
         self.animations = []
         self.materials = {}
         self.textures = {}
@@ -3654,30 +3677,57 @@ class Model():
         if cursor is None:
             show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.header.model.type}")
             return None
+        self.AltN = self.header.AltN
         
         if self.type == "4":
-            
-            #get MAlt
-            MAlt_id = Podd_MAlt[str(self.id)]
-            MAlt_buffer = self.modelblock.fetch(MAlt_id)[1]
-            MAlt = Model(MAlt_id).read(MAlt_buffer)
-            
-            for i, offset in enumerate(self.header.offsets):
-                if offset:
-                    node_type = readUInt32BE(buffer, offset)
-                    node = create_node(node_type, self, self)
-                    self.nodes.append(node.read(buffer, offset))
-                elif MAlt.header.offsets[i]:
-                    MAlt_offset = MAlt.header.offsets[i]
-                    node_type = readUInt32BE(MAlt_buffer, MAlt_offset)
-                    node = create_node(node_type, self, self)
-                    self.nodes.append(node.read(MAlt_buffer, MAlt_offset))
+            self.read_alt_model()
+        
+        if self.type == "1":
+            # a MAlt has no root of its own, its nodes are the AltN entries that get plugged into the Podd
+            roots = list(dict.fromkeys(self.AltN))
         elif readUInt32BE(buffer, cursor):
-            node_type = readUInt32BE(buffer, cursor)
-            node = create_node(node_type, self, self)
-            self.nodes = [node.read(buffer, cursor)]
+            roots = [cursor]
+        else:
+            roots = []
+            
+        for root in roots:
+            if self.ref_map.get(root):
+                continue
+            node = create_node(readUInt32BE(buffer, root), self, self)
+            self.nodes.append(node.read(buffer, root))
             
         return self
+    
+    def read_alt_model(self):
+        # The game merges a Podd with its MAlt on load:
+        #   - every empty header slot of the Podd takes the MAlt's node in the same slot
+        #   - every Podd AltN entry is the address of an empty child pointer, which gets the MAlt AltN node with the same index
+        # Every MAlt slot node sits under one of its AltN nodes, so grafting the AltN nodes brings the slots along.
+        MAlt_id = Podd_MAlt.get(str(self.id))
+        if MAlt_id is None or self.modelblock is None:
+            return
+        alt_model = Model(MAlt_id)
+        alt_model.modelblock = self.modelblock
+        alt_model.id_prefix = 'MAlt_'
+        self.alt_buffer = self.modelblock.fetch(MAlt_id)[1]
+        alt_model.header.read(self.alt_buffer, 0)
+        alt_model.AltN = alt_model.header.AltN
+        self.alt_model = alt_model
+        
+    def read_alt_node(self, slot_addr, parent):
+        if self.alt_model is None or slot_addr not in self.AltN:
+            return None
+        index = self.AltN.index(slot_addr)
+        if index >= len(self.alt_model.AltN):
+            return None
+        addr = self.alt_model.AltN[index]
+        if self.alt_model.ref_map.get(addr):
+            return {'id': addr}
+        node = create_node(readUInt32BE(self.alt_buffer, addr), parent, self.alt_model)
+        return node.read(self.alt_buffer, addr)
+    
+    def obj_key(self, offset):
+        return f"{self.id_prefix}{offset}"
 
     def make(self):
         ensure_24_view_layers()
@@ -3687,6 +3737,8 @@ class Model():
         
         bpy.context.scene.collection.children.link(collection)
         self.collection = collection
+        if self.alt_model:
+            self.alt_model.collection = collection
         
         for node in self.nodes:
             self.modelblock.update_progress(f"Making node {node.id}")
@@ -3695,7 +3747,7 @@ class Model():
         # update trigger targets
         for trigger in self.triggers:
             if 'target_id' in trigger and trigger['target_id']:
-                target = get_obj_by_id(trigger['target_id'])
+                target = get_obj_by_id(trigger['target_id'], collection)
                 trigger.target = target
                 
         # transform parents with transforms
