@@ -42,7 +42,22 @@ def get_model_type(name):
     for code, model_name, description in model_types:
         if model_name == name:
             return code
-    return None 
+    return None
+
+def set_material_blend(material, blend):
+    """Set a material's transparency mode across Blender versions.
+
+    `blend` is 'OPAQUE' or 'BLEND'. `Material.blend_method` and
+    `show_transparent_back` were removed in EEVEE-Next (Blender 4.3+) and
+    replaced by `surface_render_method`. Assigning the old attributes on 4.3+
+    raises AttributeError, so guard every write with hasattr and set whichever
+    API the running Blender exposes."""
+    if hasattr(material, 'blend_method'):
+        material.blend_method = blend
+    if hasattr(material, 'surface_render_method'):
+        material.surface_render_method = 'BLENDED' if blend == 'BLEND' else 'DITHERED'
+    if blend == 'BLEND' and hasattr(material, 'show_transparent_back'):
+        material.show_transparent_back = True
 
 def ensure_cycles_first(fcurve):
     mods = fcurve.modifiers
@@ -65,8 +80,18 @@ def ensure_cycles_first(fcurve):
     return m
 
 class Lights(DataStruct):
+    # RE swrModel_Behavior light region: light_flags(u16), ambient_color[3],
+    # light_color[3], unk10(u16 = the two bytes below), light_vector[3] (a
+    # direction vector), unk14_node (a swrModel_Node* pointer), unk15, unk16.
+    # NOTE: light_vector is a DIRECTION per the RE, but is currently represented
+    # in Blender as the position of a point light (unchanged for now to avoid a
+    # speculative point->sun conversion). unk14_node/unk15/unk16 are written as
+    # 0 on export: unk14_node is a runtime pointer (null on disk) and the two
+    # unknowns default to 0, matching how unk10 already exports. This replaces
+    # the previous code that misread these 12 bytes as a float "rotation" and
+    # wrote Blender rotation values back into the pointer slot.
     def __init__(self, model):
-        super().__init__('>h8b6f')
+        super().__init__('>h8b3f3I')
         self.model = model
         self.flag = 0
         # 00100 = invert affected?
@@ -76,73 +101,71 @@ class Lights(DataStruct):
         self.color = RGB3Bytes()
         self.unk1 = 0
         self.unk2 = 0
-        self.pos = FloatPosition()
-        self.rot = FloatVector()
-        
+        self.light_vector = FloatPosition()
+        self.unk14_node = 0
+        self.unk15 = 0
+        self.unk16 = 0
+
     def read(self, buffer, cursor):
-        self.flag, ambient_r, ambient_g, ambient_b, color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, rx, ry, rz = struct.unpack_from(self.format_string, buffer, cursor)
+        self.flag, ambient_r, ambient_g, ambient_b, color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, self.unk14_node, self.unk15, self.unk16 = struct.unpack_from(self.format_string, buffer, cursor)
         self.ambient.from_array([ambient_r, ambient_g, ambient_b])
         self.color.from_array([color_r, color_g, color_b])
-        self.pos.from_array([x, y, z])
-        self.rot.from_array([rx, ry, rz])
+        self.light_vector.from_array([x, y, z])
         return self
-    
+
     def make(self, obj):
-        
+
         if self.flag & 0x3 > 0:
             objects = get_all_objects_in_collection(self.model.collection)
-            existing_light = find_existing_light(objects, mathutils.Color(self.color.make()), mathutils.Vector([a * self.model.scale for a in self.pos.make()]),  mathutils.Euler(self.rot.make()))
+            existing_light = find_existing_light(objects, mathutils.Color(self.color.make()), mathutils.Vector([a * self.model.scale for a in self.light_vector.make()]), mathutils.Euler((0, 0, 0)))
             if existing_light is None:
                 # Create a new light if no existing light is found
-                
+
                 new_light = bpy.data.lights.new(type='POINT', name='pod_lighting')
                 new_light.color = self.color.make()
-                
+
                 light_object = bpy.data.objects.new(name="pod_lighting", object_data=new_light)
                 self.model.collection.objects.link(light_object)
 
-                # Set the location and rotation
-                light_object.location = [a * self.model.scale for a in self.pos.make()]
-                light_object.rotation_euler = self.rot.make()
-                
+                # Set the location (light_vector; see class note re: direction)
+                light_object.location = [a * self.model.scale for a in self.light_vector.make()]
+
                 obj.lighting_light = new_light
-            else: 
+            else:
                 obj.lighting_light = existing_light.data
         obj.lighting_color = self.ambient.make()
         obj.lighting_invert = self.flag & 0x4 > 0
         obj.lighting_flicker = self.flag & 0x8 > 0
         obj.lighting_persistent = self.flag & 0x10 > 0
-        
+
     def unmake(self, obj):
         if obj.lighting_light is not None:
             light_object = bpy.data.objects.get(obj.lighting_light.name)
             self.flag |= 0x3
-            
+
             if light_object:
                 self.color.unmake(light_object.data.color)
-                self.pos.from_array([round(a/self.model.scale) for a in light_object.location])
-                self.rot.from_array(light_object.rotation_euler)
-        
+                self.light_vector.from_array([round(a/self.model.scale) for a in light_object.location])
+
         self.ambient.unmake(obj.lighting_color)
-        
+
         if obj.lighting_invert:
             self.flag |= 0x4
         if obj.lighting_flicker:
             self.flag |= 0x8
         if obj.lighting_persistent:
                 self.flag |= 0x10
-        
+
         return self
-    
+
     def to_array(self):
-        return [self.flag, *self.ambient.to_array(), *self.color.to_array(), self.unk1, self.unk2, *self.pos.to_array(), *self.rot.to_array()]
-        
+        return [self.flag, *self.ambient.to_array(), *self.color.to_array(), self.unk1, self.unk2, *self.light_vector.to_array(), self.unk14_node, self.unk15, self.unk16]
+
     def from_array(self, arr):
-        self.flag, ambient_r, ambient_g, ambient_b,color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, a, b, c = arr
+        self.flag, ambient_r, ambient_g, ambient_b,color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, self.unk14_node, self.unk15, self.unk16 = arr
         self.ambient.from_array([ambient_r, ambient_g, ambient_b])
         self.color.from_array([color_r, color_g, color_b])
-        self.pos.from_array([x, y, z])
-        self.rot.from_array([a, b, c])
+        self.light_vector.from_array([x, y, z])
         return self
 
 class Fog(DataStruct):
@@ -437,7 +460,11 @@ class SurfaceFlags(DataStruct):
 class CollisionTags(DataStruct):
     def __init__(self, parent, model):
         
-        super().__init__('>H4B3H8B6fI2H3I')
+        # The light region's tail is light_vector(3f) + unk14_node(pointer) +
+        # unk15 + unk16 (RE swrModel_Behavior), not six floats. Same 24 bytes and
+        # same value count, so no field offsets move; the last three are read as
+        # uint32 rather than misread as a float "rotation".
+        super().__init__('>H4B3H8B3f3II2H3I')
         self.parent = parent
         self.model = model
         self.unk = SpecialSurfaceFlags()
@@ -1126,7 +1153,14 @@ class MaterialTexture(DataStruct):
     def write(self, buffer, cursor):
         chunk_addr = cursor + 28
         self.model.highlight(cursor + 56)
-        #struct.pack_into(self.format_string, buffer, cursor, self.unk0, min(self.width*4, 65535), min(self.height*4, 65535), self.format, self.unk4, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), self.unk7, self.unk8, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
+        # NOTE: several fields here (the 2H scale params, unk4, the two mip-size
+        # params, and unk7/unk8) are synthesized rather than round-tripped. On
+        # export this struct is always built via unmake() from Blender data, so
+        # the original values read on import are not available. The constants and
+        # width/height-derived formulas below produce files the game loads
+        # correctly (verified in-game over long use); making this a true byte
+        # round-trip would require persisting the read values on the image's
+        # custom properties. See RE swrModel_MaterialTexture for field meanings.
         struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 65535), min(self.height*8, 65535), self.format, 3, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), 683, 503, *[3, 3, 3, 3, 3, 3], self.unk9, self.id)
         cursor += self.size
 
@@ -1212,10 +1246,8 @@ class MaterialShader(DataStruct):
         material['render_mode_2'] = str(self.render_mode_2)
         
         if self.unk1 == 8 or self.render_mode_1 & 0x800 or self.render_mode_2 & 0x800:
-            material.show_transparent_back = True
-            material.blend_method = 'BLEND'
             material.transparent = True
-            material.surface_render_method = 'DITHERED'
+            set_material_blend(material, 'BLEND')
     
     def unmake(self, material):
         if material is not None:
@@ -1273,11 +1305,16 @@ class MaterialShader(DataStruct):
 
 class Material(DataStruct):
     def __init__(self, parent, model):
-        super().__init__('>I4xII')
+        # Layout per RE swrModel_MeshMaterial: uint32 type, int16 texture_offset[2],
+        # MaterialTexture*, Material*. The two shorts after the type were being
+        # skipped (4x) and written as zero, dropping any texture offset. They are
+        # read/stored/written now so materials with type & 0x80 round-trip.
+        super().__init__('>I2hII')
         self.parent = parent
         self.id = None
         self.model = model
         self.format = 14
+        self.texture_offset = [0, 0]
         self.name = ""
         #00000001   1   254 1 = lightmap
         #00000010   2   253
@@ -1310,18 +1347,20 @@ class Material(DataStruct):
         self.shader = MaterialShader(self, self.model)
         
     def read(self, buffer, cursor):
-        self.id = cursor
-        self.format, texture_addr, shader_addr = struct.unpack_from(self.format_string, buffer, cursor)
-            
+        # offsets are only unique within one model, so namespace the id by model
+        self.id = f"{self.model.id}_{cursor}"
+        self.format, off_x, off_y, texture_addr, shader_addr = struct.unpack_from(self.format_string, buffer, cursor)
+        self.texture_offset = [off_x, off_y]
+
         self.texture = MaterialTexture(self, self.model).read(buffer, texture_addr)
-        
+
         # there should always be a shader_addr otherwise game will crash
         assert shader_addr > 0, "Material should have shader"
         self.shader.read(buffer, shader_addr)
         return self
-        
+
     def to_array(self):
-        return [self.format, 0, 0]
+        return [self.format, self.texture_offset[0], self.texture_offset[1], 0, 0]
         
     def make(self, remake = False, tex_name = None, mat_name = "Unnamed Material"):
         material = None
@@ -1339,10 +1378,17 @@ class Material(DataStruct):
         node_0 = material.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
         node_0.inputs[0].default_value = [c/255 for c in self.shader.color.to_array()]
         material.material_color = [c/255 for c in self.shader.color.to_array()]
+        # Preserve the texture offset (RE texture_offset[2]) so it survives a
+        # round-trip even though it is not exposed in the UI.
+        material['texture_offset'] = self.texture_offset
         material.node_tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
         material['id'] = self.id
         material['format'] = self.format
-        material['normal_map'] = self.format & 0x1
+        # RE: a mesh uses the Vtx_tn (normals) vertex format when the material
+        # type has bit 0x1 OR 0x10 set. Recognize both so the shader wires the
+        # per-vertex data into the Normal input for either variant (previously
+        # only 0x1 was detected, so 0x10-only materials were mis-wired as color).
+        material['normal_map'] = bool(self.format & 0x11)
         
         self.shader.make(material)
         
@@ -1363,11 +1409,11 @@ class Material(DataStruct):
         material['clip_x'] = self.clip_x
         material['clip_y'] = self.clip_y
         
-        material.blend_method = 'OPAQUE'
-        
-        
+        set_material_blend(material, 'OPAQUE')
+
+
         if self.texture and self.texture.format == 3:
-            material.blend_method = 'BLEND'
+            set_material_blend(material, 'BLEND')
             
         if (self.format & 8):
             material.use_backface_culling = True
@@ -1418,7 +1464,7 @@ class Material(DataStruct):
         # NOTE: probably shouldn't do it this way
         # TODO: find specific tag
         if tex_name in ["1167", "1077", "1461", "1596"]:
-            material.blend_method = 'BLEND'
+            set_material_blend(material, 'BLEND')
             material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Alpha"])
         
         if self.format in [31, 15, 7]:
@@ -1479,22 +1525,11 @@ class Material(DataStruct):
         
         image_node = material.node_tree.nodes["Image Texture"]
         image_node.image = b_tex
-        
-        if self.texture_anim: # TODO
-            bpy.data.images.load("C:/Users/louri/Documents/Github/test/textures/0.png", check_existing=True)
-            image_node.image = bpy.data.images.get('0.png')
-            bpy.data.images["0.png"].source = 'SEQUENCE'
-            node_1.image_user.use_auto_refresh = True
-            node_1.image_user.frame_duration = 1
-            for f in range(anim[child]['num_keyframes']):
-                node_1.image_user.frame_offset = anim[child]['keyframe_poses'][f] - 1
-                node_1.image_user.keyframe_insert(data_path="frame_offset", frame = round(anim[child]['keyframe_times'][f] * (bpy.context.scene.render.fps if remake else self.model.fps)))
-            if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
-                bag = anim_utils.action_get_channelbag_for_slot(material.node_tree.animation_data.action, material.node_tree.animation_data.action_slot)
-                for fcurves_f in bag.fcurves:
-                    ensure_cycles_first(fcurves_f)
-                    for k in fcurves_f.keyframe_points:
-                        k.interpolation = 'CONSTANT'
+
+        # NOTE: texture-swap animation (self.texture_anim) is not implemented.
+        # The previous stub here referenced a hardcoded local path and undefined
+        # variables and could never run; it was removed. See TexturePose.write,
+        # which is likewise a stub, for the export side of this feature.
         material.preview_render_type = 'FLAT'
         return material
             
@@ -1515,6 +1550,7 @@ class Material(DataStruct):
             self.scroll_y = material.get('scroll_y', 0.0)
             self.clip_x = material.get('clip_x', False)
             self.clip_y = material.get('clip_y', False)
+            self.texture_offset = list(material.get('texture_offset', [0, 0]))
             
             # if material.node_tree:
             for node in material.node_tree.nodes:
@@ -1549,7 +1585,11 @@ class Material(DataStruct):
             if self.format is None:
                 self.format = 14
 
-            if material.get('normal_map', False):
+            # Only force the normals bit when the preserved format doesn't
+            # already carry one (0x1 or 0x10). This keeps a vanilla 0x10 material
+            # from being silently changed to 0x11 on re-export, while still
+            # tagging a material the user newly marked as a normal map.
+            if material.get('normal_map', False) and not (self.format & 0x11):
                 self.format |= 0x01
 
             if material.use_backface_culling == False:
@@ -1574,7 +1614,7 @@ class Material(DataStruct):
         self.model.highlight(material_start + 12)
         shader_addr = cursor
         cursor = self.shader.write(buffer, cursor)
-        struct.pack_into(self.format_string, buffer, material_start, self.format, tex_addr, shader_addr)
+        struct.pack_into(self.format_string, buffer, material_start, self.format, self.texture_offset[0], self.texture_offset[1], tex_addr, shader_addr)
         return cursor
     def remake(self, material, tex_name = None):
         self.unmake(material)
@@ -1988,7 +2028,7 @@ class Mesh(DataStruct):
             b_obj = bpy.data.objects.new(mesh_name, mesh)
             
             b_obj.collidable = True   
-            b_obj.id = str(self.id)
+            b_obj.id = self.model.obj_key(self.id)
             b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
             collection.objects.link(b_obj)
@@ -2013,7 +2053,7 @@ class Mesh(DataStruct):
             mesh = bpy.data.meshes.new(mesh_name)
             b_obj = bpy.data.objects.new(mesh_name, mesh)
             b_obj.visible = True
-            b_obj.id = str(self.id)
+            b_obj.id = self.model.obj_key(self.id)
             b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
             collection.objects.link(b_obj)
@@ -2051,7 +2091,7 @@ class Mesh(DataStruct):
 
                 hook = b_obj.modifiers.new(name=f"Hook_{self.id}", type='HOOK')
                 hook.vertex_group = vg.name
-                hook.object = get_obj_by_id(self.group_parent_id)
+                hook.object = get_obj_by_id(self.model.obj_key(self.group_parent_id), self.model.collection)
                 hook.falloff_type = 'NONE'
 
         
@@ -2468,8 +2508,12 @@ class Node(DataStruct):
             child_address = readUInt32BE(buffer, self.child_start + i * 4)
             if not child_address:
                 #print('no child adress for child', i, 'on node', self.id)
-                if (self.child_start + i * 4) in self.model.AltN:
-                    self.children.append({'id': self.child_start + i * 4, 'AltN': True})
+                slot_addr = self.child_start + i * 4
+                alt_node = self.model.read_alt_node(slot_addr, self)
+                if alt_node is not None:
+                    self.children.append(alt_node)
+                elif slot_addr in self.model.AltN:
+                    self.children.append({'id': slot_addr, 'AltN': True})
                 else:
                     self.children.append({'id': None})  # remove later
                 continue
@@ -2533,7 +2577,12 @@ class Node(DataStruct):
             collection.objects.link(b_node)
 
         #set group tags
-        b_node.id  = str(self.id)
+        b_node.id  = self.model.obj_key(self.id)
+        if self.model.type == '1':
+            # node comes from the high detail MAlt overlay of a Podd
+            b_node['MAlt'] = True
+        if self.AltN:
+            b_node['AltN'] = self.AltN
         b_node['node_type'] = self.node_type
         b_node['vis_flags'] = str(self.vis_flags)
         b_node['col_flags'] = str(self.col_flags)
@@ -2610,7 +2659,7 @@ class Node(DataStruct):
         
         #write references to this node in the model header
         for i in self.header:
-            struct.pack_into(f">{len(self.header)}I", buffer, 4 + 4*i, *[cursor]*len(self.header))
+            struct.pack_into(">I", buffer, 4 + 4*i, cursor)
              
         struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.vis_flags, self.col_flags, self.transform_flags, self.light_index, self.mirror_flags, 0, 0)
         return cursor + self.size
@@ -2875,18 +2924,24 @@ class Group20581(Node):
     #NodeSelector https://github.com/tim-tim707/SW_RACER_RE/blob/fa8787540055d0bdf422b42e72ccf50cd3d72a07/src/types.h#L1273
     def __init__(self, parent, model, type, header = []):
         super().__init__(parent, model, type, header)
+        self.selected_child = 0 # -2 = none, -1 = all, >= 0 = only that child
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
+        self.selected_child = struct.unpack_from(">i", buffer, cursor + 28)[0]
         return self
     def make(self, parent = None, collection = None):
-        return super().make(parent, collection)
+        empty = super().make(parent, collection)
+        empty['selected_child'] = self.selected_child
+        return empty
     def unmake(self, node):
-        return super().unmake(node)
+        super().unmake(node)
+        self.selected_child = node.get('selected_child', 0)
+        return self
     def write(self, buffer, cursor):
         cursor = super().write(buffer, cursor)
         child_data_start = cursor - 8
-        if len(self.children):
-            cursor += 4
+        struct.pack_into(">i", buffer, cursor, self.selected_child)
+        cursor += 4
         cursor = super().write_children(buffer, cursor, child_data_start)
         return cursor
     
@@ -2902,7 +2957,7 @@ class Group20582(Node):
     def make(self, parent = None, collection = None):
         empty = super().make(parent, collection)
         empty['floats'] = self.floats
-        return self
+        return empty
     def unmake(self, node):
         super().unmake(node)
         self.floats = node['floats']
@@ -3225,7 +3280,7 @@ class Anim(DataStruct):
         self.loop = self.flag2 & 0x10 > 0
         target = None
         if self.flag2 in [27, 28]: #uv
-            target = get_mat_by_id(self.target)
+            target = get_mat_by_id(f"{self.model.id}_{self.target}")
             if target is None:
                 return
             
@@ -3244,13 +3299,13 @@ class Anim(DataStruct):
             material.make(remake = True)
 
         elif self.flag2 in [2, 18]: #texture
-            target = get_mat_by_id(self.target)
+            target = get_mat_by_id(f"{self.model.id}_{self.target}")
             if target is None:
                 return
             
             
         elif self.flag2 in [56, 8, 24, 40, 4152]: #rotation
-            target = get_obj_by_id(self.target)
+            target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
             if target is None:
                 return
             
@@ -3272,7 +3327,7 @@ class Anim(DataStruct):
                 previous_q = R
         
         elif self.flag2 in [57, 41, 25, 4153]: #location
-            target = get_obj_by_id(self.target)
+            target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
             if target is None:
                 return
 
@@ -3386,6 +3441,7 @@ class ModelHeader():
         self.offsets = []
         self.AltN = []
         self.model = model
+        self.size = None
 
     def read(self, buffer, cursor):
         type = readString(buffer, cursor)
@@ -3442,6 +3498,12 @@ class ModelHeader():
     def unmake(self, collection):
         self.model.id = collection.export_model
         self.model.type = collection.export_type
+        # Header slot count varies within a type (e.g. pod-part Parts have 5
+        # slots, other Parts 2), and the game indexes into it, so preserve the
+        # length read on import. Fall back to the per-type default otherwise.
+        imported_header = collection.get('header')
+        if imported_header is not None and len(imported_header):
+            self.size = len(imported_header)
         if self.model.type == "7":
             self.model.Data = ModelData(self, self.model).unmake()
         self.model.Anim = AnimList(self, self.model).unmake()
@@ -3449,7 +3511,8 @@ class ModelHeader():
     def write(self, buffer, cursor):
         cursor = writeString(buffer,  model_types[int(self.model.type)][1], cursor)
 
-        for header_value in range(header_sizes[int(self.model.type)]):
+        size = self.size if self.size is not None else header_sizes[int(self.model.type)]
+        for header_value in range(size):
             self.model.highlight(cursor)
             cursor += 4  # writeInt32BE(buffer, header_value, cursor)
 
@@ -3561,15 +3624,17 @@ def assign_objs_to_node_by_type(objects, root, model):
         root.children.append(node) 
         
 
-def get_obj_by_id(id):
-    for obj in bpy.data.objects:
+def get_obj_by_id(id, collection = None):
+    # node offsets repeat between models, so search only the model's own collection when we have it
+    objects = collection.all_objects if collection is not None else bpy.data.objects
+    for obj in objects:
         if obj.id == str(id):
             return obj
     return None
 
 def get_mat_by_id(id):
     for mat in bpy.data.materials:
-        if 'id' in mat and mat['id'] is not None and int(mat['id']) == int(id):
+        if 'id' in mat and mat['id'] is not None and str(mat['id']) == str(id):
             return mat
     return None
 
@@ -3711,6 +3776,11 @@ class Model():
         self.AltN = []
         self.Anim = None
         
+        # Podd models get their high detail parts from a paired MAlt model (see read_alt_model)
+        self.alt_model = None
+        self.alt_buffer = None
+        self.id_prefix = ''
+        
         self.animations = []
         self.materials = {}
         self.textures = {}
@@ -3725,30 +3795,57 @@ class Model():
         if cursor is None:
             show_custom_popup(bpy.context, "Unrecognized Model Extension", f"This model extension was not recognized: {self.header.model.type}")
             return None
+        self.AltN = self.header.AltN
         
         if self.type == "4":
-            
-            #get MAlt
-            MAlt_id = Podd_MAlt[str(self.id)]
-            MAlt_buffer = self.modelblock.fetch(MAlt_id)[1]
-            MAlt = Model(MAlt_id).read(MAlt_buffer)
-            
-            for i, offset in enumerate(self.header.offsets):
-                if offset:
-                    node_type = readUInt32BE(buffer, offset)
-                    node = create_node(node_type, self, self)
-                    self.nodes.append(node.read(buffer, offset))
-                elif MAlt.header.offsets[i]:
-                    MAlt_offset = MAlt.header.offsets[i]
-                    node_type = readUInt32BE(MAlt_buffer, MAlt_offset)
-                    node = create_node(node_type, self, self)
-                    self.nodes.append(node.read(MAlt_buffer, MAlt_offset))
+            self.read_alt_model()
+        
+        if self.type == "1":
+            # a MAlt has no root of its own, its nodes are the AltN entries that get plugged into the Podd
+            roots = list(dict.fromkeys(self.AltN))
         elif readUInt32BE(buffer, cursor):
-            node_type = readUInt32BE(buffer, cursor)
-            node = create_node(node_type, self, self)
-            self.nodes = [node.read(buffer, cursor)]
+            roots = [cursor]
+        else:
+            roots = []
+            
+        for root in roots:
+            if self.ref_map.get(root):
+                continue
+            node = create_node(readUInt32BE(buffer, root), self, self)
+            self.nodes.append(node.read(buffer, root))
             
         return self
+    
+    def read_alt_model(self):
+        # The game merges a Podd with its MAlt on load:
+        #   - every empty header slot of the Podd takes the MAlt's node in the same slot
+        #   - every Podd AltN entry is the address of an empty child pointer, which gets the MAlt AltN node with the same index
+        # Every MAlt slot node sits under one of its AltN nodes, so grafting the AltN nodes brings the slots along.
+        MAlt_id = Podd_MAlt.get(str(self.id))
+        if MAlt_id is None or self.modelblock is None:
+            return
+        alt_model = Model(MAlt_id)
+        alt_model.modelblock = self.modelblock
+        alt_model.id_prefix = 'MAlt_'
+        self.alt_buffer = self.modelblock.fetch(MAlt_id)[1]
+        alt_model.header.read(self.alt_buffer, 0)
+        alt_model.AltN = alt_model.header.AltN
+        self.alt_model = alt_model
+        
+    def read_alt_node(self, slot_addr, parent):
+        if self.alt_model is None or slot_addr not in self.AltN:
+            return None
+        index = self.AltN.index(slot_addr)
+        if index >= len(self.alt_model.AltN):
+            return None
+        addr = self.alt_model.AltN[index]
+        if self.alt_model.ref_map.get(addr):
+            return {'id': addr}
+        node = create_node(readUInt32BE(self.alt_buffer, addr), parent, self.alt_model)
+        return node.read(self.alt_buffer, addr)
+    
+    def obj_key(self, offset):
+        return f"{self.id_prefix}{offset}"
 
     def make(self):
         ensure_24_view_layers()
@@ -3758,6 +3855,8 @@ class Model():
         
         bpy.context.scene.collection.children.link(collection)
         self.collection = collection
+        if self.alt_model:
+            self.alt_model.collection = collection
         
         for node in self.nodes:
             self.modelblock.update_progress(f"Making node {node.id}")
@@ -3766,7 +3865,7 @@ class Model():
         # update trigger targets
         for trigger in self.triggers:
             if 'target_id' in trigger and trigger['target_id']:
-                target = get_obj_by_id(trigger['target_id'])
+                target = get_obj_by_id(trigger['target_id'], collection)
                 trigger.target = target
                 
         # transform parents with transforms
@@ -3791,7 +3890,22 @@ class Model():
         self.id = collection.export_model
         self.nodes = []
         self.texture_export = texture_export
-        
+
+        # Guard unsupported model types up front. Previously types 1/2/6 fell
+        # through every branch below and silently wrote an EMPTY model over the
+        # game file (data loss). Types 2 (Modl) and 6 (Scen) are now handled by
+        # the generic branch; type 1 (MAlt) is exported automatically alongside
+        # its Podd (see swr_export.py), not on its own.
+        supported_types = ('2', '3', '4', '5', '6', '7')
+        if str(self.type) not in supported_types:
+            try:
+                type_name = model_types[int(self.type)][1]
+            except (ValueError, IndexError):
+                type_name = str(self.type)
+            if str(self.type) == '1':
+                raise ValueError("MAlt (High-LOD pod) models are exported automatically with their Podd, not on their own.")
+            raise ValueError(f"Exporting model type '{type_name}' is not supported.")
+
         root = Group20580(self, self, 20580)
         
         if self.type == '3':
@@ -3802,9 +3916,23 @@ class Model():
         
         
         target_map = {}
-        
+
         #TODO: Resolve multi-user objects
-        
+
+        # Convenience-hidden meshes can't be entered into Edit mode by the mesh
+        # operators below (split/scale/triangulate) - Blender refuses to edit a
+        # hidden object. Export reads visibility from the game view layers (1..),
+        # not the working layer, so force every mesh visible in the working layer
+        # first; the exported vis/col flags are unaffected. The operator restores
+        # the user's convenience visibility afterward.
+        working_layer = bpy.context.scene.view_layers[0]
+        bpy.context.window.view_layer = working_layer
+        for obj in get_all_objects_in_collection(collection):
+            if obj.type == 'MESH':
+                obj.hide_viewport = False
+                obj.hide_select = False
+                obj.hide_set(False, view_layer=working_layer)
+
         split_meshes_by_material(collection)
         apply_scale(collection)
         objects = get_all_objects_in_collection(collection)
@@ -3853,7 +3981,9 @@ class Model():
                 assign_objs_to_node_by_type(unmade, append_root, self)
                 #r_root_node.set_flags()
             
-        elif self.type == '3' or self.type == '5': #PART
+        elif self.type in ('2', '3', '5', '6'): #Modl / Part / Pupp / Scen
+            # All four are plain node/mesh hierarchies rooted at a basic (20580)
+            # node, so they share the generic traversal.
             unmade = []
             immediate_children = get_immediate_children(collection)
             for obj in immediate_children:

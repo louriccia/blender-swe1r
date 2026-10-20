@@ -61,14 +61,14 @@ from .utils import *
 
 class ImportOperator(bpy.types.Operator):
     """Import the selected model to the Blender scene"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Import"
     bl_idname = "view3d.import_operator"
     bl_info = "Import the selected model"
     
 
     def execute(self, context):
         
-        folder_path = validate_folder_path(context.scene.import_folder, "out_modelblock.bin")
+        folder_path = validate_folder_path(context.scene.import_folder, ["out_modelblock.bin", "out_textureblock.bin", "out_splineblock.bin"])
         if folder_path is None or folder_path == {"CANCELLED"}:
             return {"CANCELLED"}
 
@@ -107,7 +107,7 @@ class ImportOperator(bpy.types.Operator):
 
 class ExportOperator(bpy.types.Operator):
     """Export the selected collection to the game files"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Export"
     bl_idname = "view3d.export_operator"
 
     def execute(self, context):
@@ -128,12 +128,22 @@ class ExportOperator(bpy.types.Operator):
         if folder_path == "":
             show_custom_popup(bpy.context, "No set export folder", "Select your folder containing the .bin files")
             return {'CANCELLED'}
-        if not os.path.exists(folder_path  + 'out_modelblock.bin'):
-            show_custom_popup(bpy.context, "Missing required files", "No out_modelblock.bin found in the selected folder.")
-            return {'CANCELLED'}
-        
+        # Require the block files that will actually be read/written for this
+        # export, so a missing one gives a clear message instead of a cryptic
+        # FileNotFoundError deeper in the export.
+        required_files = []
+        if context.scene.is_export_model:
+            required_files += ['out_modelblock.bin', 'out_textureblock.bin']
+        if context.scene.is_export_spline:
+            required_files.append('out_splineblock.bin')
+        if required_files:
+            validated = validate_folder_path(folder_path, required_files)
+            if validated == {'CANCELLED'}:
+                return {'CANCELLED'}
+            folder_path = validated
+
         context.scene.export_progress = 0.01
-        context.scene.export_status = 'Importing...'
+        context.scene.export_status = 'Exporting...'
         
         def update_progress(status):
             context.scene.export_progress = context.scene.export_progress + 0.1*(1.0 - context.scene.export_progress)
@@ -152,6 +162,10 @@ class ExportOperator(bpy.types.Operator):
             context.scene.export_progress = 1.0
             context.scene.export_status = ""
             return {'CANCELLED'}
+        finally:
+            # Export forces meshes visible in the working layer so the mesh
+            # operators can run; restore the user's convenience visibility.
+            UpdateVisibleSelectable(context)
         
         context.scene.export_progress = 1.0
         context.scene.export_status = ""
@@ -160,7 +174,7 @@ class ExportOperator(bpy.types.Operator):
     
 class NewModelOperator(bpy.types.Operator):
     """Create a new model"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "New Model"
     bl_idname = "view3d.new_model"
     
     def execute(self, context):
@@ -212,7 +226,7 @@ class NewModelOperator(bpy.types.Operator):
     
 class SelectByProperty(bpy.types.Operator):
     """Select mesh objects based on a specified property"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Select by Property"
     bl_idname = "view3d.select_by_property"
 
     property_name: bpy.props.StringProperty()
@@ -238,7 +252,7 @@ class SelectByProperty(bpy.types.Operator):
     
 class ResetVisuals(bpy.types.Operator):
     """Reset visual data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Visuals"
     bl_idname = "view3d.reset_visuals"
     
     def execute(self, context):
@@ -248,7 +262,8 @@ class ResetVisuals(bpy.types.Operator):
         return {'FINISHED'}
 
 class ResetVColor(bpy.types.Operator):
-    bl_label = "SWE1R Import/Export"
+    """Reset vertex colors to white on the selected objects"""
+    bl_label = "Reset Vertex Colors"
     bl_idname = "view3d.reset_v_color"
     
     def execute(self, context):
@@ -260,7 +275,7 @@ class ResetVColor(bpy.types.Operator):
     
 class ResetTexture(bpy.types.Operator):
     """Reset texture data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Texture"
     bl_idname = "view3d.reset_texture"
     
     def execute(self, context):
@@ -280,7 +295,7 @@ class ResetTexture(bpy.types.Operator):
 
 class ResetCollidable(bpy.types.Operator):
     """Reset collidable data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Collidable"
     bl_idname = "view3d.reset_collidable"
     
     def execute(self, context):
@@ -298,7 +313,7 @@ class ResetCollidable(bpy.types.Operator):
 
 class ResetTerrain(bpy.types.Operator):
     """Reset terrain data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Terrain"
     bl_idname = "view3d.reset_terrain"
     
     def execute(self, context):
@@ -316,7 +331,7 @@ class ResetTerrain(bpy.types.Operator):
     
 class ResetLighting(bpy.types.Operator):
     """Reset lighting data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Lighting"
     bl_idname = "view3d.reset_lighting"
     
     def execute(self, context):
@@ -331,8 +346,8 @@ class ResetLighting(bpy.types.Operator):
         return {'FINISHED'}
     
 class ResetFog(bpy.types.Operator):
-    """Reset lighting data"""
-    bl_label = "SWE1R Import/Export"
+    """Reset fog data"""
+    bl_label = "Reset Fog"
     bl_idname = "view3d.reset_fog"
     
     def execute(self, context):
@@ -351,7 +366,7 @@ class ResetFog(bpy.types.Operator):
     
 class ResetLoading(bpy.types.Operator):
     """Reset loading data"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Reset Loading"
     bl_idname = "view3d.reset_loading"
     
     def execute(self, context):
@@ -444,12 +459,38 @@ class BakeVColors(bpy.types.Operator):
         bpy.ops.view3d.remake_materials()
 
         return {"FINISHED"}
-    
+
+class SplitByMaterial(bpy.types.Operator):
+    bl_idname = "view3d.split_by_material"
+    bl_label = "Split Mesh by Material"
+    bl_description = "Separate the active mesh into one object per material. SWE1R supports only one material per mesh, so multi-material meshes must be split before export"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj is None or obj.type != 'MESH':
+            self.report({'ERROR'}, "Select a mesh object to split")
+            return {'CANCELLED'}
+        if len(obj.material_slots) < 2:
+            self.report({'INFO'}, "Mesh has fewer than two materials; nothing to split")
+            return {'CANCELLED'}
+
+        # mesh.separate operates on the active object in Edit Mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.separate(type='MATERIAL')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        return {'FINISHED'}
+
 # MARK: COLLISION
     
 class PreviewLoadTrigger(bpy.types.Operator):
     """Show which objects would be loaded when the player touches this collision"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Preview Load Trigger"
     bl_idname = "view3d.preview_load"
     
     def execute(self, context):
@@ -495,7 +536,7 @@ class ToggleViewLayerState(bpy.types.Operator):
     
 class AddTrigger(bpy.types.Operator):
     """Add a gameplay trigger to the selected collision"""
-    bl_label = "SWE1R Import/Export"
+    bl_label = "Add Trigger"
     bl_idname = "view3d.add_trigger"
 
     def execute(self, context):
@@ -538,17 +579,26 @@ class InvertSpline(bpy.types.Operator):
 
         for spline in curve.splines:
             if spline.type == 'BEZIER':
-                num_points = len(bezier_points)
-                bezier_points = list(spline.bezier_points)  # Convert to a list
+                bezier_points = spline.bezier_points
 
-                # Reverse the order of points
-                new_points = [bezier_points[i] for i in range(num_points - 1, -1, -1)]
+                # Snapshot every point before mutating (co + handles must be
+                # copied, otherwise reassignment aliases live data)
+                snapshot = [(
+                    p.co.copy(),
+                    p.handle_left.copy(),
+                    p.handle_right.copy(),
+                    p.handle_left_type,
+                    p.handle_right_type,
+                ) for p in bezier_points]
 
-                # Swap handle positions to maintain curve shape
-                for i in range(num_points):
-                    new_points[i].co, bezier_points[i].co = bezier_points[i].co, new_points[i].co
-                    new_points[i].handle_left, bezier_points[i].handle_left = bezier_points[i].handle_right, new_points[i].handle_right
-                    new_points[i].handle_right, bezier_points[i].handle_right = bezier_points[i].handle_left, new_points[i].handle_right
+                # Write points back in reversed order. When a point moves to the
+                # opposite end its left/right handles must also swap so the curve
+                # keeps its original shape, just traversed backwards.
+                for i, (co, hl, hr, hl_type, hr_type) in enumerate(reversed(snapshot)):
+                    p = bezier_points[i]
+                    p.co = co
+                    p.handle_left, p.handle_right = hr, hl
+                    p.handle_left_type, p.handle_right_type = hr_type, hl_type
 
         # Return to Edit Mode
         bpy.ops.object.mode_set(mode='EDIT')
@@ -670,16 +720,6 @@ class OpenUrl(bpy.types.Operator):
 
     url: bpy.props.StringProperty("")
         
-    def execute(self, context):
-        open_url(self.url)
-        return {"FINISHED"}
-
-class AddImageTexture(bpy.types.Operator):
-    """Open link"""
-    bl_idname = "view3d.open_url"
-    bl_description = "Open URL"
-    bl_label = "Open URL"
-
     def execute(self, context):
         open_url(self.url)
         return {"FINISHED"}
@@ -1000,10 +1040,10 @@ class OBJECT_OT_generate_material_assets(bpy.types.Operator):
     
     def execute(self, context):
     
-        folder_path = validate_folder_path(context.scene.import_folder, "out_modelblock.bin")
+        folder_path = validate_folder_path(context.scene.import_folder, ["out_modelblock.bin", "out_textureblock.bin"])
         if folder_path is None or folder_path == {"CANCELLED"}:
             return {"CANCELLED"}
-        
+
         # Initialize tag manager with game data
         tag_manager = TagManager(game_data={
             'tracks': tracks,
@@ -1181,12 +1221,6 @@ class OBJECT_OT_generate_material_assets(bpy.types.Operator):
         # Report after restoring context
         self.report({'INFO'}, f"Created {len(material_catalog)} material assets")
         return {'FINISHED'}
-    
-    
-    def generate_image(self, data, index):
-        """Replace this with your actual image generation logic"""
-        # Generate and save image, return path
-        return "/tmp/image.png"
 
 
 # MARK: REGISTER
@@ -1212,6 +1246,7 @@ register_classes = (
     ReconstructSpline,
     OpenUrl,
     BakeVColors,
+    SplitByMaterial,
     OpenImageTexture,
     SelectFirstSplinePointOperator,
     ToggleViewLayerState,

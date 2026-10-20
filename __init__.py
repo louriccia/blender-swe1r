@@ -19,15 +19,20 @@
 #     along with this program; if not, see <https://www.gnu.org
 # /licenses>.
 
-bl_info = {
-    "name": "SWE1R Import/Export",
-    "author": "LightningPirate",
-    "blender": (4, 0, 0),
-    "version": (0, 9, 0),
-    "location": "View3D > Tool Shelf > SWE1R Import/Export",
-    "warning": "",
-    "category": "Generic",
-}
+import os
+import tomllib
+
+# As an extension, add-on metadata lives in blender_manifest.toml rather than a
+# bl_info dict. Read name/version from there so there is a single source of truth
+# for the values the Info panel displays.
+def _load_manifest():
+    path = os.path.join(os.path.dirname(__file__), "blender_manifest.toml")
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+_manifest = _load_manifest()
+NAME = _manifest["name"]
+VERSION = _manifest["version"]
 
 if "bpy" in locals():
     import importlib

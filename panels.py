@@ -22,17 +22,15 @@
 from .swr_import import *
 from .swr_export import *
 import bpy
-from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum
 from .operators import *
 from .constants import *
-from . import bl_info
+from . import NAME, VERSION
 import os
 from bpy.utils import previews
 from mathutils import Color, Vector, Euler, Quaternion
 
 
-models = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
 classes = []
 _in_selection_sync = False
 _msgbus_owner = object()
@@ -372,17 +370,16 @@ class InfoPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         row = layout.row()
-        row.label(text = bl_info['name'])
+        row.label(text = NAME)
         row.operator("view3d.open_url", text="", icon = "QUESTION", emboss = False).url = URL_WIKI
         row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["discord"].icon_id, emboss = False).url = URL_DISCORD
         row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["github"].icon_id, emboss = False).url = URL_GITHUB
         row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["kofi"].icon_id, emboss = False).url = URL_KOFI
         
         row = layout.row()
-        row.label(text = "Version: " + ".".join(map(str, bl_info['version'])))
-        row.operator("view3d.open_url", text="Update").url = ""
-        
-        
+        row.label(text = "Version: " + VERSION)
+
+
 # Global variable to store icons
 preview_collections = {}
 
@@ -442,10 +439,11 @@ class ExportPanel(bpy.types.Panel):
         
         if context.scene.is_export_texture:
             row = layout.row()
-            row.label(text = "New custom textures may require game restart")
+            row.label(text = "New custom textures may require a game restart")
             row.enabled = False
             
         layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
+        layout.prop(context.scene, "is_export_debug", text = "Write model debug dump (.txt)")
         row = layout.row()
             
             
@@ -607,9 +605,9 @@ class SelectedPanel(bpy.types.Panel):
                 if context.scene.textures_expanded:
                     if len(mats) > 1:
                         row = box.row()
-                        row.label("Only one material per mesh is supported")
+                        row.label(text = "Only one material per mesh is supported")
                         row = box.row()
-                        row.operator("view3d.reset_visuals", text = "Split mesh by material")
+                        row.operator("view3d.split_by_material", text = "Split mesh by material")
                     elif len(mats):
                         row = box.row()
                         row.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
@@ -635,7 +633,7 @@ class SelectedPanel(bpy.types.Panel):
                             row.prop(context.scene, 'clip_y', text = f'y{is_indeterminate("clip_y")}')
                     else:
                         row = box.row()
-                        row.operator('view3d.bake_vcolors', text = "Add material")
+                        row.operator('view3d.remake_materials', text = "Add material")
             
             parent_box = layout.box()
             row = parent_box.row()
@@ -801,7 +799,7 @@ class SelectedPanel(bpy.types.Panel):
             
             if context.scene.is_export_texture:
                 row = layout.row()
-                row.label(text = "New custom textures may require game restart")
+                row.label(text = "New custom textures may require a game restart")
                 row.enabled = False
                 
             layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")

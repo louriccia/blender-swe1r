@@ -13,21 +13,47 @@ This project is currently under active development. While it may be functional f
 - Export SWE1R models directly to .bin files
 
 ## Requirements
-[Blender 4.0](https://www.blender.org/download/releases/4-0/)
+[Blender 5.0](https://www.blender.org/download/) or newer
 
 ## Installation
-0. [Download the latest release](https://github.com/louriccia/blender_swe1r/releases) OR make a zip file of this repo 
-1. In Blender, go to Edit -> Preferences -> Add-Ons -> Install... and select the .zip file
-2. Enable the add-on by clicking the checkbox.
-3. Open the tools on the right side of the 3D view (probably hidden by a small left arrow) and click the SWE1R Import/Export tab
+
+This add-on ships as a Blender **extension**. Installing it from the extension repository is recommended, since that lets Blender update it for you automatically.
+
+1. In Blender, go to **Edit → Preferences → Get Extensions**.
+2. Inside the **Repositories** dropdown in the top-right, click the **+** button and choose **Add Remote Repository…**.
+3. Paste this URL, tick **Check for Updates on Startup**, then click **Create**:
+   ```
+   https://louriccia.github.io/blender-swe1r/index.json
+   ```
+4. Find **SWE1R Import/Export** in the list and click **Install**.
+5. Open the tools on the right side of the 3D view (press **N** if the sidebar is hidden) and click the **SWE1R Import/Export** tab.
+
+### Updating
+
+Once installed from the repository above, Blender detects new versions automatically. To update, go to **Edit → Preferences → Get Extensions**, click **Check for Updates**, then press **Update** next to the add-on.
+
+### Manual install (no auto-updates)
+
+Alternatively, [download the latest release .zip](https://github.com/louriccia/blender-swe1r/releases) and install it via **Get Extensions → ▼ → Install from Disk…** (or drag the .zip into Blender). Extensions installed this way must be updated manually.
 
 ## Known Issues
 
-- Podd / MAlt import/export is not supported
+- Pod (Podd) import merges in the paired high detail MAlt model the same way the game does. Pod export is still limited: it rebuilds a fixed template from the Right Engine / Left Engine / Cockpit / Cable collections, drops LODs and animations, and replaces the paired MAlt with an empty one
+
+## Development
+
+The file parsing code can be tested without Blender:
+
+```
+pip install numpy
+python -m unittest discover -s tests
+```
+
+Set `SWE1R_MODELBLOCK` to the path of the game's `out_modelblock.bin` to also check every pod against the real game data.
 
 ## License
 
-This project is licensed under the GNU GENERAL PUBLIC LICENSE - see the [LICENSE.md]([link-to-license-file](https://github.com/louriccia/blender_swe1r/blob/main/LICENSE)) file for details.
+This project is licensed under the GNU GENERAL PUBLIC LICENSE - see the [LICENSE](https://github.com/louriccia/blender-swe1r/blob/main/LICENSE) file for details.
 
 ## Thanks
 The following people have contributed to this project through feedback and insight. They're awesome!

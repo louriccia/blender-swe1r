@@ -1,0 +1,45 @@
+schema_version = "1.0.0"
+
+# Unique identifier. Must not change between versions once published.
+id = "swe1r_import_export"
+version = "0.9.2"
+name = "SWE1R Import/Export"
+tagline = "Import and export models for Star Wars Episode I: Racer"
+maintainer = "LightningPirate <lightningpirate@gmail.com>"
+type = "add-on"
+
+website = "https://github.com/louriccia/blender-swe1r"
+
+# Add-on tag from Blender's fixed list (used for filtering in the catalog).
+tags = ["Import-Export"]
+
+# Minimum supported Blender. Extensions require 4.2+; this add-on targets 5.0+.
+blender_version_min = "5.0.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+copyright = [
+  "2021-2024 LightningPirate",
+]
+
+# Informational only (shown to the user at install time; not enforced).
+[permissions]
+files = "Read and write game model, texture, and spline .bin files"
+network = "Open documentation, Discord, and support links in your browser"
+
+# Files excluded from the built .zip. Explicit so packaging is reproducible and
+# repo/CI cruft never ends up shipped to users.
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "*.pyc",
+  "/.git/",
+  "/.github/",
+  "/.gitignore",
+  "/.gitattributes",
+  "/tests/",
+  "*.zip",
+  "*.tar.xz",
+]

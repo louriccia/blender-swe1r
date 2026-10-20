@@ -1,0 +1,20 @@
+name: Tests
+
+# Runs the Blender-free parser tests in tests/ (Blender modules are stubbed).
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install numpy
+      - run: python -m unittest discover -s tests -v
