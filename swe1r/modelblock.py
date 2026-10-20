@@ -769,10 +769,22 @@ class VisualsIndexChunk1(DataStruct):
         self.unk2 = 0
         self.start = 0 #we'll write this value in VisualsVertexBuffer.write()
         self.max = 0 #we'll set this in VisualsIndexBuffer.unmake()
+        # vertices loaded (n) and the vertex cache slot they load into (v0); slots below v0 hold
+        # the hooked prefix, the v0 vertices stored just before `start` (SW_RACER_RE
+        # dinput_hook/renderer_hook.cpp, the gSPVertex case of the display list parse)
+        self.n = 0
+        self.v0 = 0
         
     def read(self, buffer, cursor, vert_buffer_addr):
         self.type, self.unk1, self.unk2, self.max, start = struct.unpack_from(self.format_string, buffer, cursor)
         self.start = round((start - vert_buffer_addr)/16)
+        self.n = ((((self.unk1 << 8) | self.unk2) >> 4) & 0xFF)
+        self.v0 = (self.max >> 1) - self.n
+        if self.n == 0:
+            # older add-on exports left n out and wrote v0 + n with v0 = 0; read them the way
+            # SW_RACER_RE's fixup_n64_display_list does
+            self.n = self.v0
+            self.v0 = self.parent.parent.group_count
         return cursor + self.size
     
     def to_array(self):
@@ -780,7 +792,8 @@ class VisualsIndexChunk1(DataStruct):
     
     def write(self, buffer, cursor):
         self.model.highlight(cursor + 4)
-        struct.pack_into(self.format_string, buffer, cursor, self.type, self.unk1, self.unk2, self.max*2, self.start)
+        n_packed = self.n << 4
+        struct.pack_into(self.format_string, buffer, cursor, self.type, n_packed >> 8, n_packed & 0xFF, (self.v0 + self.n) << 1, self.start)
         return cursor + self.size
       
 class VisualsIndexChunk3(DataStruct):
@@ -917,7 +930,8 @@ class VisualsIndexBuffer():
         start = 0
         for chunk in self.data:
             if chunk.type == 1:
-                start = chunk.start
+                # triangles index vertex cache slots; slot s holds buffer vertex start - v0 + s
+                start = chunk.start - chunk.v0
             elif chunk.type == 5:
                 faces.append([start + chunk.f1, start + chunk.f2, start + chunk.f3])
             elif chunk.type == 6:
@@ -964,13 +978,23 @@ class VisualsIndexBuffer():
         partitions.append(partition)
         
         
+        # Every vertex load must put its vertices at slot v0 = vertex_base_offset (the renderer
+        # aborts otherwise), and slots below v0 take the v0 vertices just before the load. For a
+        # hooked mesh those must be its hooked prefix [0, v0), so it can only have one load.
+        v0 = self.parent.group_count
+        if v0 and len(partitions) > 1:
+            raise ValueError(f"{self.parent.original_object.name}: a hooked mesh must fit in one vertex load "
+                             f"(its triangles span more than {39 + 1} vertices)")
+
         #add each partition and chunk1 to reset base for each one
         for partition in partitions:
             min_index = min([chunk.min_index() for chunk in partition]) 
             max_index = max([chunk.max_index() for chunk in partition])
             index_range = max_index - min_index
             chunk1 = VisualsIndexChunk1(self, self.model, 1)
-            chunk1.start = min_index
+            chunk1.v0 = v0
+            chunk1.start = min_index + v0
+            chunk1.n = index_range + 1 - v0
             chunk1.max = index_range + 1
             self.data.append(chunk1)
             for chunk in partition:
@@ -1905,6 +1929,8 @@ class Mesh(DataStruct):
         self.strip_size = 3
         self.vert_strips = None
         self.group_parent_id = 0
+        # export: the Blender object a HOOK modifier anchors the hooked prefix to
+        self.hook_target = None
         self.collision_vert_buffer = None
         self.visuals_index_buffer = None
         self.visuals_vert_buffer = None
@@ -1933,6 +1959,7 @@ class Mesh(DataStruct):
         
         vis.material = self.material
         vis.group_parent_id = self.group_parent_id
+        vis.hook_target = self.hook_target
         vis.visuals_index_buffer = self.visuals_index_buffer
         vis.visuals_vert_buffer = self.visuals_vert_buffer
         vis.group_count = self.group_count
@@ -1957,6 +1984,7 @@ class Mesh(DataStruct):
         self.strip_size = col.strip_size
         self.vert_strips = col.vert_strips
         self.group_parent_id = vis.group_parent_id
+        self.hook_target = vis.hook_target
         self.collision_vert_buffer = col.collision_vert_buffer
         self.visuals_index_buffer = vis.visuals_index_buffer
         self.visuals_vert_buffer = vis.visuals_vert_buffer
@@ -2103,6 +2131,10 @@ class Mesh(DataStruct):
                 hook.vertex_group = vg.name
                 hook.object = get_obj_by_id(self.model.obj_key(self.group_parent_id), self.model.collection)
                 hook.falloff_type = 'NONE'
+                # The game draws the hooked prefix with the referenced node's matrix applied to the
+                # raw (game unit) coordinates (SW_RACER_RE dinput_hook/renderer_hook.cpp). The hook
+                # gives hook.matrix_world @ matrix_inverse @ co, so the inverse carries the model scale.
+                hook.matrix_inverse = mathutils.Matrix.Scale(self.model.scale, 4)
 
         
     
@@ -2130,13 +2162,9 @@ class Mesh(DataStruct):
             for mod in node.modifiers:
                 if mod.type != 'HOOK' or not mod.object or not mod.vertex_group:
                     continue
-                target_id_str = mod.object.id if hasattr(mod.object, 'id') else None
-                if not target_id_str:
-                    continue
-                try:
-                    self.group_parent_id = int(target_id_str)
-                except (ValueError, TypeError):
-                    continue
+                # the target's new address is only known once the model is written (Model.write)
+                self.hook_target = mod.object
+                self.group_parent_id = 1
                 vg = node.vertex_groups.get(mod.vertex_group)
                 if vg is None:
                     continue
@@ -2271,10 +2299,9 @@ class Mesh(DataStruct):
                 self.group_count = len(hooked_first)
             else:
                 self.group_count = 0
-                if self.group_parent_id and not hooked_blender_indices:
-                    # HOOK modifier was removed but group_parent_id was set elsewhere;
-                    # clear it so we don't reference a stale anchor.
-                    self.group_parent_id = 0
+                # no hooked vertices left (e.g. the HOOK's group is empty): nothing to anchor
+                self.group_parent_id = 0
+                self.hook_target = None
 
             self.visuals_vert_buffer.data = new_verts
 
@@ -2452,8 +2479,14 @@ class Mesh(DataStruct):
             collision_tags_addr = cursor
             cursor = self.collision_tags.write(buffer, cursor)
         
+        group_parent_addr = 0
+        if self.hook_target is not None and self.group_count:
+            # referenced_node: patched in Model.write once every node has an address
+            self.model.highlight(mesh_start + 40)
+            self.model.hooked_meshes.append((mesh_start, self))
+
         #finally, write mesh header
-        struct.pack_into(self.format_string, buffer, mesh_start, mat_addr, collision_tags_addr, *self.bounding_box.to_array(), strip_count, strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count)
+        struct.pack_into(self.format_string, buffer, mesh_start, mat_addr, collision_tags_addr, *self.bounding_box.to_array(), strip_count, strip_size, vert_strips_addr, group_parent_addr, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count)
         return cursor
             
 def create_node(node_type, parent, model):
@@ -3841,6 +3874,7 @@ class Model():
         self.fps = bpy.context.scene.render.fps
         
         self.ref_map = {} # where we'll map node ids to their written locations
+        self.hooked_meshes = [] # (mesh address, Mesh) whose referenced node is patched after writing
         self.ref_keeper = {} # where we'll remember locations of node refs to go back and update with the ref_map at the end
         self.hl = None
         
@@ -4266,6 +4300,21 @@ class Model():
             
         return self
 
+    def find_mesh_group(self, obj):
+        """The exported mesh group node holding obj's child meshes (export regroups meshes)."""
+        stack = list(self.nodes)
+        while stack:
+            node = stack.pop()
+            if not isinstance(node, Node):
+                continue
+            if node.node_type == 12388:
+                for mesh in node.children:
+                    source = getattr(mesh, 'original_object', None)
+                    if source is not None and (source.parent == obj or source == obj):
+                        return node
+            stack.extend(child for child in node.children if child is not None)
+        return None
+
     def resolve_header_slots(self):
         """Give imported nodes back the header slots they held, where no export template claims the slot."""
         nodes = []
@@ -4302,6 +4351,13 @@ class Model():
         # write trigger targets
         for trigger in self.triggers:
             trigger.write_target(buffer)
+
+        # point hooked meshes at their referenced node: the mesh group holding the hook target's
+        # meshes, whose matrix the game draws the hooked prefix with (SW_RACER_RE
+        # dinput_hook/renderer_hook.cpp reads referenced_node->children.meshes[0]'s matrix)
+        for mesh_start, mesh in self.hooked_meshes:
+            group = self.find_mesh_group(mesh.hook_target) or mesh.parent
+            writeUInt32BE(buffer, group.write_location, mesh_start + 40)
                 
         crop = math.ceil(cursor / (32 * 4)) * 4
         
