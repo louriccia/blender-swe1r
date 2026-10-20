@@ -66,7 +66,7 @@ For each model it imports from the game's `data/lev01` files and exports into a 
 - animated geometry in the same places at sampled frames,
 - the same header slots populated, with the nodes behind them in the same places (the game looks nodes up by slot),
 - the same spline points,
-- the export left every other model, texture and spline byte-identical, and re-exporting doesn't grow the model.
+- the export left every other model, texture and spline byte-identical, and repeated export/import settles instead of growing the model every time.
 
 Each model runs in its own Blender process, so a Blender crash only fails that model. Logs go to `tests/blender/logs/`. Blender is found from `BLENDER` or the newest `Blender 5.x` under Program Files; the game data from `SWE1R_GAME_DATA` (default: the Steam install's `data/lev01`).
 
