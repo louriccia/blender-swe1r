@@ -80,8 +80,11 @@ def run_model(blender, model_id, name, config_dir, known_crash):
     log_path = os.path.join(LOG_DIR, f"model_{model_id:03d}.log")
     # each process gets its own config dir: the add-on rewrites its settings file on every prop change
     model_config = os.path.join(config_dir, str(model_id))
-    os.makedirs(model_config)
-    env = dict(os.environ, BLENDER_USER_CONFIG=model_config)
+    model_temp = os.path.join(model_config, "tmp")
+    os.makedirs(model_temp)
+    # temp copies of the game data (~100MB a model) live under the run's dir, so they are
+    # removed at the end even if Blender crashes before cleaning up
+    env = dict(os.environ, BLENDER_USER_CONFIG=model_config, TEMP=model_temp, TMP=model_temp)
     cmd = [blender, "--background", "--factory-startup", "--python-exit-code", "1",
            "--python", SUITE, "--", "--models", str(model_id)]
     start = time.time()
@@ -133,9 +136,15 @@ def main():
     else:
         model_ids = smoke_ids
 
+    free_gb = shutil.disk_usage(tempfile.gettempdir()).free / 1e9
+    if free_gb < 2:
+        # each running model holds ~100MB of game data copies; a full disk shows up as bogus failures
+        sys.exit(f"only {free_gb:.1f} GB free in {tempfile.gettempdir()}; free some space first")
+
     shutil.rmtree(LOG_DIR, ignore_errors=True)  # stale logs from other models would mislead
     os.makedirs(LOG_DIR)
-    # throwaway Blender configs so the add-on's settings file never touches the user's real one
+    # throwaway Blender configs and temp dirs, so the add-on's settings file never touches the
+    # user's real one
     config_dir = tempfile.mkdtemp(prefix="swe1r_blender_cfg_")
     print(f"{blender}\n{len(model_ids)} models, {args.jobs} at a time\n")
 

@@ -502,7 +502,9 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "176": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
+    "test_geometry_preserved": "export flattens selector nodes, so every child renders instead of only the selected one",
+    "test_animation_preserved": "export flattens selector nodes, so every child renders instead of only the selected one"
   },
   "177": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
@@ -565,7 +567,9 @@
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "197": {
-    "test_header_slots_preserved": "root slot 0 comes out empty: Node.unmake doesn't carry imported header slots onto exported nodes (modelblock.py, commented-out 'header' line); only template slots get written"
+    "test_header_slots_preserved": "root slot 0 comes out empty: Node.unmake doesn't carry imported header slots onto exported nodes (modelblock.py, commented-out 'header' line); only template slots get written",
+    "test_geometry_preserved": "export flattens selector nodes, so every child renders instead of only the selected one",
+    "test_animation_preserved": "export flattens selector nodes, so every child renders instead of only the selected one"
   },
   "198": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
