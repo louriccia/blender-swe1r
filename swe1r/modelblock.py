@@ -2023,6 +2023,16 @@ class Mesh(DataStruct):
                         else:
                             faces.append( [start+s, start+s+1, start+s+2])
                     start += strip
+            # Bone-animated meshes (group_parent_id set) can list more primitives than they have
+            # collision vertices: the field that would hold collision indices holds the bone node
+            # instead (SW_RACER_RE src/types.h swrModel_Mesh), so the game never gets usable faces
+            # for them either. Keep the faces the vertices can back; out-of-range faces make an
+            # invalid mesh that crashes Blender in Edit mode.
+            valid_faces = [face for face in faces if all(i < len(verts) for i in face)]
+            if len(valid_faces) < len(faces):
+                print(f"model {self.model.id} mesh {self.id}: dropped {len(faces) - len(valid_faces)} of {len(faces)} "
+                      f"collision faces referencing missing vertices ({len(verts)} vertices)")
+                faces = valid_faces
             mesh_name = '{:07d}'.format(self.id) + "_" + "collision"
             mesh = bpy.data.meshes.new(mesh_name)
             b_obj = bpy.data.objects.new(mesh_name, mesh)

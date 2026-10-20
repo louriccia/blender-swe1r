@@ -210,10 +210,13 @@
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "149": {
-    "test_round_trip_completes": "import creates a mesh whose faces reference missing vertices; Blender crashes entering Edit mode on it during export"
+    "test_geometry_preserved": "hooked (bone-animated) mesh vertices land elsewhere after export (36 triangles); was hidden while import produced an invalid mesh",
+    "test_animation_preserved": "hooked (bone-animated) mesh vertices land elsewhere after export (36 triangles); was hidden while import produced an invalid mesh"
   },
   "152": {
-    "test_round_trip_completes": "import creates a mesh whose faces reference missing vertices; Blender crashes entering Edit mode on it during export"
+    "test_animation_preserved": "export gives untextured visual triangles a 1x1 texture with flip/clip flags (159 triangles); was hidden while import produced an invalid mesh",
+    "test_geometry_preserved": "export gives untextured visual triangles a 1x1 texture with flip/clip flags (159 triangles); was hidden while import produced an invalid mesh",
+    "test_reexport_does_not_keep_growing": "size creeps up across exports (229900, 230156, 230232 bytes); not yet triaged, was hidden while import produced an invalid mesh"
   },
   "156": {
     "test_header_slots_preserved": "slots 5, 19, 33, 47, 61, 75 point at nodes import doesn't create objects for, so export can't write them back"
@@ -239,9 +242,6 @@
   },
   "276": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "289": {
-    "test_round_trip_completes": "import creates a mesh whose faces reference missing vertices; Blender crashes entering Edit mode on it during export"
   },
   "291": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
