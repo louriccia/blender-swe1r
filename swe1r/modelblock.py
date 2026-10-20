@@ -25,7 +25,7 @@ from bpy_extras import anim_utils
 import bmesh
 import math
 import mathutils
-from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
+from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt16BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture, compute_image_hash, compute_hash
 from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt
 
@@ -37,6 +37,21 @@ def find_existing_light(objects, color, location, rotation):
             if existing_rotation == rotation:
                 return light
     return None
+
+def effective_node_flags(obj, key):
+    """The node flags (vis_flags or col_flags) a mesh under obj effectively gets, or None if obj has none.
+
+    The renderer skips a node's whole subtree when its flags fail the viewport's masks
+    (SW_RACER_RE dinput_hook/renderer_hook.cpp debug_render_node), so a mesh is drawn only where
+    every node above it allows. Export writes the flags back on the mesh groups only (other nodes
+    get all bits, or are merged into their parent), so the mesh takes the AND of them all.
+    """
+    flags = None
+    while obj is not None:
+        if key in obj:
+            flags = int(obj[key]) if flags is None else flags & int(obj[key])
+        obj = obj.parent
+    return flags
 
 def set_hidden(model, obj, hidden, view_layer):
     """obj.hide_set(hidden, view_layer=view_layer), deferred to the end of Model.make when importing.
@@ -108,6 +123,38 @@ def set_material_blend(material, blend):
         material.surface_render_method = 'BLENDED' if blend == 'BLEND' else 'DITHERED'
     if blend == 'BLEND' and hasattr(material, 'show_transparent_back'):
         material.show_transparent_back = True
+
+# N64 render mode words (SW_RACER_RE dinput_hook/n64_shader.h RenderMode, n64_shader.cpp
+# set_render_mode). The file splits them across render_mode_1 (cycle-1 blender) and render_mode_2
+# (cycle-2 blender and flags); the renderer ORs the two.
+RM_ZMODE_MASK = 0xC00
+RM_ZMODE_XLU = 0x800
+RM_CYCLE1_MASK = 0xCCCC0000
+# the stock opaque surface (by far the most common pair in the game's own models) and the stock
+# translucent surface
+RM_OPAQUE = (0xC8000000, 0x00112078)        # AA, z compare + update, IN*A + MEM*A_MEM
+RM_TRANSLUCENT = (0xC8000000, 0x001049D8)   # z compare, ZMODE_XLU, IN*A + MEM*(1-A); no alpha compare,
+                                            # which the renderer treats as a cutout instead
+# old add-on exports wrote these; the replacement renderer aborts on them (rm2 = 0 selects a
+# cycle-2 blender it has no mode for, n64_shader.cpp set_render_mode)
+RM_LEGACY_DEFAULTS = ((0x18, 0), (0x818, 0))
+# TEXEL0*SHADE in cycle 1 and a pass-through cycle 2, so no primitive color is needed
+DEFAULT_COMBINERS = (0x011F041F, 0x01070407, 0x1F1F1F00, 0x07070700)
+
+
+def render_mode_is_alpha_blend(mode):
+    """The cycle-2 blender is IN*A + MEM*(1-A) (SW_RACER_RE dinput_hook/n64_shader.cpp)."""
+    return (mode >> 28) & 3 == 0 and (mode >> 24) & 3 == 0 and (mode >> 20) & 3 == 1 and (mode >> 16) & 3 == 0
+
+
+def render_mode_is_translucent(mode):
+    return render_mode_is_alpha_blend(mode) or (mode & RM_ZMODE_MASK) == RM_ZMODE_XLU
+
+
+def render_mode_is_cutout(mode):
+    """alpha_compare or cvg_x_alpha: the renderer discards texels below 0.5 alpha (n64_shader.frag)."""
+    return bool(mode & 0x3) or bool(mode & 0x1000)
+
 
 def ensure_cycles_first(fcurve):
     mods = fcurve.modifiers
@@ -298,8 +345,8 @@ class TriggerFlag(DataStruct):
             obj[attr] = getattr(self, attr)
     
     def unmake(self, obj):
-        if 'settings' in obj:
-            self.settings = obj.trigger_settings
+        # trigger_settings is a registered property, never an ID property named 'settings'
+        self.settings = obj.trigger_settings
         for attr in self.flags:
             if attr in obj:
                 setattr(self, attr, obj[attr])
@@ -1123,6 +1170,8 @@ class MaterialTextureChunk(DataStruct):
     def to_array(self):
         return [self.unk0, self.unk1, self.unk2, self.unk3, self.unk4, self.unk5]
     
+MAX_TEXTURES = 1700
+
 class MaterialTexture(DataStruct):
     NO_TEXTURE = 65535  # low half of the stock "no texture" word 0x0AFFFFFF
 
@@ -1172,7 +1221,12 @@ class MaterialTexture(DataStruct):
         self.texture = Texture(self.id, self.format, self.width, self.height)
         pixel_buffer, palette_buffer = textureblock.fetch(self.id)
         self.texture.read(pixel_buffer, palette_buffer)
-        return self.texture.make()
+        image = self.texture.make()
+        if image is not None:
+            # the block entry's hash, as Block.read computes it, so an unchanged image re-exports
+            # as this entry instead of being re-encoded and appended again
+            image['external_hash'] = compute_hash(b''.join(b for b in (pixel_buffer, palette_buffer) if b))
+        return image
 
     def unmake(self, image, untextured = None):
         if image is None:
@@ -1260,6 +1314,9 @@ class MaterialTexture(DataStruct):
                 return self
             
             id = len(self.model.textureblock.data)
+            if id >= MAX_TEXTURES:
+                raise ValueError(f"Too many textures: the game hangs on load with more than {MAX_TEXTURES} "
+                                 f"(SW_RACER_RE src/Swr/swrModel.c swrModel_InitializeTextureBuffer)")
             self.model.textureblock.inject([pixel_buffer, palette_buffer], id)
             
 
@@ -1276,7 +1333,14 @@ class MaterialTexture(DataStruct):
         # correctly (verified in-game over long use); making this a true byte
         # round-trip would require persisting the read values on the image's
         # custom properties. See RE swrModel_MaterialTexture for field meanings.
-        struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 65535), min(self.height*8, 65535), self.format, 3, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), 683, 503, *[3, 3, 3, 3, 3, 3], self.unk9, self.id)
+        # res is the texture size in 10.2 fixed point, (w*4, h*4) in every stock texture; the game
+        # divides texture offsets and UV scroll by it (SW_RACER_RE src/Swr/swrModel.c
+        # swrModel_UpdateTextureScrollAnimation, dinput_hook/renderer_hook.cpp), so h*8 halved any
+        # V offset. Only specs[0] (the tile written below) may be set: the replacement renderer
+        # treats a non-null specs[1] as a mip chain and unswizzles the texture
+        # (renderer_hook.cpp, deswizzle_lod_texture). Stock single-tile textures have
+        # num_children 0 and specs[1..4] and unk6 0.
+        struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 32767), min(self.height*4, 32767), self.format, 0, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), 683, 503, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
         cursor += self.size
 
         for i, chunk in enumerate(self.chunks):
@@ -1307,12 +1371,16 @@ class MaterialShader(DataStruct):
         self.color_combine_mode_cycle2 = 0#0b11111000111110001111100000000
         self.alpha_combine_mode_cycle2 = 0#0b111000001110000011100000000
         # render mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetRenderMode.htm
-        self.render_mode_1 = 0x18 #initialize with zcmp and aa
+        self.render_mode_1 = RM_OPAQUE[0]
         # 0x008 = aa
         # 0x010 = zcm (off for skybox)
         # 0x800 = transparency
         
-        self.render_mode_2 = 0
+        self.render_mode_2 = RM_OPAQUE[1]
+        self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, \
+            self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2 = DEFAULT_COMBINERS
+        self.unk5 = 0
+        self.unk8 = 0
         # 0b11001000000100000100100101111000	1	    weird material in bwr ice reflection
         # 0b11001000000100000100101101010000	1	    transparent death beam on oovo
         # 0b11001000000100010010000001111000	15	    broken textures
@@ -1346,6 +1414,9 @@ class MaterialShader(DataStruct):
         self.unk = []
     def read(self, buffer, cursor):
         self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, *self.unk = struct.unpack_from(self.format_string, buffer, cursor)
+        # u16s at +22 and +32 (SW_RACER_RE src/types.h swrModel_Material unk5, unk8)
+        self.unk5 = readUInt16BE(buffer, cursor + 22)
+        self.unk8 = readUInt16BE(buffer, cursor + 32)
         self.color.read(buffer, cursor + 34)
     
     def make(self, material):
@@ -1359,33 +1430,54 @@ class MaterialShader(DataStruct):
         
         material['render_mode_1'] = str(self.render_mode_1)
         material['render_mode_2'] = str(self.render_mode_2)
-        
-        if self.unk1 == 8 or self.render_mode_1 & 0x800 or self.render_mode_2 & 0x800:
-            material.transparent = True
-            set_material_blend(material, 'BLEND')
+        material['unk5'] = self.unk5
+        material['unk8'] = self.unk8
+
+        # Translucent: the cycle-2 blender blends with the framebuffer, or the z mode is XLU. A
+        # loose bit test (0x800 in either word, or unk1 == 8) missed stock blend modes with an
+        # opaque z mode and kept a toggle that could never be cleared.
+        material.transparent = render_mode_is_translucent(self.render_mode_1 | self.render_mode_2)
     
     def unmake(self, material):
         if material is not None:
             
-            self.unk1 = material.get('unk1', 0)
-            self.combiner_cycle_type = material.get('combiner_cycle_type', 0)
+            self.unk1 = material.get('unk1', self.unk1)
+            self.combiner_cycle_type = material.get('combiner_cycle_type', self.combiner_cycle_type)
+            self.unk5 = material.get('unk5', self.unk5)
+            self.unk8 = material.get('unk8', self.unk8)
             self.color.unmake(material.material_color)
-            
-            self.color_combine_mode_cycle1 = int(material.get('color_combine_mode_cycle1', 0))
-            self.alpha_combine_mode_cycle1 = int(material.get('alpha_combine_mode_cycle1', 0))
-            self.color_combine_mode_cycle2 = int(material.get('color_combine_mode_cycle2', 0))
-            self.alpha_combine_mode_cycle2 = int(material.get('alpha_combine_mode_cycle2', 0))
-            
-            # preserve __init__ defaults (0x18 = zcmp|aa) when the material lacks the prop;
-            # otherwise opaque geometry exports without RDP flags the game requires and crashes.
+
+            # A material made in Blender has none of these; it keeps the stock defaults set in
+            # __init__. All-zero combiners (written by older versions of the add-on) make cycle 1
+            # output COMBINED = 0, i.e. black, in the replacement renderer.
+            combiners = [int(material.get(key, default)) for key, default in (
+                ('color_combine_mode_cycle1', self.color_combine_mode_cycle1),
+                ('alpha_combine_mode_cycle1', self.alpha_combine_mode_cycle1),
+                ('color_combine_mode_cycle2', self.color_combine_mode_cycle2),
+                ('alpha_combine_mode_cycle2', self.alpha_combine_mode_cycle2))]
+            if any(combiners):
+                self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, \
+                    self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2 = combiners
+
             if 'render_mode_1' in material:
                 self.render_mode_1 = int(material['render_mode_1'])
             if 'render_mode_2' in material:
                 self.render_mode_2 = int(material['render_mode_2'])
+            if (self.render_mode_1, self.render_mode_2) in RM_LEGACY_DEFAULTS:
+                self.render_mode_1, self.render_mode_2 = RM_TRANSLUCENT if self.render_mode_1 & RM_ZMODE_XLU else RM_OPAQUE
 
-            if material.transparent:
-                self.unk1 = 8
-                self.render_mode_1 |= 0x800
+            # Only rewrite the render mode when the Transparent toggle disagrees with it, so an
+            # untouched material exports exactly as imported. 0x8 in unk1 goes with stock
+            # translucent mode.
+            translucent = render_mode_is_translucent(self.render_mode_1 | self.render_mode_2)
+            if material.transparent and not translucent:
+                self.render_mode_1 = (self.render_mode_1 & RM_CYCLE1_MASK) | RM_TRANSLUCENT[0]
+                self.render_mode_2 = RM_TRANSLUCENT[1]
+                self.unk1 |= 8
+            elif not material.transparent and translucent:
+                self.render_mode_1 = (self.render_mode_1 & RM_CYCLE1_MASK) | RM_OPAQUE[0]
+                self.render_mode_2 = RM_OPAQUE[1]
+                self.unk1 &= ~8
     
         # alternate way to detect if this material is on a skybox mesh
         mat = self.parent
@@ -1394,8 +1486,10 @@ class MaterialShader(DataStruct):
             obj = mesh.original_object
             for collection in object_collections(obj, self.model):
                 if collection.collection_type == '1':
-                    # render modes have to be these exact values to fix small stitching issues
-                    if mat.scroll_x or mat.scroll_y:
+                    # render modes have to be these exact values to fix small stitching issues;
+                    # scrolling and translucent layers keep theirs without z compare, as stock
+                    # translucent sky layers have (e.g. 0x0C184948)
+                    if mat.scroll_x or mat.scroll_y or render_mode_is_translucent(self.render_mode_1 | self.render_mode_2):
                         self.render_mode_1 &= 0xFFFFFFEF
                         self.render_mode_2 &= 0xFFFFFFEF
                     else:
@@ -1412,9 +1506,142 @@ class MaterialShader(DataStruct):
     
     def write(self, buffer, cursor):
         struct.pack_into(self.format_string, buffer, cursor, self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, 0, 0, 0, 0, 0, 0, 0)
+        struct.pack_into('>H', buffer, cursor + 22, self.unk5)
+        struct.pack_into('>H', buffer, cursor + 32, self.unk8)
         self.color.write(buffer, cursor + 34)
         return cursor + self.size
     
+
+# MARK: COMBINER
+
+class CombinerValue:
+    """A color combiner input or intermediate: a constant, or a node socket in the material."""
+    def __init__(self, const = None, socket = None):
+        self.const = const
+        self.socket = socket
+
+    def is_const(self, value):
+        return self.socket is None and self.const == value
+
+def make_combiner_nodes(tree, shader, image_node, normals):
+    """Base color and alpha sockets computing the material's N64 color combiner.
+
+    Follows the replacement renderer's fragment shader (SW_RACER_RE assets/shaders/n64_shader.frag,
+    dinput_hook/n64_shader.cpp CombineMode): both cycles always run, each (A - B) * C + D on the
+    inputs its 4 mux bytes select. TEXEL0 and TEXEL1 are the texture (white without one), SHADE the
+    vertex color, PRIMITIVE the material color, ENVIRONMENT and the other constants 1, and cycle 1's
+    COMBINED is 0. With a normals vertex format SHADE is the game's lighting, which Blender's
+    own shading stands in for, so it is 1 here.
+    """
+    nodes = tree.nodes
+    column = [0]
+
+    def node(kind, operation):
+        n = nodes.new(kind)
+        n.operation = operation
+        n.location = (200 + 150 * (column[0] // 6), 400 - 120 * (column[0] % 6))
+        column[0] += 1
+        return n
+
+    one, zero = CombinerValue(1.0), CombinerValue(0.0)
+    if image_node is not None:
+        texel = (CombinerValue(socket = image_node.outputs["Color"]), CombinerValue(socket = image_node.outputs["Alpha"]))
+    else:
+        texel = (one, one)
+    if normals:
+        shade = (one, one)
+    else:
+        shade_node = nodes.new("ShaderNodeVertexColor")
+        shade_node.location = (-200, -200)
+        shade = (CombinerValue(socket = shade_node.outputs["Color"]), CombinerValue(socket = shade_node.outputs["Alpha"]))
+    prim = [c / 255 for c in shader.color.to_array()]
+    primitive = (CombinerValue(tuple(prim[:3])), CombinerValue(prim[3]))
+
+    def as_color(value):
+        if value.socket is None and not isinstance(value.const, tuple):
+            return CombinerValue((value.const,) * 3)
+        return value
+
+    def operate(a, b, operation, is_color):
+        """a (op) b, folding constants; is_color picks vector or scalar math."""
+        if a.socket is None and b.socket is None:
+            if is_color:
+                a, b = as_color(a), as_color(b)
+                return CombinerValue(tuple(operation_py(operation, x, y) for x, y in zip(a.const, b.const)))
+            return CombinerValue(operation_py(operation, a.const, b.const))
+        n = node("ShaderNodeVectorMath" if is_color else "ShaderNodeMath", operation)
+        for i, value in enumerate((a, b)):
+            if value.socket is not None:
+                tree.links.new(value.socket, n.inputs[i])
+            elif is_color:
+                n.inputs[i].default_value = as_color(value).const
+            else:
+                n.inputs[i].default_value = value.const
+        return CombinerValue(socket = n.outputs[0])
+
+    def operation_py(operation, x, y):
+        return x - y if operation == 'SUBTRACT' else x * y if operation == 'MULTIPLY' else x + y
+
+    def zero_like(value):
+        return value.is_const(0.0) or value.is_const((0.0, 0.0, 0.0))
+
+    def one_like(value):
+        return value.is_const(1.0) or value.is_const((1.0, 1.0, 1.0))
+
+    def combine(a, b, c, d, is_color):
+        # (a - b) * c + d
+        if a is b or (a.socket is None and b.socket is None and as_color(a).const == as_color(b).const):
+            difference = zero
+        elif zero_like(b):
+            difference = a
+        else:
+            difference = operate(a, b, 'SUBTRACT', is_color)
+        if zero_like(difference) or zero_like(c):
+            product = zero
+        elif one_like(c):
+            product = difference
+        elif one_like(difference):
+            product = c
+        else:
+            product = operate(difference, c, 'MULTIPLY', is_color)
+        if zero_like(d):
+            return product
+        if zero_like(product):
+            return d
+        return operate(product, d, 'ADD', is_color)
+
+    def color_input(mux, combined):
+        # SW_RACER_RE dinput_hook/n64_shader.cpp cc_mode_strings, n64_shader.h G_CCMUX_*
+        return {0: combined[0], 1: texel[0], 2: texel[0], 3: primitive[0], 4: shade[0], 5: one, 6: one,
+                7: combined[1], 8: texel[1], 9: texel[1], 10: primitive[1], 11: shade[1], 12: one,
+                13: one, 14: one, 15: one}.get(mux, zero)
+
+    def alpha_input(mux, combined):
+        # ac_mode_strings, G_ACMUX_*: 0 is COMBINED (it shares the value with LOD_FRACTION)
+        return {0: combined[1], 1: texel[1], 2: texel[1], 3: primitive[1], 4: shade[1], 5: one, 6: one}.get(mux, zero)
+
+    def muxes(word):
+        return [(word >> shift) & 0xFF for shift in (24, 16, 8, 0)]
+
+    combined = (zero, zero)
+    for color_word, alpha_word in ((shader.color_combine_mode_cycle1, shader.alpha_combine_mode_cycle1),
+                                   (shader.color_combine_mode_cycle2, shader.alpha_combine_mode_cycle2)):
+        color = combine(*(color_input(m, combined) for m in muxes(color_word)), True)
+        alpha = combine(*(alpha_input(m, combined) for m in muxes(alpha_word)), False)
+        combined = (color, alpha)
+
+    def socket(value, is_color):
+        if value.socket is not None:
+            return value.socket
+        n = nodes.new("ShaderNodeRGB" if is_color else "ShaderNodeValue")
+        n.location = (900, 200 if is_color else -200)
+        if is_color:
+            n.outputs[0].default_value = (*as_color(value).const, 1.0)
+        else:
+            n.outputs[0].default_value = value.const
+        return n.outputs[0]
+
+    return socket(combined[0], True), socket(combined[1], False)
 
 # MARK: MATERIAL
 
@@ -1486,175 +1713,184 @@ class Material(DataStruct):
             return material
         if not remake or material is None:
             material = bpy.data.materials.new(mat_name)
-            
+
         material.use_nodes = True
         material.node_tree.nodes.clear()
-        output_node = material.node_tree.nodes.new(type='ShaderNodeOutputMaterial')
-        node_0 = material.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
-        node_0.inputs[0].default_value = [c/255 for c in self.shader.color.to_array()]
+        tree = material.node_tree
+        output_node = tree.nodes.new(type='ShaderNodeOutputMaterial')
+        output_node.location = (1400, 0)
+        node_0 = tree.nodes.new('ShaderNodeBsdfPrincipled')
+        node_0.location = (1100, 0)
+        node_0.inputs["Specular IOR Level"].default_value = 0
         material.material_color = [c/255 for c in self.shader.color.to_array()]
         # Preserve the texture offset (RE texture_offset[2]) so it survives a
         # round-trip even though it is not exposed in the UI.
         material['texture_offset'] = self.texture_offset
-        material.node_tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
+        tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
         material['id'] = self.id
         material['format'] = self.format
         # RE: a mesh uses the Vtx_tn (normals) vertex format when the material
-        # type has bit 0x1 OR 0x10 set. Recognize both so the shader wires the
-        # per-vertex data into the Normal input for either variant (previously
-        # only 0x1 was detected, so 0x10-only materials were mis-wired as color).
+        # type has bit 0x1 OR 0x10 set.
         material['normal_map'] = bool(self.format & 0x11)
-        
+
         self.shader.make(material)
-        
-        if (self.texture is None and tex_name is None):
-            node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
-            node_0.inputs["Specular IOR Level"].default_value = 0
-            if material.get('normal_map'):
-                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Normal"])
-            else:
-                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
-            material.preview_render_type = 'FLAT'
-            return material
-    
-        tex_name = tex_name or str(self.texture.id)
+        material.use_backface_culling = bool(self.format & 8)
+        material.preview_render_type = 'FLAT'
 
-        material['scroll_x'] = self.scroll_x
-        material['scroll_y'] = self.scroll_y
-        material['clip_x'] = self.clip_x
-        material['clip_y'] = self.clip_y
-        
-        set_material_blend(material, 'OPAQUE')
+        image_node = None
+        if not (self.texture is None and tex_name is None):
+            tex_name = tex_name or str(self.texture.id)
 
+            material['scroll_x'] = self.scroll_x
+            material['scroll_y'] = self.scroll_y
+            material['clip_x'] = self.clip_x
+            material['clip_y'] = self.clip_y
 
-        if self.texture and self.texture.format == 3:
+            image_node = tree.nodes.new("ShaderNodeTexImage")
+            image_node.location = (-200, 300)
+            self.make_uv_nodes(material, image_node, remake)
+
+            b_tex = bpy.data.images.get(tex_name)
+            if b_tex is None:
+                b_tex = self.texture_image
+            if b_tex is None and self.texture and self.model is not None:
+                b_tex = self.texture.make()
+            image_node.image = b_tex
+            if self.texture and self.texture.id == MaterialTexture.NO_TEXTURE:
+                # a texture slot without a texture: keep its size and format so export writes it back
+                material['untextured_texture'] = [self.texture.width, self.texture.height, self.texture.format]
+            if b_tex is None:
+                image_node = None  # samples as white in game (renderer_hook.cpp default texture)
+
+        # NOTE: texture-swap animation (self.texture_anim) is not implemented.
+        # See TexturePose.write, which is likewise a stub, for the export side of this feature.
+        color, alpha = make_combiner_nodes(tree, self.shader, image_node, material['normal_map'])
+        tree.links.new(color, node_0.inputs["Base Color"])
+
+        render_mode = self.shader.render_mode_1 | self.shader.render_mode_2
+        if render_mode_is_cutout(render_mode):
+            # the renderer discards texels under 0.5 alpha and draws the rest opaque (n64_shader.frag)
+            cutoff = tree.nodes.new("ShaderNodeMath")
+            cutoff.operation = 'GREATER_THAN'
+            cutoff.inputs[1].default_value = 0.5
+            cutoff.location = (900, -300)
+            tree.links.new(alpha, cutoff.inputs[0])
+            tree.links.new(cutoff.outputs[0], node_0.inputs["Alpha"])
+            set_material_blend(material, 'OPAQUE')
+        elif render_mode_is_alpha_blend(render_mode):
+            tree.links.new(alpha, node_0.inputs["Alpha"])
             set_material_blend(material, 'BLEND')
-            
-        if (self.format & 8):
-            material.use_backface_culling = True
-        
-        node_1 = material.node_tree.nodes.new("ShaderNodeTexImage")
-        node_2 = material.node_tree.nodes.new("ShaderNodeVertexColor")
-        node_3 = material.node_tree.nodes.new("ShaderNodeMixRGB")
-        node_3.blend_type = 'MULTIPLY'
-        node_3.inputs['Fac'].default_value = 1
-        material.node_tree.links.new(node_1.outputs["Color"], node_3.inputs["Color2"])
-        if material.get('normal_map'):
-            material.node_tree.links.new(node_2.outputs["Color"], node_0.inputs["Normal"])
         else:
-            material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color1"])
-        material.node_tree.links.new(node_3.outputs["Color"], node_0.inputs["Base Color"])
-        material.node_tree.links.new(node_1.outputs["Alpha"], node_0.inputs["Alpha"])
-        node_0.inputs["Specular IOR Level"].default_value = 0
+            # opaque modes never use alpha, so near-zero texture alpha must not punch holes
+            set_material_blend(material, 'OPAQUE')
+        return material
 
+    def make_uv_nodes(self, material, image_node, remake):
+        """UVs the way the game samples them: scroll, static offset, then per-axis clamp and mirror."""
+        tree = material.node_tree
+        uv = None
+        mapping_node = None
         if self.scroll_x != 0 or self.scroll_y != 0:
-            shader_node = material.node_tree.nodes.new("ShaderNodeTexCoord")
-            mapping_node = material.node_tree.nodes.new("ShaderNodeMapping")
-            material.node_tree.links.new(shader_node.outputs["UV"], mapping_node.inputs["Vector"])
-            material.node_tree.links.new(mapping_node.outputs["Vector"], node_1.inputs["Vector"])
-            
+            shader_node = tree.nodes.new("ShaderNodeTexCoord")
+            shader_node.location = (-1200, 300)
+            mapping_node = tree.nodes.new("ShaderNodeMapping")
+            mapping_node.location = (-1000, 300)
+            tree.links.new(shader_node.outputs["UV"], mapping_node.inputs["Vector"])
+            uv = mapping_node.outputs["Vector"]
+
             keyframes = [0, abs(self.scroll_x) if self.scroll_x != 0 else abs(self.scroll_y)]
             poses = [0, 1]
-            
+
             if self.scroll_x < 0 or self.scroll_y < 0:
                 poses.reverse()
-            
+
             for i, time in enumerate(keyframes):
                 default_value = [0, 0, 0]
-                if self.scroll_x: 
+                if self.scroll_x:
                     default_value[0] = poses[i]
-                elif self.scroll_y: 
+                elif self.scroll_y:
                     default_value[1] = poses[i]
-                    
+
                 mapping_node.inputs[1].default_value = default_value
                 mapping_node.inputs[1].keyframe_insert(data_path="default_value", frame = time * (bpy.context.scene.render.fps if remake else self.model.fps))
-            
-            if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
-                bag = anim_utils.action_get_channelbag_for_slot(material.node_tree.animation_data.action, material.node_tree.animation_data.action_slot)
+
+            if tree.animation_data is not None and tree.animation_data.action is not None:
+                bag = anim_utils.action_get_channelbag_for_slot(tree.animation_data.action, tree.animation_data.action_slot)
                 for fcurves_f in bag.fcurves:
                     ensure_cycles_first(fcurves_f)
                     for k in fcurves_f.keyframe_points:
                         k.interpolation = 'LINEAR'
-        
-        # NOTE: probably shouldn't do it this way
-        # TODO: find specific tag
-        if tex_name in ["1167", "1077", "1461", "1596"]:
-            set_material_blend(material, 'BLEND')
-            material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Alpha"])
-        
-        if self.format in [31, 15, 7]:
-            material.node_tree.links.new(node_2.outputs["Color"], node_0.inputs["Normal"])
-            material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
-        
+
+        # Tile flags (SW_RACER_RE dinput_hook/renderer_hook.cpp): 0x10 mirrors U, 0x01 mirrors V,
+        # 0x20 clamps U, 0x02 clamps V. The flip/clip property names don't follow the axes; they
+        # are kept as they are for existing files.
         chunk_tag = self.texture.chunks[0].unk1 if self.texture and len(self.texture.chunks) else 0
-        if(self.texture and self.texture.chunks and chunk_tag & 0x11 != 0):
-            node_4 = material.node_tree.nodes.new("ShaderNodeUVMap")
-            node_5 = material.node_tree.nodes.new("ShaderNodeSeparateXYZ")
-            node_6 = material.node_tree.nodes.new("ShaderNodeCombineXYZ")
-            material.node_tree.links.new(node_4.outputs["UV"], node_5.inputs["Vector"])
-            material.node_tree.links.new(node_6.outputs["Vector"], node_1.inputs["Vector"])
+        if chunk_tag & 0x1:
+            material.flip_x = True
+        if chunk_tag & 0x10:
+            material.flip_y = True
+        if chunk_tag & 0x2:
+            material.clip_x = True
+        if chunk_tag & 0x20:
+            material.clip_y = True
 
-            if self.scroll_x or self.scroll_y:
-                material.node_tree.links.new(mapping_node.outputs["Vector"], node_5.inputs["Vector"])
+        texture = self.texture
+        offsets = [0.0, 0.0]
+        if texture is not None and texture.width and texture.height:
+            # static offset in 1/4 texels over res = (w*4, h*4); the renderer adds -offset/res
+            offsets = [self.texture_offset[0] / (texture.width * 4), self.texture_offset[1] / (texture.height * 4)]
+        mirror = [bool(chunk_tag & 0x10), bool(chunk_tag & 0x01)]
+        clamp = [bool(chunk_tag & 0x20), bool(chunk_tag & 0x02)]
+        if not (any(mirror) or any(clamp) or any(offsets)):
+            if uv is not None:
+                tree.links.new(uv, image_node.inputs["Vector"])
+            return
 
-            if(chunk_tag & 0x1):
-                material.flip_x = True
-            if(chunk_tag & 0x10):
-                material.flip_y = True
-            if(chunk_tag & 0x2):
-                material.clip_x = True
-            if(chunk_tag & 0x20):
-                material.clip_y = True
-                
-            if(chunk_tag & 0x11 == 0x11):
-                node_7 = material.node_tree.nodes.new("ShaderNodeMath")
-                node_7.operation = 'PINGPONG'
-                node_7.inputs[1].default_value = 1
-                material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
-                material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
-                node_8 = material.node_tree.nodes.new("ShaderNodeMath")
-                node_8.operation = 'PINGPONG'
-                node_8.inputs[1].default_value = 1
-                material.node_tree.links.new(node_5.outputs["Y"], node_8.inputs["Value"])
-                material.node_tree.links.new(node_8.outputs["Value"], node_6.inputs["Y"])
-            elif(chunk_tag & 0x11 == 0x01):
-                material.node_tree.links.new(node_5.outputs["X"], node_6.inputs["X"])
-                node_7 = material.node_tree.nodes.new("ShaderNodeMath")
-                node_7.operation = 'PINGPONG'
-                node_7.inputs[1].default_value = 1
-                material.node_tree.links.new(node_5.outputs["Y"], node_7.inputs["Value"])
-                material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["Y"])
-            elif(chunk_tag & 0x11 == 0x10):
-                node_7 = material.node_tree.nodes.new("ShaderNodeMath")
-                node_7.operation = 'PINGPONG'
-                node_7.inputs[1].default_value = 1
-                material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
-                material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
-                material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
-
-        b_tex = bpy.data.images.get(tex_name)
-        if b_tex is None:
-            b_tex = self.texture_image
-        if b_tex is None and self.texture and self.model is not None:
-            b_tex = self.texture.make()
-        
-        image_node = material.node_tree.nodes["Image Texture"]
-        image_node.image = b_tex
-        if self.texture and self.texture.id == MaterialTexture.NO_TEXTURE:
-            # a texture slot without a texture: keep its size and format so export writes it back
-            material['untextured_texture'] = [self.texture.width, self.texture.height, self.texture.format]
-
-        # NOTE: texture-swap animation (self.texture_anim) is not implemented.
-        # The previous stub here referenced a hardcoded local path and undefined
-        # variables and could never run; it was removed. See TexturePose.write,
-        # which is likewise a stub, for the export side of this feature.
-        material.preview_render_type = 'FLAT'
-        return material
-            
+        if uv is None:
+            uv_node = tree.nodes.new("ShaderNodeUVMap")
+            uv_node.location = (-1000, 300)
+            uv = uv_node.outputs["UV"]
+        separate = tree.nodes.new("ShaderNodeSeparateXYZ")
+        separate.location = (-800, 300)
+        combine = tree.nodes.new("ShaderNodeCombineXYZ")
+        combine.location = (-400, 300)
+        tree.links.new(uv, separate.inputs["Vector"])
+        tree.links.new(combine.outputs["Vector"], image_node.inputs["Vector"])
+        for axis in range(2):
+            value = separate.outputs[axis]
+            y = 300 - 150 * axis
+            # a mirrored tile is baked to twice its size, so the offset and clamp range double
+            scale = 2 if mirror[axis] else 1
+            if offsets[axis]:
+                shift = tree.nodes.new("ShaderNodeMath")
+                shift.operation = 'SUBTRACT'
+                shift.inputs[1].default_value = offsets[axis] * scale
+                shift.location = (-650, y)
+                tree.links.new(value, shift.inputs[0])
+                value = shift.outputs[0]
+            if clamp[axis]:
+                limit = tree.nodes.new("ShaderNodeClamp")
+                limit.inputs["Min"].default_value = 0
+                limit.inputs["Max"].default_value = scale
+                limit.location = (-550, y)
+                tree.links.new(value, limit.inputs["Value"])
+                value = limit.outputs[0]
+            if mirror[axis]:
+                pingpong = tree.nodes.new("ShaderNodeMath")
+                pingpong.operation = 'PINGPONG'
+                pingpong.inputs[1].default_value = 1
+                pingpong.location = (-450, y)
+                tree.links.new(value, pingpong.inputs[0])
+                value = pingpong.outputs[0]
+            tree.links.new(value, combine.inputs[axis])
 
     def unmake(self, material):
         material_name: str = ""
-        
+
+        if material:
+            # the shader's skybox handling depends on the scroll
+            self.scroll_x = material.get('scroll_x', 0.0)
+            self.scroll_y = material.get('scroll_y', 0.0)
         self.shader.unmake(material)
         if material:
             self.name = material.name
@@ -1710,8 +1946,12 @@ class Material(DataStruct):
             if material.get('normal_map', False) and not (self.format & 0x11):
                 self.format |= 0x01
 
+            # 0x8 culls back faces; 0x40 culls front faces of mirrored geometry instead
+            # (SW_RACER_RE src/types.h swrModel_MeshMaterial, renderer_hook.cpp)
             if material.use_backface_culling == False:
                 self.format &= 0b11110111
+            elif not self.format & 0x40:
+                self.format |= 0x8
         
         if self.model: 
             self.model.materials[material_name] = self
@@ -2028,6 +2268,8 @@ class Mesh(DataStruct):
         self.strip_size = 3
         self.vert_strips = None
         self.group_parent_id = 0
+        # import: indices into the collision vertices, when the collision primitives are indexed
+        self.collision_indices = None
         # export: the Blender object a HOOK modifier anchors the hooked prefix to
         self.hook_target = None
         self.collision_vert_buffer = None
@@ -2119,6 +2361,16 @@ class Mesh(DataStruct):
             
         if collision_vert_buffer_addr:
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model, collision_vert_count).read(buffer, collision_vert_buffer_addr)
+            if self.group_parent_id:
+                # With collision vertices, the word at +40 is a list of u16 indices into them, not a
+                # bone node (SW_RACER_RE src/types.h swrModel_Mesh, src/Swr/swrModel.c byte swap
+                # and swrModel_MeshIterateOverCollisionFaces). A stock mesh never has both.
+                if self.strip_size in (5, 7) and self.vert_strips is not None:
+                    count = sum(self.vert_strips.data)
+                else:
+                    count = self.strip_size * self.strip_count
+                self.collision_indices = list(struct.unpack_from(f'>{count}H', buffer, self.group_parent_id))
+                self.group_parent_id = 0
                     
         return self
     
@@ -2150,11 +2402,14 @@ class Mesh(DataStruct):
                         else:
                             faces.append( [start+s, start+s+1, start+s+2])
                     start += strip
-            # Bone-animated meshes (group_parent_id set) can list more primitives than they have
-            # collision vertices: the field that would hold collision indices holds the bone node
-            # instead (SW_RACER_RE src/types.h swrModel_Mesh), so the game never gets usable faces
-            # for them either. Keep the faces the vertices can back; out-of-range faces make an
-            # invalid mesh that crashes Blender in Edit mode.
+            if self.collision_indices is not None:
+                # the primitives walk the index list, which picks the vertices; indexed strips repeat
+                # an index to stitch strips together, and those zero-area faces collide with nothing
+                faces = [[self.collision_indices[i] for i in face] for face in faces
+                         if all(i < len(self.collision_indices) for i in face)]
+                faces = [face for face in faces if len(set(face)) == 3]
+            # Keep the faces the vertices can back; out-of-range faces make an invalid mesh that
+            # crashes Blender in Edit mode.
             valid_faces = [face for face in faces if all(i < len(verts) for i in face)]
             if len(valid_faces) < len(faces):
                 print(f"model {self.model.id} mesh {self.id}: dropped {len(faces) - len(valid_faces)} of {len(faces)} "
@@ -2175,10 +2430,11 @@ class Mesh(DataStruct):
             if(self.collision_tags is not None): 
                 self.collision_tags.make(b_obj, collection)
                 
+            col_flags = effective_node_flags(parent, 'col_flags')
             for i in range(24):
                 view_layer = bpy.context.scene.view_layers[i + 1]
-                if 'col_flags' in parent or parent.col_flags:
-                    set_hidden(self.model, b_obj, not bool(int(parent['col_flags']) & (1 << (i + 8))), view_layer)            
+                if col_flags is not None:
+                    set_hidden(self.model, b_obj, not bool(col_flags & (1 << (i + 8))), view_layer)
                 
         if self.has_visuals():
             
@@ -2215,10 +2471,11 @@ class Mesh(DataStruct):
             uv_layer.foreach_set('uv', [u/4096 for i in loop_verts for u in vert_data[i].uv])
             color_layer.foreach_set('color', [a/255 for i in loop_verts for a in vert_data[i].color.to_array()])
                     
+            vis_flags = effective_node_flags(parent, 'vis_flags')
             for i in range(24):
                 view_layer = bpy.context.scene.view_layers[i + 1]
-                if 'vis_flags' in parent or parent.vis_flags:
-                    set_hidden(self.model, b_obj, not bool(int(parent['vis_flags']) & (1 << (i+8))), view_layer)
+                if vis_flags is not None:
+                    set_hidden(self.model, b_obj, not bool(vis_flags & (1 << (i+8))), view_layer)
                     
             if self.group_parent_id:
                 vg = b_obj.vertex_groups.get(f'{self.id}')
@@ -3252,7 +3509,7 @@ class LocationPose(DataStruct):
     
     def make(self, target, time):
         target.location = [x*self.model.scale for x in self.data.to_array()]
-        target.keyframe_insert(data_path="location", frame = round(time * self.model.fps))
+        target.keyframe_insert(data_path="location", frame = time * self.model.fps)
     
     def unmake(self, pose):
         self.data.from_array([x/self.model.scale for x in pose])
@@ -3265,6 +3522,16 @@ class LocationPose(DataStruct):
     def to_array(self):
         return self.data.to_array()
     
+class ScalePose(LocationPose):
+    """Type 0xA keys: a node's scale, 3 floats (SW_RACER_RE src/Swr/swrModel.c swrModel_UpdateScaleAnimation)."""
+    def make(self, target, time):
+        target.scale = self.data.to_array()
+        target.keyframe_insert(data_path="scale", frame = time * self.model.fps)
+
+    def unmake(self, pose):
+        self.data.from_array(list(pose))
+        return self
+
 class RotationPose(DataStruct):
     def __init__(self, parent, model):
         super().__init__('>4f')
@@ -3286,7 +3553,7 @@ class RotationPose(DataStruct):
             R.make_compatible(self.previous)
             
         target.rotation_quaternion = R
-        target.keyframe_insert(data_path="rotation_quaternion", frame = round(time * self.model.fps))
+        target.keyframe_insert(data_path="rotation_quaternion", frame = time * self.model.fps)
     
     def unmake(self, pose):
         q = mathutils.Quaternion(pose)
@@ -3391,7 +3658,7 @@ def get_animations(obj, model, entity):
             frame, value = keyframe.co
             if frame not in keyframes[data_path]['times']: 
                 keyframes[data_path]['times'].append(frame)
-                if data_path == 'location':
+                if data_path in ('location', 'scale'):
                     keyframes[data_path]['poses'][frame] = [None, None, None]
                 elif data_path == 'rotation_quaternion':
                     keyframes[data_path]['poses'][frame] = [None, None, None, None]
@@ -3401,16 +3668,18 @@ def get_animations(obj, model, entity):
         array_index = fcurve.array_index
         data_path = fcurve.data_path
         for keyframe in keyframes[data_path]['times']:
-            if data_path in ['location', 'rotation_quaternion']:
+            if data_path in ['location', 'rotation_quaternion', 'scale']:
                 keyframes[data_path]['poses'][keyframe][array_index] = fcurve.evaluate(keyframe)
                 
     # unmake animations
     for path in keyframes:
         times = keyframes[path]['times']
         poses = keyframes[path]['poses'].values()
-        if path in ['location', 'rotation_quaternion']:
+        if path in ['location', 'rotation_quaternion', 'scale']:
+            durations = obj.get(f'anim_durations_{path}')
             model.animations.append(Anim(entity, model).unmake(times, poses, path, loop = keyframes[path]['loop'],
-                                                                flags = obj.get(f'anim_flags_{path}')))
+                                                                flags = obj.get(f'anim_flags_{path}'),
+                                                                durations = list(durations) if durations is not None else None))
     
 class Anim(DataStruct):
     def __init__(self, parent, model):
@@ -3451,13 +3720,19 @@ class Anim(DataStruct):
         for f in range(self.num_keyframes):
             self.keyframe_times.append(readFloatBE(buffer, keyframe_times_addr + f * 4))
             pose = None
-            if self.flag2 & 0b111 == 0b000:  # rotation (4)
+            # the type is the low 4 bits of the flags (SW_RACER_RE src/types.h swrModel_Animation,
+            # value sizes in src/Swr/swrModel.c swrModel_ByteSwapAnimation); masking 3 bits read
+            # scale (0xA) as a texture animation
+            anim_type = self.flag2 & 0xF
+            if anim_type == 0x8:  # axis-angle rotation (4)
                 pose = RotationPose(self, self.model).read(buffer, cursor)
-            elif self.flag2 & 0b111 == 0b001:  # position (3)
+            elif anim_type == 0x9:  # translation (3)
                 pose = LocationPose(self, self.model).read(buffer, cursor)
-            elif self.flag2 & 0b111 == 0b010:  # texture
+            elif anim_type == 0xA:  # scale (3)
+                pose = ScalePose(self, self.model).read(buffer, cursor)
+            elif anim_type == 0x2:  # texture
                 pose = TexturePose(self, self.model).read(buffer, cursor)
-            elif self.flag2 & 0b111 == 0b011 or self.flag2 & 0b111 == 0b100:  # uv_x/uv_y (1)
+            elif anim_type in (0xB, 0xC):  # uv_x/uv_y (1)
                 pose = UVPose(self, self.model).read(buffer, cursor)
             
             if pose is not None:
@@ -3504,8 +3779,9 @@ class Anim(DataStruct):
             target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
             if target is None:
                 return
-            # keep the game's flags so export can write them back unchanged
+            # keep the game's flags and loop lengths so export can write them back unchanged
             target['anim_flags_rotation_quaternion'] = self.flag2
+            target['anim_durations_rotation_quaternion'] = [self.float4, self.float5]
 
             target.rotation_mode = 'QUATERNION'
             previous_q = None
@@ -3521,7 +3797,7 @@ class Anim(DataStruct):
                     R.make_compatible(previous_q)
                     
                 target.rotation_quaternion = R
-                target.keyframe_insert(data_path="rotation_quaternion", frame = round(time * self.model.fps))
+                target.keyframe_insert(data_path="rotation_quaternion", frame = time * self.model.fps)
                 previous_q = R
         
         elif self.flag2 & 0xF == 9: #location
@@ -3529,10 +3805,21 @@ class Anim(DataStruct):
             if target is None:
                 return
             target['anim_flags_location'] = self.flag2
+            target['anim_durations_location'] = [self.float4, self.float5]
 
             for i, time in enumerate(self.keyframe_times):
                 self.keyframe_poses[i].make(target, time)
-            
+
+        elif self.flag2 & 0xF == 0xA: #scale
+            target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
+            if target is None:
+                return
+            target['anim_flags_scale'] = self.flag2
+            target['anim_durations_scale'] = [self.float4, self.float5]
+
+            for i, time in enumerate(self.keyframe_times):
+                self.keyframe_poses[i].make(target, time)
+
         if target is None:
             return
         #make linear
@@ -3550,27 +3837,37 @@ class Anim(DataStruct):
         
     
     
-    def unmake(self, times, poses, path, loop = True, flags = None):
+    def unmake(self, times, poses, path, loop = True, flags = None, durations = None):
         # flags: the game's original flag word, stored on import; its type bits are replaced below
+        # durations: the game's original duration4/duration5, stored on import
         if self.parent is None:
             return None
         self.target = self.parent
-        
+
         self.keyframe_times = [x/self.model.fps for x in times]
         anim_length = self.keyframe_times[-1]
-        
+
         self.float1 = anim_length
         self.float2 = anim_length
         self.float3 = anim_length
         self.float4 = anim_length
         self.float5 = anim_length
-        
+        # The game loops on duration5 when flag 0x20 is set, else duration4 (SW_RACER_RE
+        # src/Swr/swrModel.c swrModel_LoadAnimation). Stock animations often loop on a cycle
+        # longer than their last key (one length shared by a puppet's limbs), so keep the
+        # imported lengths unless the keys now run past them.
+        if durations is not None and len(durations) == 2:
+            self.float4, self.float5 = (max(float(d), anim_length) for d in durations)
+
         if path == 'location':
             self.flag2 |= 0b1001
             self.keyframe_poses = [LocationPose(self, self.model).unmake(pose) for pose in poses]
         elif path == 'rotation_quaternion':
             self.flag2 |= 0b1000
-            self.keyframe_poses = [RotationPose(self, self.model).unmake(pose) for pose in poses] 
+            self.keyframe_poses = [RotationPose(self, self.model).unmake(pose) for pose in poses]
+        elif path == 'scale':
+            self.flag2 |= 0xA
+            self.keyframe_poses = [ScalePose(self, self.model).unmake(pose) for pose in poses]
         elif path in ['uv_x', 'uv_y']:
             self.flag2 |= 0b1011 if path == 'uv_x' else 0b1100
             self.keyframe_poses = [UVPose(self, self.model).unmake(pose) for pose in poses]
@@ -3925,7 +4222,10 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
             target_map[obj.name] = empty
 
         if obj.type == 'MESH':
-            mesh = Mesh(empty, model).unmake(obj)
+            # the node made above already carries the object's animations; animating the mesh
+            # too would add a second copy targeting the mesh struct, which the game would treat
+            # as a transform node (SW_RACER_RE src/types.h swrModel_Animation node_ptr)
+            mesh = Mesh(empty, model).unmake(obj, unmake_anim = False)
             empty_children.append(mesh)
 
         for child in object_children(obj):
