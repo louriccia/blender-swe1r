@@ -51,6 +51,27 @@ python -m unittest discover -s tests
 
 Set `SWE1R_MODELBLOCK` to the path of the game's `out_modelblock.bin` to also check every pod against the real game data.
 
+### Release check (Blender + game data)
+
+Before tagging a release, run the round-trip suite. It needs Blender 5.x and a copy of the game:
+
+```
+python tests/blender/run.py          # smoke set, ~30s
+python tests/blender/run.py --full   # every exportable model
+python tests/blender/run.py --models 2,109
+```
+
+For each model it imports from the game's `data/lev01` files and exports into a temp copy; the game's own files are only read. It then checks that the re-import behaves the same in game, not that it has the same node layout:
+- the same visual and collision triangles in world space, however they are grouped into meshes and nodes (within 2 game units), with the same texture size and material settings, or surface flags and triggers,
+- animated geometry in the same places at sampled frames,
+- the same header slots populated, with the nodes behind them in the same places (the game looks nodes up by slot),
+- the same spline points,
+- the export left every other model, texture and spline byte-identical, and re-exporting doesn't grow the model.
+
+Each model runs in its own Blender process, so a Blender crash only fails that model. Logs go to `tests/blender/logs/`. Blender is found from `BLENDER` or the newest `Blender 5.x` under Program Files; the game data from `SWE1R_GAME_DATA` (default: the Steam install's `data/lev01`).
+
+Failures that already exist are listed in `tests/blender/known_issues.json` and run as expected failures, so the suite fails only on regressions. When a fix makes one of them pass, the run fails with `unexpected success` (or `FIXED?` for a known crash) until its entry is removed.
+
 ## License
 
 This project is licensed under the GNU GENERAL PUBLIC LICENSE - see the [LICENSE](https://github.com/louriccia/blender-swe1r/blob/main/LICENSE) file for details.

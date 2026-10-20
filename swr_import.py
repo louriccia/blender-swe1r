@@ -95,7 +95,8 @@ def import_model(file_path, selector=None, update_progress=None):
             
     # reset view layer
     view_layer = bpy.context.scene.view_layers.get("ViewLayer")
-    bpy.context.window.view_layer = view_layer
+    if bpy.context.window:
+        bpy.context.window.view_layer = view_layer
     # toggle visible/selectable
     UpdateVisibleSelectable(None)
 
