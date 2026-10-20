@@ -14,6 +14,7 @@ For each model: import it, export it into a scratch copy of the game data, and c
 The game's own files are never written; everything happens in a temp copy.
 """
 import argparse
+import functools
 import importlib
 import importlib.util
 import json
@@ -22,6 +23,7 @@ import shutil
 import struct
 import sys
 import tempfile
+import time
 import traceback
 import unittest
 from collections import Counter
@@ -391,10 +393,13 @@ class RoundTripTest(unittest.TestCase):
         cls.work = tempfile.mkdtemp(prefix=f"swe1r_rt_{cls.model_id}_")
         cls.trip = RoundTrip(cls.model_id, cls.source_dir, cls.work)
         cls.error = None
+        start = time.time()
         try:
             cls.trip.run()
         except Exception:
             cls.error = traceback.format_exc()
+        # run.py reports this per model when several share a Blender process
+        print(f"SWE1R_MODEL_SECONDS {cls.model_id} {time.time() - start:.1f}", flush=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -524,6 +529,15 @@ def known_issues():
         return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
 
 
+def expected_failure(test):
+    """unittest.expectedFailure on a copy: it flags the function itself, which every model's test
+    class shares, so one model's known issue would apply to all models run in the same process."""
+    @functools.wraps(test)
+    def copy(self):
+        return test(self)
+    return unittest.expectedFailure(copy)
+
+
 def build_suite(model_ids, source_dir):
     model_list = importlib.import_module(f"{PACKAGE}.swe1r.model_list").model_list
     names = {m["index"]: f'{m["extension"]}_{m["name"]}' for m in model_list}
@@ -535,7 +549,7 @@ def build_suite(model_ids, source_dir):
         attrs = {"model_id": model_id, "source_dir": source_dir}
         for test_name in known.get(str(model_id), {}):
             if test_name.startswith("test_"):
-                attrs[test_name] = unittest.expectedFailure(getattr(RoundTripTest, test_name))
+                attrs[test_name] = expected_failure(getattr(RoundTripTest, test_name))
         case = type(f"Model{model_id:03d}_{label}", (RoundTripTest,), attrs)
         suite.addTests(loader.loadTestsFromTestCase(case))
     return suite
