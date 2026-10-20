@@ -185,7 +185,9 @@ class Texture():
             image_pixels = colors[np.asarray(pixels[:pixel_count], dtype=np.intp)]
         elif self.format in [1024, 1025]:
             p = np.asarray(pixels[:pixel_count], dtype=np.float64) / (0xF if self.format == 1024 else 255)
-            image_pixels = np.stack([p, p, p, np.ones_like(p)], axis=1)
+            # the game converts intensity texels to 0xVVVV, so alpha is the intensity too (as on the
+            # N64); combiners such as the pod shadows' PRIM.a * (1 - TEXEL0.a) depend on it
+            image_pixels = np.stack([p, p, p, p], axis=1)
         elif self.format == 3:
             image_pixels = np.asarray(pixels[:pixel_count], dtype=np.float64).reshape(-1, 4) / 255
 
@@ -253,8 +255,8 @@ class Texture():
             height = int(height*TEXTURE_MAX_SIZE/width)
             width = TEXTURE_MAX_SIZE
         elif height > TEXTURE_MAX_SIZE:
-            height = int(width*TEXTURE_MAX_SIZE/height)
-            width = TEXTURE_MAX_SIZE
+            width = int(width*TEXTURE_MAX_SIZE/height)
+            height = TEXTURE_MAX_SIZE
             
         width = next_power_of_2(width)
         height = next_power_of_2(height)
@@ -265,26 +267,28 @@ class Texture():
         self.width, self.height = image.size
         
         
-        #check if we need format 3
-        image_data = np.array(image.pixels[:])  # Convert pixel data to a NumPy array
+        image_data = image_pixels(image).astype(np.float64)
         pixels = image_data.reshape(-1, 4)
         palette = np.unique(pixels, axis=0)
-        greyscale = True
-        for color in palette:
-            if color[3] < 1.0 and color[3] > 0:
-                self.format = 3
-                image['format'] = 3
-                self.palette = Palette(self)
-                self.pixels = Pixels(self).unmake(image, override_format = 3)
-                return self
-            if not np.all(color[:3] == color[0]):
-                greyscale = False
-            
-        if greyscale:
-            self.format = 1024
+
+        # Intensity formats: the game shows these with alpha = intensity, so use them for grey
+        # images whose alpha already is the intensity, or is opaque throughout (opaque render
+        # modes ignore alpha). I4 holds exactly the 8-bit levels that are multiples of 17.
+        grey = np.all(palette[:, 0] == palette[:, 1]) and np.all(palette[:, 1] == palette[:, 2])
+        if grey and (np.all(palette[:, 3] == palette[:, 0]) or np.all(palette[:, 3] == 1.0)):
+            levels = np.rint(palette[:, 0] * 255)
+            self.format = 1024 if np.all(levels % 17 == 0) else 1025
             image['format'] = self.format
             self.pixels = Pixels(self).unmake(image, self.format)
             self.palette = Palette(self)
+            return self
+
+        #check if we need format 3
+        if np.any((palette[:, 3] < 1.0) & (palette[:, 3] > 0)):
+            self.format = 3
+            image['format'] = 3
+            self.palette = Palette(self)
+            self.pixels = Pixels(self).unmake(image, override_format = 3)
             return self
 
         if len(palette) > 255: #check if we need palettization
@@ -328,10 +332,12 @@ class RGBA5551(DataStruct):
         self.r, self.g, self.b, self.a = arr
         return self
     def write(self, buffer, cursor):
-        r = int(self.r * 0x1F) << 11
-        g = int(self.g * 0x1F) << 6
-        b = int(self.b * 0x1F) << 1
-        a = int(self.a)
+        # round, not truncate: an imported 5-bit level comes back from the 8-bit image a hair low,
+        # and truncating dropped about half of all levels by one on every re-export
+        r = round(self.r * 0x1F) << 11
+        g = round(self.g * 0x1F) << 6
+        b = round(self.b * 0x1F) << 1
+        a = round(self.a)
         color = (((r | g) | b) | a)
         struct.pack_into(self.format_string, buffer, cursor, color)
         return cursor + self.size
@@ -514,22 +520,31 @@ class Pixels():
             palette = self.texture.palette
         
         if format == 3:
-            self.data = image.pixels    
+            self.data = image_pixels(image)
         elif format in [1024, 1025]:
-            for i in range(0, len(image.pixels), 4):
-                pixel = image.pixels[i: i+4]
-                self.data.append(sum(pixel[:3])/3)
+            # intensity in the format's range (I4 0..15, I8 0..255); Pixels.write packs these
+            # as-is, so 0..1 floats came out as 0 or 1, i.e. black
+            levels = 0xF if format == 1024 else 0xFF
+            pixels = image_pixels(image).reshape(-1, 4).astype(np.float64)
+            intensity = np.clip(pixels[:, :3].sum(axis=1) / 3, 0.0, 1.0)
+            self.data = np.rint(intensity * levels).astype(np.int64).tolist()
         elif format in [512, 513]:
-            for i in range(0, len(image.pixels), 4):
-                pixel = image.pixels[i: i+4]
-                # Palette colors are stored as 0..1 floats (see Palette.unmake),
-                # so the lookup color must use the same scale - building it in
-                # 0..255 made every nearest-color match wrong and garbled the
-                # image.
-                color = RGBA5551().from_array([max(0, min(p, 1.0)) for p in pixel])
-                closest = palette.closest(color)
-                self.data.append(closest)
-                
+            # Palette colors are stored as 0..1 floats (see Palette.unmake), so the lookup color
+            # uses the same scale. Look each distinct color up once: the first palette entry
+            # equal to it, else the nearest (Palette.closest).
+            pixels = np.clip(image_pixels(image).reshape(-1, 4).astype(np.float64), 0.0, 1.0)
+            colors, inverse = np.unique(pixels, axis=0, return_inverse=True)
+            first = {}
+            for i, color in enumerate(palette.data):
+                first.setdefault(tuple(color.to_array()), i)
+            indices = []
+            for color in colors.tolist():
+                index = first.get(tuple(color))
+                if index is None:
+                    index = palette.closest(RGBA5551().from_array(color))
+                indices.append(index)
+            self.data = np.asarray(indices)[np.asarray(inverse).ravel()].tolist()
+
         return self
 
     def write(self):
@@ -538,54 +553,20 @@ class Pixels():
         format = int(self.texture.format)
         buffer = bytearray(int(self.texture.height * self.texture.width * format_map[format]))
         
-        cursor = 0
-        i = 0
-        
-        # if format in [512, 1024]:
-        #     for i in range(0, len(self.data), 2):
-        #         if format == 512:
-        #             struct.pack_into('>B', buffer, cursor, (self.data[i] << 4) | self.data[i + 1])
-        #         elif format == 1024:
-        #             struct.pack_into('>B', buffer, cursor, (self.data[i] // 0x11 << 4) | (self.data[i + 1] // 0x11))
-        #         cursor += 1
-        # elif format == 3:
-        #     for pixel in self.data:
-        #         struct.pack_into('>B', buffer, cursor, int(pixel*255))
-        #         cursor += 1
-        # elif format in [513, 1025]:
-        #     for i in range(len(self.data)):
-        #         pixel = self.data[i]
-        #         buffer[cursor] = pixel
-        #         cursor += 1
-                
-        data = np.array(self.data, dtype=np.float32)  # Convert to NumPy array for faster processing
-        buffer = np.array(buffer, dtype=np.uint8)    # Use NumPy for the buffer
-        height, width = self.texture.height, self.texture.width
-        padded_width_format = padded_width * format_map[format]
-        #for each row in the pixel buffer
-        cursor_increment = format_map[format]
-        for r in range(height):
-            #cursor = r * width # padded_width_format
-            row_start = r * width  # Avoid computing `i` in every iteration
-
-            for p in range(width):
-                if cursor >= len(buffer):
-                    print("buffer was shorter than expected")
-                    return buffer
-
-                pixel = data[row_start + p]
-                if format in [512, 1024]:
-                    p8 = buffer[int(cursor)]
-                    if cursor % 1 == 0:
-                        p8 |= int(pixel) << 4
-                    else:
-                        p8 |= int(pixel)
-                    buffer[int(cursor)] = p8
-                elif format in [513, 1025]:
-                    buffer[cursor] = int(pixel)
-                elif format == 3:
-                    pixel_data = (np.clip(data[row_start * 4 + p * 4: row_start * 4 + (p + 1) * 4], 0.0, 1.0) * 255).astype(np.uint8)
-                    buffer[cursor:cursor + 4] = pixel_data
-                cursor += cursor_increment
+        count = self.texture.height * self.texture.width
+        data = np.asarray(self.data, dtype=np.float32).ravel()
+        if format in [512, 1024]:
+            # two 4-bit texels per byte, the first in the high nibble
+            values = data[:count].astype(np.int64)
+            if len(values) % 2:
+                values = np.append(values, 0)
+            packed = (values[0::2] << 4) | values[1::2]
+        elif format in [513, 1025]:
+            packed = data[:count].astype(np.int64)
+        else:
+            # RGBA32: each channel truncated to 0..255
+            packed = (np.clip(data[:count * 4], 0.0, 1.0) * 255)
+        packed = packed.astype(np.uint8).tobytes()
+        buffer = np.frombuffer(packed.ljust(len(buffer), b'\0')[:len(buffer)], dtype=np.uint8)
 
         return bytearray(buffer.tobytes())

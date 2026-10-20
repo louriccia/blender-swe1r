@@ -25,7 +25,7 @@ from bpy_extras import anim_utils
 import bmesh
 import math
 import mathutils
-from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt32BE, readUInt8, readFloatBE
+from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt16BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture, compute_image_hash, compute_hash
 from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt
 
@@ -108,6 +108,36 @@ def set_material_blend(material, blend):
         material.surface_render_method = 'BLENDED' if blend == 'BLEND' else 'DITHERED'
     if blend == 'BLEND' and hasattr(material, 'show_transparent_back'):
         material.show_transparent_back = True
+
+# N64 render mode words (SW_RACER_RE dinput_hook/n64_shader.h RenderMode, n64_shader.cpp
+# set_render_mode). The file splits them across render_mode_1 (cycle-1 blender) and render_mode_2
+# (cycle-2 blender and flags); the renderer ORs the two.
+RM_ZMODE_MASK = 0xC00
+RM_ZMODE_XLU = 0x800
+RM_CYCLE1_MASK = 0xCCCC0000
+# the stock opaque and translucent surfaces, by far the most common pairs in the game's own models
+RM_OPAQUE = (0xC8000000, 0x00112078)        # AA, z compare + update, IN*A + MEM*A_MEM
+RM_TRANSLUCENT = (0xC8000000, 0x00104979)   # z compare, ZMODE_XLU, IN*A + MEM*(1-A)
+# old add-on exports wrote these; the replacement renderer aborts on them (rm2 = 0 selects a
+# cycle-2 blender it has no mode for, n64_shader.cpp set_render_mode)
+RM_LEGACY_DEFAULTS = ((0x18, 0), (0x818, 0))
+# TEXEL0*SHADE in cycle 1 and a pass-through cycle 2, so no primitive color is needed
+DEFAULT_COMBINERS = (0x011F041F, 0x01070407, 0x1F1F1F00, 0x07070700)
+
+
+def render_mode_is_alpha_blend(mode):
+    """The cycle-2 blender is IN*A + MEM*(1-A) (SW_RACER_RE dinput_hook/n64_shader.cpp)."""
+    return (mode >> 28) & 3 == 0 and (mode >> 24) & 3 == 0 and (mode >> 20) & 3 == 1 and (mode >> 16) & 3 == 0
+
+
+def render_mode_is_translucent(mode):
+    return render_mode_is_alpha_blend(mode) or (mode & RM_ZMODE_MASK) == RM_ZMODE_XLU
+
+
+def render_mode_is_cutout(mode):
+    """alpha_compare or cvg_x_alpha: the renderer discards texels below 0.5 alpha (n64_shader.frag)."""
+    return bool(mode & 0x3) or bool(mode & 0x1000)
+
 
 def ensure_cycles_first(fcurve):
     mods = fcurve.modifiers
@@ -1123,6 +1153,8 @@ class MaterialTextureChunk(DataStruct):
     def to_array(self):
         return [self.unk0, self.unk1, self.unk2, self.unk3, self.unk4, self.unk5]
     
+MAX_TEXTURES = 1700
+
 class MaterialTexture(DataStruct):
     NO_TEXTURE = 65535  # low half of the stock "no texture" word 0x0AFFFFFF
 
@@ -1172,7 +1204,12 @@ class MaterialTexture(DataStruct):
         self.texture = Texture(self.id, self.format, self.width, self.height)
         pixel_buffer, palette_buffer = textureblock.fetch(self.id)
         self.texture.read(pixel_buffer, palette_buffer)
-        return self.texture.make()
+        image = self.texture.make()
+        if image is not None:
+            # the block entry's hash, as Block.read computes it, so an unchanged image re-exports
+            # as this entry instead of being re-encoded and appended again
+            image['external_hash'] = compute_hash(b''.join(b for b in (pixel_buffer, palette_buffer) if b))
+        return image
 
     def unmake(self, image, untextured = None):
         if image is None:
@@ -1260,6 +1297,9 @@ class MaterialTexture(DataStruct):
                 return self
             
             id = len(self.model.textureblock.data)
+            if id >= MAX_TEXTURES:
+                raise ValueError(f"Too many textures: the game hangs on load with more than {MAX_TEXTURES} "
+                                 f"(SW_RACER_RE src/Swr/swrModel.c swrModel_InitializeTextureBuffer)")
             self.model.textureblock.inject([pixel_buffer, palette_buffer], id)
             
 
@@ -1276,7 +1316,14 @@ class MaterialTexture(DataStruct):
         # correctly (verified in-game over long use); making this a true byte
         # round-trip would require persisting the read values on the image's
         # custom properties. See RE swrModel_MaterialTexture for field meanings.
-        struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 65535), min(self.height*8, 65535), self.format, 3, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), 683, 503, *[3, 3, 3, 3, 3, 3], self.unk9, self.id)
+        # res is the texture size in 10.2 fixed point, (w*4, h*4) in every stock texture; the game
+        # divides texture offsets and UV scroll by it (SW_RACER_RE src/Swr/swrModel.c
+        # swrModel_UpdateTextureScrollAnimation, dinput_hook/renderer_hook.cpp), so h*8 halved any
+        # V offset. Only specs[0] (the tile written below) may be set: the replacement renderer
+        # treats a non-null specs[1] as a mip chain and unswizzles the texture
+        # (renderer_hook.cpp, deswizzle_lod_texture). Stock single-tile textures have
+        # num_children 0 and specs[1..4] and unk6 0.
+        struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 32767), min(self.height*4, 32767), self.format, 0, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), 683, 503, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
         cursor += self.size
 
         for i, chunk in enumerate(self.chunks):
@@ -1307,12 +1354,16 @@ class MaterialShader(DataStruct):
         self.color_combine_mode_cycle2 = 0#0b11111000111110001111100000000
         self.alpha_combine_mode_cycle2 = 0#0b111000001110000011100000000
         # render mode: http://n64devkit.square7.ch/n64man/gdp/gDPSetRenderMode.htm
-        self.render_mode_1 = 0x18 #initialize with zcmp and aa
+        self.render_mode_1 = RM_OPAQUE[0]
         # 0x008 = aa
         # 0x010 = zcm (off for skybox)
         # 0x800 = transparency
         
-        self.render_mode_2 = 0
+        self.render_mode_2 = RM_OPAQUE[1]
+        self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, \
+            self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2 = DEFAULT_COMBINERS
+        self.unk5 = 0
+        self.unk8 = 0
         # 0b11001000000100000100100101111000	1	    weird material in bwr ice reflection
         # 0b11001000000100000100101101010000	1	    transparent death beam on oovo
         # 0b11001000000100010010000001111000	15	    broken textures
@@ -1346,6 +1397,9 @@ class MaterialShader(DataStruct):
         self.unk = []
     def read(self, buffer, cursor):
         self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, *self.unk = struct.unpack_from(self.format_string, buffer, cursor)
+        # u16s at +22 and +32 (SW_RACER_RE src/types.h swrModel_Material unk5, unk8)
+        self.unk5 = readUInt16BE(buffer, cursor + 22)
+        self.unk8 = readUInt16BE(buffer, cursor + 32)
         self.color.read(buffer, cursor + 34)
     
     def make(self, material):
@@ -1359,33 +1413,54 @@ class MaterialShader(DataStruct):
         
         material['render_mode_1'] = str(self.render_mode_1)
         material['render_mode_2'] = str(self.render_mode_2)
-        
-        if self.unk1 == 8 or self.render_mode_1 & 0x800 or self.render_mode_2 & 0x800:
-            material.transparent = True
-            set_material_blend(material, 'BLEND')
+        material['unk5'] = self.unk5
+        material['unk8'] = self.unk8
+
+        # Translucent: the cycle-2 blender blends with the framebuffer, or the z mode is XLU. A
+        # loose bit test (0x800 in either word, or unk1 == 8) missed stock blend modes with an
+        # opaque z mode and kept a toggle that could never be cleared.
+        material.transparent = render_mode_is_translucent(self.render_mode_1 | self.render_mode_2)
     
     def unmake(self, material):
         if material is not None:
             
-            self.unk1 = material.get('unk1', 0)
-            self.combiner_cycle_type = material.get('combiner_cycle_type', 0)
+            self.unk1 = material.get('unk1', self.unk1)
+            self.combiner_cycle_type = material.get('combiner_cycle_type', self.combiner_cycle_type)
+            self.unk5 = material.get('unk5', self.unk5)
+            self.unk8 = material.get('unk8', self.unk8)
             self.color.unmake(material.material_color)
-            
-            self.color_combine_mode_cycle1 = int(material.get('color_combine_mode_cycle1', 0))
-            self.alpha_combine_mode_cycle1 = int(material.get('alpha_combine_mode_cycle1', 0))
-            self.color_combine_mode_cycle2 = int(material.get('color_combine_mode_cycle2', 0))
-            self.alpha_combine_mode_cycle2 = int(material.get('alpha_combine_mode_cycle2', 0))
-            
-            # preserve __init__ defaults (0x18 = zcmp|aa) when the material lacks the prop;
-            # otherwise opaque geometry exports without RDP flags the game requires and crashes.
+
+            # A material made in Blender has none of these; it keeps the stock defaults set in
+            # __init__. All-zero combiners (written by older versions of the add-on) make cycle 1
+            # output COMBINED = 0, i.e. black, in the replacement renderer.
+            combiners = [int(material.get(key, default)) for key, default in (
+                ('color_combine_mode_cycle1', self.color_combine_mode_cycle1),
+                ('alpha_combine_mode_cycle1', self.alpha_combine_mode_cycle1),
+                ('color_combine_mode_cycle2', self.color_combine_mode_cycle2),
+                ('alpha_combine_mode_cycle2', self.alpha_combine_mode_cycle2))]
+            if any(combiners):
+                self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, \
+                    self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2 = combiners
+
             if 'render_mode_1' in material:
                 self.render_mode_1 = int(material['render_mode_1'])
             if 'render_mode_2' in material:
                 self.render_mode_2 = int(material['render_mode_2'])
+            if (self.render_mode_1, self.render_mode_2) in RM_LEGACY_DEFAULTS:
+                self.render_mode_1, self.render_mode_2 = RM_TRANSLUCENT if self.render_mode_1 & RM_ZMODE_XLU else RM_OPAQUE
 
-            if material.transparent:
-                self.unk1 = 8
-                self.render_mode_1 |= 0x800
+            # Only rewrite the render mode when the Transparent toggle disagrees with it, so an
+            # untouched material exports exactly as imported. 0x8 in unk1 goes with the stock
+            # translucent mode.
+            translucent = render_mode_is_translucent(self.render_mode_1 | self.render_mode_2)
+            if material.transparent and not translucent:
+                self.render_mode_1 = (self.render_mode_1 & RM_CYCLE1_MASK) | RM_TRANSLUCENT[0]
+                self.render_mode_2 = RM_TRANSLUCENT[1]
+                self.unk1 |= 8
+            elif not material.transparent and translucent:
+                self.render_mode_1 = (self.render_mode_1 & RM_CYCLE1_MASK) | RM_OPAQUE[0]
+                self.render_mode_2 = RM_OPAQUE[1]
+                self.unk1 &= ~8
     
         # alternate way to detect if this material is on a skybox mesh
         mat = self.parent
@@ -1394,8 +1469,10 @@ class MaterialShader(DataStruct):
             obj = mesh.original_object
             for collection in object_collections(obj, self.model):
                 if collection.collection_type == '1':
-                    # render modes have to be these exact values to fix small stitching issues
-                    if mat.scroll_x or mat.scroll_y:
+                    # render modes have to be these exact values to fix small stitching issues;
+                    # scrolling and translucent layers keep theirs without z compare, as stock
+                    # translucent sky layers have (e.g. 0x0C184948)
+                    if mat.scroll_x or mat.scroll_y or render_mode_is_translucent(self.render_mode_1 | self.render_mode_2):
                         self.render_mode_1 &= 0xFFFFFFEF
                         self.render_mode_2 &= 0xFFFFFFEF
                     else:
@@ -1412,6 +1489,8 @@ class MaterialShader(DataStruct):
     
     def write(self, buffer, cursor):
         struct.pack_into(self.format_string, buffer, cursor, self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, 0, 0, 0, 0, 0, 0, 0)
+        struct.pack_into('>H', buffer, cursor + 22, self.unk5)
+        struct.pack_into('>H', buffer, cursor + 32, self.unk8)
         self.color.write(buffer, cursor + 34)
         return cursor + self.size
     
@@ -1654,7 +1733,11 @@ class Material(DataStruct):
 
     def unmake(self, material):
         material_name: str = ""
-        
+
+        if material:
+            # the shader's skybox handling depends on the scroll
+            self.scroll_x = material.get('scroll_x', 0.0)
+            self.scroll_y = material.get('scroll_y', 0.0)
         self.shader.unmake(material)
         if material:
             self.name = material.name
@@ -1710,8 +1793,12 @@ class Material(DataStruct):
             if material.get('normal_map', False) and not (self.format & 0x11):
                 self.format |= 0x01
 
+            # 0x8 culls back faces; 0x40 culls front faces of mirrored geometry instead
+            # (SW_RACER_RE src/types.h swrModel_MeshMaterial, renderer_hook.cpp)
             if material.use_backface_culling == False:
                 self.format &= 0b11110111
+            elif not self.format & 0x40:
+                self.format |= 0x8
         
         if self.model: 
             self.model.materials[material_name] = self
