@@ -3252,7 +3252,7 @@ class LocationPose(DataStruct):
     
     def make(self, target, time):
         target.location = [x*self.model.scale for x in self.data.to_array()]
-        target.keyframe_insert(data_path="location", frame = round(time * self.model.fps))
+        target.keyframe_insert(data_path="location", frame = time * self.model.fps)
     
     def unmake(self, pose):
         self.data.from_array([x/self.model.scale for x in pose])
@@ -3265,6 +3265,16 @@ class LocationPose(DataStruct):
     def to_array(self):
         return self.data.to_array()
     
+class ScalePose(LocationPose):
+    """Type 0xA keys: a node's scale, 3 floats (SW_RACER_RE src/Swr/swrModel.c swrModel_UpdateScaleAnimation)."""
+    def make(self, target, time):
+        target.scale = self.data.to_array()
+        target.keyframe_insert(data_path="scale", frame = time * self.model.fps)
+
+    def unmake(self, pose):
+        self.data.from_array(list(pose))
+        return self
+
 class RotationPose(DataStruct):
     def __init__(self, parent, model):
         super().__init__('>4f')
@@ -3286,7 +3296,7 @@ class RotationPose(DataStruct):
             R.make_compatible(self.previous)
             
         target.rotation_quaternion = R
-        target.keyframe_insert(data_path="rotation_quaternion", frame = round(time * self.model.fps))
+        target.keyframe_insert(data_path="rotation_quaternion", frame = time * self.model.fps)
     
     def unmake(self, pose):
         q = mathutils.Quaternion(pose)
@@ -3391,7 +3401,7 @@ def get_animations(obj, model, entity):
             frame, value = keyframe.co
             if frame not in keyframes[data_path]['times']: 
                 keyframes[data_path]['times'].append(frame)
-                if data_path == 'location':
+                if data_path in ('location', 'scale'):
                     keyframes[data_path]['poses'][frame] = [None, None, None]
                 elif data_path == 'rotation_quaternion':
                     keyframes[data_path]['poses'][frame] = [None, None, None, None]
@@ -3401,16 +3411,18 @@ def get_animations(obj, model, entity):
         array_index = fcurve.array_index
         data_path = fcurve.data_path
         for keyframe in keyframes[data_path]['times']:
-            if data_path in ['location', 'rotation_quaternion']:
+            if data_path in ['location', 'rotation_quaternion', 'scale']:
                 keyframes[data_path]['poses'][keyframe][array_index] = fcurve.evaluate(keyframe)
                 
     # unmake animations
     for path in keyframes:
         times = keyframes[path]['times']
         poses = keyframes[path]['poses'].values()
-        if path in ['location', 'rotation_quaternion']:
+        if path in ['location', 'rotation_quaternion', 'scale']:
+            durations = obj.get(f'anim_durations_{path}')
             model.animations.append(Anim(entity, model).unmake(times, poses, path, loop = keyframes[path]['loop'],
-                                                                flags = obj.get(f'anim_flags_{path}')))
+                                                                flags = obj.get(f'anim_flags_{path}'),
+                                                                durations = list(durations) if durations is not None else None))
     
 class Anim(DataStruct):
     def __init__(self, parent, model):
@@ -3451,13 +3463,19 @@ class Anim(DataStruct):
         for f in range(self.num_keyframes):
             self.keyframe_times.append(readFloatBE(buffer, keyframe_times_addr + f * 4))
             pose = None
-            if self.flag2 & 0b111 == 0b000:  # rotation (4)
+            # the type is the low 4 bits of the flags (SW_RACER_RE src/types.h swrModel_Animation,
+            # value sizes in src/Swr/swrModel.c swrModel_ByteSwapAnimation); masking 3 bits read
+            # scale (0xA) as a texture animation
+            anim_type = self.flag2 & 0xF
+            if anim_type == 0x8:  # axis-angle rotation (4)
                 pose = RotationPose(self, self.model).read(buffer, cursor)
-            elif self.flag2 & 0b111 == 0b001:  # position (3)
+            elif anim_type == 0x9:  # translation (3)
                 pose = LocationPose(self, self.model).read(buffer, cursor)
-            elif self.flag2 & 0b111 == 0b010:  # texture
+            elif anim_type == 0xA:  # scale (3)
+                pose = ScalePose(self, self.model).read(buffer, cursor)
+            elif anim_type == 0x2:  # texture
                 pose = TexturePose(self, self.model).read(buffer, cursor)
-            elif self.flag2 & 0b111 == 0b011 or self.flag2 & 0b111 == 0b100:  # uv_x/uv_y (1)
+            elif anim_type in (0xB, 0xC):  # uv_x/uv_y (1)
                 pose = UVPose(self, self.model).read(buffer, cursor)
             
             if pose is not None:
@@ -3504,8 +3522,9 @@ class Anim(DataStruct):
             target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
             if target is None:
                 return
-            # keep the game's flags so export can write them back unchanged
+            # keep the game's flags and loop lengths so export can write them back unchanged
             target['anim_flags_rotation_quaternion'] = self.flag2
+            target['anim_durations_rotation_quaternion'] = [self.float4, self.float5]
 
             target.rotation_mode = 'QUATERNION'
             previous_q = None
@@ -3521,7 +3540,7 @@ class Anim(DataStruct):
                     R.make_compatible(previous_q)
                     
                 target.rotation_quaternion = R
-                target.keyframe_insert(data_path="rotation_quaternion", frame = round(time * self.model.fps))
+                target.keyframe_insert(data_path="rotation_quaternion", frame = time * self.model.fps)
                 previous_q = R
         
         elif self.flag2 & 0xF == 9: #location
@@ -3529,10 +3548,21 @@ class Anim(DataStruct):
             if target is None:
                 return
             target['anim_flags_location'] = self.flag2
+            target['anim_durations_location'] = [self.float4, self.float5]
 
             for i, time in enumerate(self.keyframe_times):
                 self.keyframe_poses[i].make(target, time)
-            
+
+        elif self.flag2 & 0xF == 0xA: #scale
+            target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
+            if target is None:
+                return
+            target['anim_flags_scale'] = self.flag2
+            target['anim_durations_scale'] = [self.float4, self.float5]
+
+            for i, time in enumerate(self.keyframe_times):
+                self.keyframe_poses[i].make(target, time)
+
         if target is None:
             return
         #make linear
@@ -3550,27 +3580,37 @@ class Anim(DataStruct):
         
     
     
-    def unmake(self, times, poses, path, loop = True, flags = None):
+    def unmake(self, times, poses, path, loop = True, flags = None, durations = None):
         # flags: the game's original flag word, stored on import; its type bits are replaced below
+        # durations: the game's original duration4/duration5, stored on import
         if self.parent is None:
             return None
         self.target = self.parent
-        
+
         self.keyframe_times = [x/self.model.fps for x in times]
         anim_length = self.keyframe_times[-1]
-        
+
         self.float1 = anim_length
         self.float2 = anim_length
         self.float3 = anim_length
         self.float4 = anim_length
         self.float5 = anim_length
-        
+        # The game loops on duration5 when flag 0x20 is set, else duration4 (SW_RACER_RE
+        # src/Swr/swrModel.c swrModel_LoadAnimation). Stock animations often loop on a cycle
+        # longer than their last key (one length shared by a puppet's limbs), so keep the
+        # imported lengths unless the keys now run past them.
+        if durations is not None and len(durations) == 2:
+            self.float4, self.float5 = (max(float(d), anim_length) for d in durations)
+
         if path == 'location':
             self.flag2 |= 0b1001
             self.keyframe_poses = [LocationPose(self, self.model).unmake(pose) for pose in poses]
         elif path == 'rotation_quaternion':
             self.flag2 |= 0b1000
-            self.keyframe_poses = [RotationPose(self, self.model).unmake(pose) for pose in poses] 
+            self.keyframe_poses = [RotationPose(self, self.model).unmake(pose) for pose in poses]
+        elif path == 'scale':
+            self.flag2 |= 0xA
+            self.keyframe_poses = [ScalePose(self, self.model).unmake(pose) for pose in poses]
         elif path in ['uv_x', 'uv_y']:
             self.flag2 |= 0b1011 if path == 'uv_x' else 0b1100
             self.keyframe_poses = [UVPose(self, self.model).unmake(pose) for pose in poses]
@@ -3925,7 +3965,10 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
             target_map[obj.name] = empty
 
         if obj.type == 'MESH':
-            mesh = Mesh(empty, model).unmake(obj)
+            # the node made above already carries the object's animations; animating the mesh
+            # too would add a second copy targeting the mesh struct, which the game would treat
+            # as a transform node (SW_RACER_RE src/types.h swrModel_Animation node_ptr)
+            mesh = Mesh(empty, model).unmake(obj, unmake_anim = False)
             empty_children.append(mesh)
 
         for child in object_children(obj):
