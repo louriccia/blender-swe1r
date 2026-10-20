@@ -2783,7 +2783,8 @@ class NodeTransformed(Node):
     def make(self, parent = None, collection = None):
         empty = super().make(parent, collection)
         empty.matrix_parent_inverse.identity()
-        empty.matrix_basis = mathutils.Matrix(self.matrix.make(self.model.scale))
+        # make() gives the file's row-vector layout (translation in the last row); Blender is column-vector
+        empty.matrix_basis = mathutils.Matrix(self.matrix.make(self.model.scale)).transposed()
         return empty
     def unmake(self, node):
         super().unmake(node)
@@ -2817,7 +2818,8 @@ class NodeTransformedWithPivot(Node):
     def make(self, parent = None, collection = None):
         empty = super().make(parent, collection)
         empty.matrix_parent_inverse.identity()
-        empty.matrix_basis = mathutils.Matrix(self.matrix.make(self.model.scale))
+        # make() gives the file's row-vector layout (translation in the last row); Blender is column-vector
+        empty.matrix_basis = mathutils.Matrix(self.matrix.make(self.model.scale)).transposed()
         empty['bonus'] = self.bonus.to_array()
 
         # Pivot semantic: worldMat[N] = worldMat[parent] · M_node · T(-pivot).
@@ -2831,7 +2833,10 @@ class NodeTransformedWithPivot(Node):
             helper = bpy.data.objects.new(empty.name + "_pivot", None)
             helper.empty_display_type = 'PLAIN_AXES'
             helper.empty_display_size = 0.25
-            collection.objects.link(helper)
+            # link next to the node, not into `collection`: Node.make may have moved the node into
+            # a Track/Skybox sub-collection, and export walks each sub-collection's own objects
+            for node_collection in empty.users_collection:
+                node_collection.objects.link(helper)
             helper.parent = empty
             helper.matrix_parent_inverse.identity()
             helper.location = (-pivot[0] * scale, -pivot[1] * scale, -pivot[2] * scale)
@@ -3216,7 +3221,8 @@ def get_animations(obj, model, entity):
         times = keyframes[path]['times']
         poses = keyframes[path]['poses'].values()
         if path in ['location', 'rotation_quaternion']:
-            model.animations.append(Anim(entity, model).unmake(times, poses, path, loop = keyframes[path]['loop']))
+            model.animations.append(Anim(entity, model).unmake(times, poses, path, loop = keyframes[path]['loop'],
+                                                                flags = obj.get(f'anim_flags_{path}')))
     
 class Anim(DataStruct):
     def __init__(self, parent, model):
@@ -3304,11 +3310,15 @@ class Anim(DataStruct):
                 return
             
             
-        elif self.flag2 in [56, 8, 24, 40, 4152]: #rotation
+        # The low 4 bits are the animation type (8 rotation, 9 translation); the rest are
+        # behaviour flags such as 0x10 loop, so match on the type rather than whole values.
+        elif self.flag2 & 0xF == 8: #rotation
             target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
             if target is None:
                 return
-            
+            # keep the game's flags so export can write them back unchanged
+            target['anim_flags_rotation_quaternion'] = self.flag2
+
             target.rotation_mode = 'QUATERNION'
             previous_q = None
             for i, time in enumerate(self.keyframe_times):
@@ -3326,10 +3336,11 @@ class Anim(DataStruct):
                 target.keyframe_insert(data_path="rotation_quaternion", frame = round(time * self.model.fps))
                 previous_q = R
         
-        elif self.flag2 in [57, 41, 25, 4153]: #location
+        elif self.flag2 & 0xF == 9: #location
             target = get_obj_by_id(self.model.obj_key(self.target), self.model.collection)
             if target is None:
                 return
+            target['anim_flags_location'] = self.flag2
 
             for i, time in enumerate(self.keyframe_times):
                 self.keyframe_poses[i].make(target, time)
@@ -3351,7 +3362,8 @@ class Anim(DataStruct):
         
     
     
-    def unmake(self, times, poses, path, loop = True):
+    def unmake(self, times, poses, path, loop = True, flags = None):
+        # flags: the game's original flag word, stored on import; its type bits are replaced below
         if self.parent is None:
             return None
         self.target = self.parent
@@ -3375,9 +3387,11 @@ class Anim(DataStruct):
             self.flag2 |= 0b1011 if path == 'uv_x' else 0b1100
             self.keyframe_poses = [UVPose(self, self.model).unmake(pose) for pose in poses]
             
+        if flags is not None:
+            self.flag2 |= flags & ~0xF
         if loop:
             self.flag2 |= 0x10
-            
+
         return self
     
     def write(self, buffer, cursor):

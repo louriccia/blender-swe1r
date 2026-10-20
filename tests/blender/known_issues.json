@@ -211,22 +211,18 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "87": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "88": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "89": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "90": {
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "91": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "92": {
@@ -236,19 +232,15 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "94": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "95": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "96": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "97": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "98": {
@@ -257,7 +249,6 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "99": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "100": {
@@ -269,11 +260,9 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "102": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "103": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "104": {
@@ -283,19 +272,15 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "106": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "107": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "108": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "109": {
-    "test_animation_preserved": "later animation is lost: at the last sampled frame the original lies on the ground, the re-export is still standing",
     "test_header_slots_preserved": "all slots (incl. root slot 0) come out empty: Node.unmake doesn't carry imported header slots onto exported nodes (modelblock.py, commented-out 'header' line); only template slots get written"
   },
   "110": {
@@ -304,7 +289,6 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "111": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "112": {
@@ -440,7 +424,6 @@
     "test_round_trip_completes": "import creates a mesh whose faces reference missing vertices; Blender crashes entering Edit mode on it during export"
   },
   "150": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "151": {
@@ -450,7 +433,6 @@
     "test_round_trip_completes": "import creates a mesh whose faces reference missing vertices; Blender crashes entering Edit mode on it during export"
   },
   "153": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "154": {
@@ -460,7 +442,6 @@
     "test_header_slots_preserved": "root slot 0 comes out empty: Node.unmake doesn't carry imported header slots onto exported nodes (modelblock.py, commented-out 'header' line); only template slots get written"
   },
   "156": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "157": {
@@ -728,15 +709,12 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "245": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "246": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "247": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "248": {
@@ -749,13 +727,13 @@
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "251": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "252": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "254": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "255": {
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
@@ -862,11 +840,9 @@
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "281": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "282": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "283": {
@@ -879,22 +855,18 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "286": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "287": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "288": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "289": {
     "test_round_trip_completes": "import creates a mesh whose faces reference missing vertices; Blender crashes entering Edit mode on it during export"
   },
   "290": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "291": {
@@ -903,21 +875,19 @@
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "292": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "293": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "294": {
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "295": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "296": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "297": {
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
@@ -940,32 +910,31 @@
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "304": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "305": {
     "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "306": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "307": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "308": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "309": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "310": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "311": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "312": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "313": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
@@ -985,7 +954,7 @@
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "318": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "319": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
