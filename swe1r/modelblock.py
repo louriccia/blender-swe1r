@@ -3667,6 +3667,38 @@ def deep_select_objects(collection):
     for sub_collection in collection.children:
         deep_select_objects(sub_collection)
 
+def get_imported_part_root(immediate_children):
+    """The empty that held a Part's slot 0 on import, if it is the collection's only top-level object.
+
+    A Part's slot 0 must be a pivot node (0xD065): the game finds environment models by it
+    (SW_RACER_RE dinput_hook/renderer_hook.cpp, try_replace_env).
+    """
+    if len(immediate_children) != 1:
+        return None
+    obj = immediate_children[0]
+    if obj.type == 'EMPTY' and obj.get('node_type') == 53349 and 0 in obj.get('header', []):
+        return obj
+    return None
+
+def children_through_pivot_helpers(obj):
+    """obj's children, looking through the pivot helpers import inserts (they are not file nodes)."""
+    children = []
+    for child in obj.children:
+        children.extend(children_through_pivot_helpers(child) if child.get('pivot_helper') else [child])
+    return children
+
+def get_imported_skybox_root(immediate_children):
+    """(slot-2 pivot, camera-follow node) of an imported skybox, if it is the collection's only top-level object."""
+    if len(immediate_children) != 1:
+        return None
+    sky_obj = immediate_children[0]
+    if sky_obj.type != 'EMPTY' or sky_obj.get('node_type') != 53349 or 2 not in sky_obj.get('header', []):
+        return None
+    children = children_through_pivot_helpers(sky_obj)
+    if len(children) != 1 or children[0].type != 'EMPTY' or children[0].get('node_type') != 53350:
+        return None
+    return sky_obj, children[0]
+
 def get_immediate_children(collection):
     immediate_children = []
     for obj in collection.objects:
@@ -3985,6 +4017,7 @@ class Model():
         if self.type == '7': #TRAK
             for child_collection in collection.children:
                 r_root_node = Group20580(root, self, 20580)
+                imported_sky = None
                 
                 if child_collection.collection_type == '0': #Track
                     r_root_node.header = [0, 1]
@@ -3992,10 +4025,18 @@ class Model():
                     root.children.append(r_root_node)
                 
                 elif child_collection.collection_type == '1': #skybox
-                    sky_empty = NodeTransformedWithPivot(r_root_node, self, 53349)
+                    imported_sky = get_imported_skybox_root(get_immediate_children(child_collection))
+                    if imported_sky is not None:
+                        # Re-exporting an imported skybox: reuse its slot-2 pivot and camera-follow
+                        # nodes rather than wrapping them in another pair each export.
+                        sky_obj, camera_obj = imported_sky
+                        sky_empty = NodeTransformedWithPivot(r_root_node, self, 53349).unmake(sky_obj)
+                        sky_to_camera = Group53350(sky_empty, self, 53350).unmake(camera_obj)
+                    else:
+                        sky_empty = NodeTransformedWithPivot(r_root_node, self, 53349)
+                        sky_to_camera = Group53350(sky_empty, self, 53350)
+                        sky_to_camera.follow_position = 1
                     sky_empty.header = [2]
-                    sky_to_camera = Group53350(sky_empty, self, 53350)
-                    sky_to_camera.follow_position = 1
                     append_root = sky_to_camera
                     
                     sky_empty.children.append(sky_to_camera)
@@ -4007,6 +4048,8 @@ class Model():
                 
                 # get immediate children and traverse hierarchy
                 immediate_children = get_immediate_children(child_collection)
+                if child_collection.collection_type == '1' and imported_sky is not None:
+                    immediate_children = children_through_pivot_helpers(imported_sky[1])
                 unmade = []
                 for obj in immediate_children:
                     unmade.extend(deep_unmake(obj, append_root, self, target_map, skybox = (child_collection.collection_type == '1')))
@@ -4018,6 +4061,15 @@ class Model():
             # node, so they share the generic traversal.
             unmade = []
             immediate_children = get_immediate_children(collection)
+            imported_root = get_imported_part_root(immediate_children) if self.type == '3' else None
+            if imported_root is not None:
+                # Re-exporting an imported Part: its root already is the slot-0 pivot node the
+                # template would create, so use it rather than wrapping it in another one each export.
+                root = NodeTransformedWithPivot(self, self, 53349).unmake(imported_root)
+                root.header = [0]
+                if imported_root.name in target_map.keys():
+                    target_map[imported_root.name] = root
+                immediate_children = imported_root.children
             for obj in immediate_children:
                 unmade.extend(deep_unmake(obj, root, self, target_map))
             assign_objs_to_node_by_type(unmade, root, self)
