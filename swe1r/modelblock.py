@@ -38,6 +38,21 @@ def find_existing_light(objects, color, location, rotation):
                 return light
     return None
 
+def effective_node_flags(obj, key):
+    """The node flags (vis_flags or col_flags) a mesh under obj effectively gets, or None if obj has none.
+
+    The renderer skips a node's whole subtree when its flags fail the viewport's masks
+    (SW_RACER_RE dinput_hook/renderer_hook.cpp debug_render_node), so a mesh is drawn only where
+    every node above it allows. Export writes the flags back on the mesh groups only (other nodes
+    get all bits, or are merged into their parent), so the mesh takes the AND of them all.
+    """
+    flags = None
+    while obj is not None:
+        if key in obj:
+            flags = int(obj[key]) if flags is None else flags & int(obj[key])
+        obj = obj.parent
+    return flags
+
 def set_hidden(model, obj, hidden, view_layer):
     """obj.hide_set(hidden, view_layer=view_layer), deferred to the end of Model.make when importing.
 
@@ -328,8 +343,8 @@ class TriggerFlag(DataStruct):
             obj[attr] = getattr(self, attr)
     
     def unmake(self, obj):
-        if 'settings' in obj:
-            self.settings = obj.trigger_settings
+        # trigger_settings is a registered property, never an ID property named 'settings'
+        self.settings = obj.trigger_settings
         for attr in self.flags:
             if attr in obj:
                 setattr(self, attr, obj[attr])
@@ -2251,6 +2266,8 @@ class Mesh(DataStruct):
         self.strip_size = 3
         self.vert_strips = None
         self.group_parent_id = 0
+        # import: indices into the collision vertices, when the collision primitives are indexed
+        self.collision_indices = None
         # export: the Blender object a HOOK modifier anchors the hooked prefix to
         self.hook_target = None
         self.collision_vert_buffer = None
@@ -2342,6 +2359,16 @@ class Mesh(DataStruct):
             
         if collision_vert_buffer_addr:
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model, collision_vert_count).read(buffer, collision_vert_buffer_addr)
+            if self.group_parent_id:
+                # With collision vertices, the word at +40 is a list of u16 indices into them, not a
+                # bone node (SW_RACER_RE src/types.h swrModel_Mesh, src/Swr/swrModel.c byte swap
+                # and swrModel_MeshIterateOverCollisionFaces). A stock mesh never has both.
+                if self.strip_size in (5, 7) and self.vert_strips is not None:
+                    count = sum(self.vert_strips.data)
+                else:
+                    count = self.strip_size * self.strip_count
+                self.collision_indices = list(struct.unpack_from(f'>{count}H', buffer, self.group_parent_id))
+                self.group_parent_id = 0
                     
         return self
     
@@ -2373,11 +2400,14 @@ class Mesh(DataStruct):
                         else:
                             faces.append( [start+s, start+s+1, start+s+2])
                     start += strip
-            # Bone-animated meshes (group_parent_id set) can list more primitives than they have
-            # collision vertices: the field that would hold collision indices holds the bone node
-            # instead (SW_RACER_RE src/types.h swrModel_Mesh), so the game never gets usable faces
-            # for them either. Keep the faces the vertices can back; out-of-range faces make an
-            # invalid mesh that crashes Blender in Edit mode.
+            if self.collision_indices is not None:
+                # the primitives walk the index list, which picks the vertices; indexed strips repeat
+                # an index to stitch strips together, and those zero-area faces collide with nothing
+                faces = [[self.collision_indices[i] for i in face] for face in faces
+                         if all(i < len(self.collision_indices) for i in face)]
+                faces = [face for face in faces if len(set(face)) == 3]
+            # Keep the faces the vertices can back; out-of-range faces make an invalid mesh that
+            # crashes Blender in Edit mode.
             valid_faces = [face for face in faces if all(i < len(verts) for i in face)]
             if len(valid_faces) < len(faces):
                 print(f"model {self.model.id} mesh {self.id}: dropped {len(faces) - len(valid_faces)} of {len(faces)} "
@@ -2398,10 +2428,11 @@ class Mesh(DataStruct):
             if(self.collision_tags is not None): 
                 self.collision_tags.make(b_obj, collection)
                 
+            col_flags = effective_node_flags(parent, 'col_flags')
             for i in range(24):
                 view_layer = bpy.context.scene.view_layers[i + 1]
-                if 'col_flags' in parent or parent.col_flags:
-                    set_hidden(self.model, b_obj, not bool(int(parent['col_flags']) & (1 << (i + 8))), view_layer)            
+                if col_flags is not None:
+                    set_hidden(self.model, b_obj, not bool(col_flags & (1 << (i + 8))), view_layer)
                 
         if self.has_visuals():
             
@@ -2438,10 +2469,11 @@ class Mesh(DataStruct):
             uv_layer.foreach_set('uv', [u/4096 for i in loop_verts for u in vert_data[i].uv])
             color_layer.foreach_set('color', [a/255 for i in loop_verts for a in vert_data[i].color.to_array()])
                     
+            vis_flags = effective_node_flags(parent, 'vis_flags')
             for i in range(24):
                 view_layer = bpy.context.scene.view_layers[i + 1]
-                if 'vis_flags' in parent or parent.vis_flags:
-                    set_hidden(self.model, b_obj, not bool(int(parent['vis_flags']) & (1 << (i+8))), view_layer)
+                if vis_flags is not None:
+                    set_hidden(self.model, b_obj, not bool(vis_flags & (1 << (i+8))), view_layer)
                     
             if self.group_parent_id:
                 vg = b_obj.vertex_groups.get(f'{self.id}')
