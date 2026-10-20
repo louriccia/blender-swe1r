@@ -27,8 +27,27 @@ import webbrowser
 import bpy
 import mathutils
 import copy
+import shutil
 
 from .swe1r.model_list import *
+
+def backup_original(path):
+    """Create a one-time pristine backup of a .bin file before it is first
+    overwritten. The '.bak' copy is written only if it does not already exist,
+    so it always preserves the state of the file before this add-on ever
+    modified it — letting the user recover the original game data.
+    Returns the backup path if one was created, else None."""
+    if not os.path.exists(path):
+        return None
+    backup_path = path + '.bak'
+    if os.path.exists(backup_path):
+        return None
+    try:
+        shutil.copy2(path, backup_path)
+        return backup_path
+    except OSError as e:
+        print(f"Could not back up {path}: {e}")
+        return None
 
 # 'bswe1r' for 'blender swe1r'
 # NOTE: use 3-letter code for data_type and group_id
@@ -81,6 +100,20 @@ Podd_MAlt = {
     "301": 300
 }
 
+def model_enum_item(i, model):
+    """Build a (identifier, label, description) tuple for a model enum.
+
+    The identifier is the model index as a string (unchanged, so saved
+    selections keep working). The label includes the name, the extension, and
+    the numeric id so otherwise-identical entries (e.g. the several
+    "Anakin Skywalker" variants) are distinguishable.
+    """
+    return (
+        str(i),
+        f"{model['name']}  ({model['extension']} {i})",
+        f"{model['extension']} model '{model['name']}' (id {i})",
+    )
+
 showbytes = {
     "115": 16,
     "142": 16,
@@ -115,10 +148,10 @@ def update_model_dropdown(self, context):
     model_type = model_types[int(context.scene.import_type)][1]
     
     if model_type == 'All':
-        items_for_selected_category = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
+        items_for_selected_category = [model_enum_item(i, model) for i, model in enumerate(model_list)]
     else:
-        items_for_selected_category = [(str(i), f"{model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_type]
-        items_for_selected_category.insert(0, ('-1', 'All', 'Import all models'))
+        items_for_selected_category = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_type]
+        items_for_selected_category.insert(0, ('-1', 'All', f'Import all {model_type} models'))
         
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
         items=items_for_selected_category,
@@ -129,7 +162,7 @@ def update_model_dropdown(self, context):
     
 def export_model_items(self, context):
     model_type = model_types[int(self.export_type)][1]
-    items_for_selected_category = [(str(i), f"{model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_type]
+    items_for_selected_category = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_type]
     return items_for_selected_category
 
 def update_selected(prop_name, update_mat = False, update_tex = False):
@@ -190,18 +223,23 @@ def EmptyVis(self, context):
 def UpdateVisibleSelectable(self, context = None):
     if context is None:
         context = bpy.context
+    # Convenience show/hide must only ever touch the working view layer (index 0),
+    # which the exporter skips. Writing to context.view_layer could land on one of
+    # the 23 game/detail view layers and corrupt the vis/col flags read on export
+    # (e.g. hiding a collision mesh here would clear its collision in-game).
+    working_layer = context.scene.view_layers[0]
     for obj in bpy.context.scene.objects:
         if obj.type != 'MESH':
             continue
         if obj.collidable:
             obj.hide_viewport = not context.scene.collision_visible
             obj.hide_select = not context.scene.collision_selectable
-            obj.hide_set(not context.scene.collision_visible, view_layer=context.view_layer)
-            
+            obj.hide_set(not context.scene.collision_visible, view_layer=working_layer)
+
         if obj.visible:
             obj.hide_viewport =  not context.scene.visuals_visible
             obj.hide_select = not context.scene.visuals_selectable
-            obj.hide_set(not context.scene.visuals_visible, view_layer=context.view_layer)
+            obj.hide_set(not context.scene.visuals_visible, view_layer=working_layer)
             
             
     
@@ -329,30 +367,31 @@ def calculate_total_light_for_object(obj, falloff_factor=2.0, ambient_light_inte
 
     return total_lights
 
-updating_objects = set()
+# Single re-entrancy flag for the whole selection-sync cascade. Each setattr
+# below re-fires this same callback on the target object; a per-object guard
+# doesn't stop that (siblings keep re-triggering each other and it blows up
+# combinatorially, hanging Blender). One flag makes every nested call no-op.
+_syncing_prop = False
 
 def create_update_function(prop_name):
     def update_function(self, context):
-        global updating_objects
-        
-        # Check if the current object is already being updated
-        if self in updating_objects:
+        global _syncing_prop
+
+        if _syncing_prop:
             return
-        
+
         try:
-            # Add the current object to the set of updating objects
-            updating_objects.add(self)
-            
+            _syncing_prop = True
+
             # Update the property for all selected objects except the current one
             for obj in context.selected_objects:
                 if obj != self and hasattr(obj, prop_name):
                     setattr(obj, prop_name, getattr(self, prop_name))
                 elif hasattr(obj.data, prop_name):
                     setattr(obj.data, prop_name, getattr(self, prop_name))
-                    
+
         finally:
-            # Remove the current object from the updating set after updating
-            updating_objects.discard(self)
+            _syncing_prop = False
     return update_function
 
 name_attr_colors = data_name_format_short.format(label='colors')
@@ -439,62 +478,23 @@ def reselect_obj(obj):
     
     
 def validate_folder_path(folder_path, file_name):
+    """Validate that folder_path exists and contains the required .bin file(s).
+
+    file_name may be a single filename or a list of filenames; every entry must
+    be present. Returns the (possibly resolved) folder path, or {'CANCELLED'}
+    with a popup naming exactly which files are missing.
+    """
     if folder_path == "":
-        show_custom_popup(bpy.context, "No set import folder", "Select your folder containing the .bin files")
+        show_custom_popup(bpy.context, "No set folder", "Select your folder containing the .bin files")
         return {'CANCELLED'}
     if folder_path[:2] == '//':
         folder_path = os.path.join(os.path.dirname(bpy.data.filepath), folder_path[2:])
-    if not os.path.exists(folder_path  + file_name):
-        show_custom_popup(bpy.context, "Missing required files", f"No {file_name} found in the selected folder.")
+    file_names = [file_name] if isinstance(file_name, str) else list(file_name)
+    missing = [f for f in file_names if not os.path.exists(folder_path + f)]
+    if missing:
+        show_custom_popup(bpy.context, "Missing required files", f"The selected folder is missing: {', '.join(missing)}")
         return {'CANCELLED'}
     return folder_path
-
-def get_material_hash(material):
-    """
-    Generate a hash representing the material's properties for deduplication.
-    This compares node tree structure and key properties.
-    
-    Returns:
-        str: Hash string representing the material
-    """
-    if not material.use_nodes:
-        return None
-    
-    hash_parts = []
-    nodes = material.node_tree.nodes
-    
-    # Sort nodes by type and location for consistent ordering
-    sorted_nodes = sorted(nodes, key=lambda n: (n.type, n.location.x, n.location.y))
-    
-    for node in sorted_nodes:
-        # Add node type
-        hash_parts.append(node.type)
-        
-        # For image texture nodes, hash the image filepath
-        if node.type == 'TEX_IMAGE' and node.image:
-            hash_parts.append(node.image.filepath or node.image.name)
-        
-        # For value/color nodes, hash the values
-        elif node.type == 'VALUE':
-            hash_parts.append(str(node.outputs[0].default_value))
-        elif node.type == 'RGB':
-            hash_parts.append(str(node.outputs[0].default_value[:]))
-        
-        # For BSDF nodes, hash key input values
-        elif 'BSDF' in node.type:
-            for input in node.inputs:
-                if not input.is_linked:
-                    hash_parts.append(f"{input.name}:{input.default_value}")
-    
-    # Hash the connections
-    links = material.node_tree.links
-    for link in sorted(links, key=lambda l: (l.from_node.name, l.to_node.name)):
-        hash_parts.append(f"{link.from_socket.name}->{link.to_socket.name}")
-    
-    # Create hash from all parts
-    import hashlib
-    hash_string = "|".join(str(p) for p in hash_parts)
-    return hashlib.md5(hash_string.encode()).hexdigest()
 
 import bpy
 import os

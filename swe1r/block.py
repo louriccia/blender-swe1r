@@ -25,13 +25,16 @@ from .general import *
 from .textureblock import compute_hash
 
 class Block():
-    def __init__(self, path, items_per_asset, update_progress = None):
+    def __init__(self, path, items_per_asset, update_progress = None, hash_assets = False):
         self.data = []
         self.hash_table = {}
         self.items_per_asset = items_per_asset
         self.path = path
         self.dir = os.path.dirname(self.path)
         self.update_progress = update_progress
+        # Only the textureblock uses fetch_by_hash (for texture dedup). Hashing
+        # every asset of the model/spline blocks was wasted work on every read.
+        self.hash_assets = hash_assets
         
     def read(self):
         if self.update_progress:
@@ -60,10 +63,11 @@ class Block():
                     offset += 4
                     
                 self.data[i].append(file[asset_start:asset_end])
-                
-            hash = compute_hash(b''.join([item for item in self.data[i] if item]))
-            self.hash_table[hash] = i
-        
+
+            if self.hash_assets:
+                hash = compute_hash(b''.join([item for item in self.data[i] if item]))
+                self.hash_table[hash] = i
+
         return self
     
     def write(self):

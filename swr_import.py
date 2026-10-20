@@ -60,6 +60,8 @@ def import_model(file_path, selector=None, update_progress=None):
     
     update_progress("Parsing .bin files")
     
+    # None of the blocks need per-asset hashing on import; fetch_by_hash is only
+    # used during export (texture dedup), so all three read hash-free here.
     modelblock = Block(file_path + 'out_modelblock.bin', 2, update_progress).read()
     textureblock = Block(file_path + 'out_textureblock.bin', 2, update_progress).read()
     splineblock = Block(file_path + 'out_splineblock.bin', 1, update_progress).read()
@@ -101,5 +103,5 @@ def import_model(file_path, selector=None, update_progress=None):
 
     print(f'Successfully unpacked {len(selector)} models')
 
-    show_custom_popup(bpy.context, "IMPORTED!", f"Successfully unpacked {len(selector)} models.")
+    show_custom_popup(bpy.context, "Imported", f"Successfully unpacked {len(selector)} models.")
     
