@@ -130,6 +130,29 @@ def collision_key(obj):
             obj.trigger_id, obj.trigger_settings)
 
 
+SELECTOR, LOD_SELECTOR = 20581, 20582  # 0x5065 / 0x5066, SW_RACER_RE src/types_enums.h
+
+
+def drawn(obj):
+    """Whether the renderer reaches obj through every selector above it.
+
+    A selector draws only its selected child (-1 all, -2 none) and a LOD selector one child by
+    distance (SW_RACER_RE src/types.h swrModel_NodeSelector / swrModel_NodeLODSelector); for LODs
+    this counts the highest detail child. Import names nodes by file offset, so sorting children by
+    name gives their file order.
+    """
+    child, parent = obj, obj.parent
+    while parent is not None:
+        node_type = parent.get('node_type')
+        if node_type in (SELECTOR, LOD_SELECTOR):
+            index = sorted(parent.children, key=lambda c: c.name).index(child)
+            selected = parent.get('selected_child', -1) if node_type == SELECTOR else 0
+            if selected == -2 or (selected >= 0 and index != selected):
+                return False
+        child, parent = parent, parent.parent
+    return True
+
+
 def triangles(col):
     """Every triangle the game would draw or collide with, in world space, keyed by how it behaves.
 
@@ -141,6 +164,7 @@ def triangles(col):
     for obj in all_objects(col):
         if obj.type != 'MESH' or not (obj.visible or obj.collidable):
             continue
+        visible = drawn(obj)  # selectors only gate rendering; collision is checked regardless
         evaluated = obj.evaluated_get(depsgraph)
         mesh = evaluated.to_mesh()
         mesh.calc_loop_triangles()
@@ -151,7 +175,7 @@ def triangles(col):
             if tri.area * obj.matrix_world.median_scale ** 2 < 1e-10:
                 continue  # degenerate: nothing to draw or hit
             corners = sorted(tuple(world[i]) for i in tri.vertices)
-            if obj.visible:
+            if obj.visible and visible:
                 tris.append((("visual", material_key(obj, tri.material_index)), corners))
             if obj.collidable:
                 tris.append((("collision", collision_key(obj)), corners))
