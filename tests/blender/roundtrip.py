@@ -9,7 +9,8 @@ For each model: import it, export it into a scratch copy of the game data, and c
   - re-importing the export behaves the same in game: the same visual and collision triangles in world
     space (however they are grouped into meshes and nodes), the same materials and surface flags, the same
     animated motion, the same nodes behind each header slot, the same spline,
-  - repeated export/import settles instead of growing the model every time.
+  - repeated export/import settles instead of growing the model every time,
+  - every exported display list loads vertices the way the game's renderer requires.
 The game's own files are never written; everything happens in a temp copy.
 """
 import argparse
@@ -18,6 +19,7 @@ import importlib.util
 import json
 import os
 import shutil
+import struct
 import sys
 import tempfile
 import traceback
@@ -278,6 +280,40 @@ def snapshot(col):
     return snap
 
 
+def display_list_problems(buffer, mesh_start, mesh_format):
+    """Checks one exported mesh's display list the way the game's renderer reads it.
+
+    SW_RACER_RE dinput_hook/renderer_hook.cpp aborts unless every vertex load (gSPVertex) loads
+    into slot v0 == vertex_base_offset; triangles index the slots loaded so far.
+    A hooked mesh (vertex_base_offset > 0) draws its prefix with referenced_node's matrix, so that
+    pointer must lead to a mesh group node (0x3064).
+    """
+    fields = struct.unpack_from(mesh_format, buffer, mesh_start)
+    referenced_node, display_list, base = fields[11], fields[13], fields[17]
+    problems = []
+    if not display_list:
+        return problems
+    if base and (not referenced_node or struct.unpack_from(">I", buffer, referenced_node)[0] != 0x3064):
+        problems.append(f"hooked mesh at {mesh_start} does not reference a mesh group node")
+    loaded = 0
+    cursor = display_list
+    while buffer[cursor] != 0xDF:
+        kind = buffer[cursor]
+        if kind == 1:
+            n = (struct.unpack_from(">H", buffer, cursor + 1)[0] >> 4) & 0xFF
+            v0 = (buffer[cursor + 3] >> 1) - n
+            # n == 0 is only meaningful as a prefix-only load: a mesh whose vertices are all hooked
+            if v0 != base or (n == 0 and not base):
+                problems.append(f"mesh at {mesh_start}: vertex load n={n} v0={v0}, vertex_base_offset={base}")
+            loaded = v0 + n
+        elif kind in (5, 6):
+            slots = [buffer[cursor + i] // 2 for i in ((1, 2, 3) if kind == 5 else (1, 2, 3, 5, 6, 7))]
+            if any(slot >= loaded for slot in slots):
+                problems.append(f"mesh at {mesh_start}: triangle uses slot {max(slots)} with {loaded} loaded")
+        cursor += 8
+    return problems
+
+
 class RoundTrip:
     """Imports, exports, and re-imports one model, keeping every intermediate for the assertions."""
 
@@ -300,6 +336,22 @@ class RoundTrip:
         self.imp.import_model(folder, [self.model_id], no_progress)
         return model_collection(self.model_id)
 
+    def import_from_recording_meshes(self, folder):
+        """import_from, also checking every mesh's display list as it is read."""
+        modelblock = importlib.import_module(f"{PACKAGE}.swe1r.modelblock")
+        read = modelblock.Mesh.read
+        self.display_list_problems = []
+
+        def checking_read(mesh, buffer, cursor):
+            self.display_list_problems += display_list_problems(buffer, cursor, mesh.format_string)
+            return read(mesh, buffer, cursor)
+
+        modelblock.Mesh.read = checking_read
+        try:
+            return self.import_from(folder)
+        finally:
+            modelblock.Mesh.read = read
+
     def export_to(self, col, folder):
         bpy.context.scene.is_export_separate = False
         bpy.context.scene.is_export_debug = False
@@ -310,7 +362,7 @@ class RoundTrip:
         self.before = snapshot(col)
         self.export_to(col, self.first)
 
-        col = self.import_from(self.first)
+        col = self.import_from_recording_meshes(self.first)
         self.after = snapshot(col)
         # each later export starts from the previous one's blocks, so only the model itself can differ
         for previous, folder in ((self.first, self.second), (self.second, self.third)):
@@ -403,6 +455,11 @@ class RoundTripTest(unittest.TestCase):
         moved = [slot for slot, m in transforms.items() if slot in transforms_after
                  and any(abs(a - b) > TOLERANCE for a, b in zip(m, transforms_after[slot]))]
         self.assertEqual(moved, [], "nodes behind these header slots moved")
+
+    def test_display_lists_valid(self):
+        """Exported display lists are drawable by the game (see display_list_problems)."""
+        problems = self.trip.display_list_problems
+        self.assertEqual(problems[:5], [], f"{len(problems)} display list problems")
 
     def test_splines_preserved(self):
         self.assertEqual(self.trip.before["splines"], self.trip.after["splines"], "spline points changed")

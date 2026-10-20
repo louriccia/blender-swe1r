@@ -129,15 +129,7 @@
   "77": {
     "test_reexport_does_not_keep_growing": "not accumulation: size wanders between exports from vertex packing (9260, 9456, 9556, 9648, 9184 bytes over 5 exports), so 3 rising samples are a false positive"
   },
-  "86": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "98": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "100": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
@@ -208,10 +200,6 @@
   "148": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "149": {
-    "test_geometry_preserved": "hooked (bone-animated) mesh vertices land elsewhere after export (36 triangles); was hidden while import produced an invalid mesh",
-    "test_animation_preserved": "hooked (bone-animated) mesh vertices land elsewhere after export (36 triangles); was hidden while import produced an invalid mesh"
   },
   "152": {
     "test_animation_preserved": "export gives untextured visual triangles a 1x1 texture with flip/clip flags (159 triangles); was hidden while import produced an invalid mesh",
