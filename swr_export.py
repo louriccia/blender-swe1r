@@ -32,8 +32,11 @@ from datetime import datetime
 scale = 100
 
 def export_model(col, file_path, exports, update_progress):
-    # prepare blender scene for export
-    bpy.context.scene.frame_set(0)
+    # prepare blender scene for export: pose animated objects at frame 0. frame_set would also
+    # evaluate every one of the 24 game view layers (seconds on a track); export only reads the
+    # active one.
+    bpy.context.scene.frame_current = 0
+    bpy.context.view_layer.update()
     if bpy.context.object and bpy.context.object.mode == 'EDIT':
     # Switch to Object Mode
         bpy.ops.object.mode_set(mode='OBJECT')

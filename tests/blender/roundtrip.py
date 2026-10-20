@@ -167,10 +167,12 @@ def triangles(col):
         if obj.type != 'MESH' or not (obj.visible or obj.collidable):
             continue
         visible = drawn(obj)  # selectors only gate rendering; collision is checked regardless
+        material_keys = {}
         evaluated = obj.evaluated_get(depsgraph)
         mesh = evaluated.to_mesh()
         mesh.calc_loop_triangles()
         world = [evaluated.matrix_world @ v.co for v in mesh.vertices]
+        collision = collision_key(obj) if obj.collidable else None
         if any(i >= len(world) for tri in mesh.loop_triangles for i in tri.vertices):
             raise ValueError(f"imported mesh {obj.name} has faces referencing missing vertices (invalid mesh)")
         for tri in mesh.loop_triangles:
@@ -178,9 +180,11 @@ def triangles(col):
                 continue  # degenerate: nothing to draw or hit
             corners = sorted(tuple(world[i]) for i in tri.vertices)
             if obj.visible and visible:
-                tris.append((("visual", material_key(obj, tri.material_index)), corners))
+                if tri.material_index not in material_keys:
+                    material_keys[tri.material_index] = material_key(obj, tri.material_index)
+                tris.append((("visual", material_keys[tri.material_index]), corners))
             if obj.collidable:
-                tris.append((("collision", collision_key(obj)), corners))
+                tris.append((("collision", collision), corners))
         evaluated.to_mesh_clear()
     return tris
 
@@ -262,10 +266,16 @@ def splines(col):
     return sorted(rounded(p, 2) for p in points)
 
 
+def set_frame(frame):
+    # scene.frame_set also evaluates all 24 game view layers, seconds per call on a track; the
+    # snapshot only reads the active one
+    bpy.context.scene.frame_current = frame
+    bpy.context.view_layer.update()
+
+
 def snapshot(col):
     """What the game would see of an imported model: geometry and behaviour, not its node layout."""
-    scene = bpy.context.scene
-    scene.frame_set(0)
+    set_frame(0)
     snap = {
         "triangles": triangles(col),
         "header_slots": header_slots(col),
@@ -274,9 +284,9 @@ def snapshot(col):
         "animation": {},
     }
     for frame in animation_frames(col):
-        scene.frame_set(frame)
+        set_frame(frame)
         snap["animation"][frame] = triangles(col)
-    scene.frame_set(0)
+    set_frame(0)
     return snap
 
 

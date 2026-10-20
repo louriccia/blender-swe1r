@@ -38,11 +38,18 @@ format_map = {
 def compute_hash(buffer):
     return hashlib.md5(buffer).hexdigest()
 
+def image_pixels(image):
+    """image.pixels as a flat float32 array; slicing image.pixels in Python is very slow."""
+    pixels = np.empty(len(image.pixels), dtype=np.float32)
+    image.pixels.foreach_get(pixels)
+    return pixels
+
 def compute_image_hash(image):
-    # Assume 'image' is a Blender image object
-    pixels = image.pixels[:]  # Get pixel data
-    pixel_bytes = bytes([int(p * 255) for p in pixels])  # Convert to 0-255 range
-    return compute_hash(pixel_bytes)
+    # each channel truncated to 0..255, as int(p * 255)
+    scaled = np.trunc(image_pixels(image).astype(np.float64) * 255)
+    if len(scaled) and (scaled.min() < 0 or scaled.max() > 255):
+        raise ValueError("bytes must be in range(0, 256)")
+    return compute_hash(scaled.astype(np.uint8).tobytes())
 
 def reduce_colors(image_array, num_colors=255, max_iter=3):
     """
@@ -168,36 +175,22 @@ class Texture():
         # Set the alpha mode BEFORE setting pixels
         new_image.alpha_mode = 'CHANNEL_PACKED'  # Use 'STRAIGHT' if your alpha is not premultiplied
         
-        image_pixels = []
         pixels = self.pixels.data
         palette = None if self.palette is None or self.palette.data is None else self.palette.data
-        
+        pixel_count = min(len(pixels), self.width * self.height)
+
         #make image
-        for i in range(self.height):
-            for j in range(self.width):
-                ind = i * self.width + j
-                p = None
-                color = None
+        if self.format in [512, 513]:
+            colors = np.array([color.to_array() for color in palette], dtype=np.float64).reshape(-1, 4)
+            image_pixels = colors[np.asarray(pixels[:pixel_count], dtype=np.intp)]
+        elif self.format in [1024, 1025]:
+            p = np.asarray(pixels[:pixel_count], dtype=np.float64) / (0xF if self.format == 1024 else 255)
+            image_pixels = np.stack([p, p, p, np.ones_like(p)], axis=1)
+        elif self.format == 3:
+            image_pixels = np.asarray(pixels[:pixel_count], dtype=np.float64).reshape(-1, 4) / 255
 
-                if self.format in [512, 513]:
-                    color = palette[pixels[ind]].to_array()
-
-                if self.format == 1024:
-                    p = pixels[ind]/0xF
-                    color = [p, p, p, 1.0]
-                    
-                elif self.format == 1025:
-                    p = pixels[ind]/255
-                    color = [p, p, p, 1.0]
-
-                elif self.format == 3:
-                    p = pixels[ind]
-                    color = [i / 255 for i in p]
-                    
-                image_pixels.extend(color)
-                
-        if len(image_pixels):
-            new_image.pixels = [p for p in image_pixels]
+        if pixel_count:
+            new_image.pixels.foreach_set(image_pixels.astype(np.float32).ravel())
 
         # A generated image only keeps its pixels in an in-memory buffer, which
         # Blender's undo stack does not serialize - after undo/redo the image
@@ -454,6 +447,11 @@ class Pixels():
         #         cursor += 1
 
 
+        fast = self.read_rows(buffer, padded_width)
+        if fast is not None:
+            self.data = fast
+            return self.data
+
         #for each row in the pixel buffer
         for r in range(self.texture.height):
 
@@ -486,6 +484,22 @@ class Pixels():
                     cursor += 1
 
         return self.data
+
+    def read_rows(self, buffer, padded_width):
+        """The pixels read below, decoded with numpy; None when the buffer is too short for every row."""
+        width, height, format = self.texture.width, self.texture.height, self.texture.format
+        row_bytes = int(padded_width * format_map[format])
+        needed = (height - 1) * row_bytes + math.ceil(width * format_map[format]) if height else 0
+        if needed > len(buffer):
+            return None
+        data = np.frombuffer(bytes(buffer[:height * row_bytes]).ljust(height * row_bytes, b'\0'), dtype=np.uint8)
+        rows = data.reshape(height, row_bytes)
+        if format == 3:
+            return rows[:, :width * 4].reshape(-1, 4).tolist()
+        if format in [512, 1024]:
+            nibbles = np.stack([rows >> 4, rows & 0xF], axis=2).reshape(height, -1)
+            return nibbles[:, :width].ravel().tolist()
+        return rows[:, :width].ravel().tolist()
 
     def unmake(self, image, override_format = None):
         if override_format is not None:

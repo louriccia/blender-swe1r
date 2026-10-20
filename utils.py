@@ -228,18 +228,23 @@ def UpdateVisibleSelectable(self, context = None):
     # the 23 game/detail view layers and corrupt the vis/col flags read on export
     # (e.g. hiding a collision mesh here would clear its collision in-game).
     working_layer = context.scene.view_layers[0]
+    scene = context.scene
+
+    def show(obj, visible, selectable):
+        # only write what changes: each hide_viewport/hide_select write costs ~1ms
+        if obj.hide_viewport != (not visible):
+            obj.hide_viewport = not visible
+        if obj.hide_select != (not selectable):
+            obj.hide_select = not selectable
+        obj.hide_set(not visible, view_layer=working_layer)
+
     for obj in bpy.context.scene.objects:
         if obj.type != 'MESH':
             continue
         if obj.collidable:
-            obj.hide_viewport = not context.scene.collision_visible
-            obj.hide_select = not context.scene.collision_selectable
-            obj.hide_set(not context.scene.collision_visible, view_layer=working_layer)
-
+            show(obj, scene.collision_visible, scene.collision_selectable)
         if obj.visible:
-            obj.hide_viewport =  not context.scene.visuals_visible
-            obj.hide_select = not context.scene.visuals_selectable
-            obj.hide_set(not context.scene.visuals_visible, view_layer=working_layer)
+            show(obj, scene.visuals_visible, scene.visuals_selectable)
             
             
     
