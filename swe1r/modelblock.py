@@ -1495,6 +1495,137 @@ class MaterialShader(DataStruct):
         return cursor + self.size
     
 
+# MARK: COMBINER
+
+class CombinerValue:
+    """A color combiner input or intermediate: a constant, or a node socket in the material."""
+    def __init__(self, const = None, socket = None):
+        self.const = const
+        self.socket = socket
+
+    def is_const(self, value):
+        return self.socket is None and self.const == value
+
+def make_combiner_nodes(tree, shader, image_node, normals):
+    """Base color and alpha sockets computing the material's N64 color combiner.
+
+    Follows the replacement renderer's fragment shader (SW_RACER_RE assets/shaders/n64_shader.frag,
+    dinput_hook/n64_shader.cpp CombineMode): both cycles always run, each (A - B) * C + D on the
+    inputs its 4 mux bytes select. TEXEL0 and TEXEL1 are the texture (white without one), SHADE the
+    vertex color, PRIMITIVE the material color, ENVIRONMENT and the other constants 1, and cycle 1's
+    COMBINED is 0. With a normals vertex format SHADE is the game's lighting, which Blender's
+    own shading stands in for, so it is 1 here.
+    """
+    nodes = tree.nodes
+    column = [0]
+
+    def node(kind, operation):
+        n = nodes.new(kind)
+        n.operation = operation
+        n.location = (200 + 150 * (column[0] // 6), 400 - 120 * (column[0] % 6))
+        column[0] += 1
+        return n
+
+    one, zero = CombinerValue(1.0), CombinerValue(0.0)
+    if image_node is not None:
+        texel = (CombinerValue(socket = image_node.outputs["Color"]), CombinerValue(socket = image_node.outputs["Alpha"]))
+    else:
+        texel = (one, one)
+    if normals:
+        shade = (one, one)
+    else:
+        shade_node = nodes.new("ShaderNodeVertexColor")
+        shade_node.location = (-200, -200)
+        shade = (CombinerValue(socket = shade_node.outputs["Color"]), CombinerValue(socket = shade_node.outputs["Alpha"]))
+    prim = [c / 255 for c in shader.color.to_array()]
+    primitive = (CombinerValue(tuple(prim[:3])), CombinerValue(prim[3]))
+
+    def as_color(value):
+        if value.socket is None and not isinstance(value.const, tuple):
+            return CombinerValue((value.const,) * 3)
+        return value
+
+    def operate(a, b, operation, is_color):
+        """a (op) b, folding constants; is_color picks vector or scalar math."""
+        if a.socket is None and b.socket is None:
+            if is_color:
+                a, b = as_color(a), as_color(b)
+                return CombinerValue(tuple(operation_py(operation, x, y) for x, y in zip(a.const, b.const)))
+            return CombinerValue(operation_py(operation, a.const, b.const))
+        n = node("ShaderNodeVectorMath" if is_color else "ShaderNodeMath", operation)
+        for i, value in enumerate((a, b)):
+            if value.socket is not None:
+                tree.links.new(value.socket, n.inputs[i])
+            elif is_color:
+                n.inputs[i].default_value = as_color(value).const
+            else:
+                n.inputs[i].default_value = value.const
+        return CombinerValue(socket = n.outputs[0])
+
+    def operation_py(operation, x, y):
+        return x - y if operation == 'SUBTRACT' else x * y if operation == 'MULTIPLY' else x + y
+
+    def zero_like(value):
+        return value.is_const(0.0) or value.is_const((0.0, 0.0, 0.0))
+
+    def one_like(value):
+        return value.is_const(1.0) or value.is_const((1.0, 1.0, 1.0))
+
+    def combine(a, b, c, d, is_color):
+        # (a - b) * c + d
+        if a is b or (a.socket is None and b.socket is None and as_color(a).const == as_color(b).const):
+            difference = zero
+        elif zero_like(b):
+            difference = a
+        else:
+            difference = operate(a, b, 'SUBTRACT', is_color)
+        if zero_like(difference) or zero_like(c):
+            product = zero
+        elif one_like(c):
+            product = difference
+        elif one_like(difference):
+            product = c
+        else:
+            product = operate(difference, c, 'MULTIPLY', is_color)
+        if zero_like(d):
+            return product
+        if zero_like(product):
+            return d
+        return operate(product, d, 'ADD', is_color)
+
+    def color_input(mux, combined):
+        # SW_RACER_RE dinput_hook/n64_shader.cpp cc_mode_strings, n64_shader.h G_CCMUX_*
+        return {0: combined[0], 1: texel[0], 2: texel[0], 3: primitive[0], 4: shade[0], 5: one, 6: one,
+                7: combined[1], 8: texel[1], 9: texel[1], 10: primitive[1], 11: shade[1], 12: one,
+                13: one, 14: one, 15: one}.get(mux, zero)
+
+    def alpha_input(mux, combined):
+        # ac_mode_strings, G_ACMUX_*: 0 is COMBINED (it shares the value with LOD_FRACTION)
+        return {0: combined[1], 1: texel[1], 2: texel[1], 3: primitive[1], 4: shade[1], 5: one, 6: one}.get(mux, zero)
+
+    def muxes(word):
+        return [(word >> shift) & 0xFF for shift in (24, 16, 8, 0)]
+
+    combined = (zero, zero)
+    for color_word, alpha_word in ((shader.color_combine_mode_cycle1, shader.alpha_combine_mode_cycle1),
+                                   (shader.color_combine_mode_cycle2, shader.alpha_combine_mode_cycle2)):
+        color = combine(*(color_input(m, combined) for m in muxes(color_word)), True)
+        alpha = combine(*(alpha_input(m, combined) for m in muxes(alpha_word)), False)
+        combined = (color, alpha)
+
+    def socket(value, is_color):
+        if value.socket is not None:
+            return value.socket
+        n = nodes.new("ShaderNodeRGB" if is_color else "ShaderNodeValue")
+        n.location = (900, 200 if is_color else -200)
+        if is_color:
+            n.outputs[0].default_value = (*as_color(value).const, 1.0)
+        else:
+            n.outputs[0].default_value = value.const
+        return n.outputs[0]
+
+    return socket(combined[0], True), socket(combined[1], False)
+
 # MARK: MATERIAL
 
 class Material(DataStruct):
@@ -1565,171 +1696,176 @@ class Material(DataStruct):
             return material
         if not remake or material is None:
             material = bpy.data.materials.new(mat_name)
-            
+
         material.use_nodes = True
         material.node_tree.nodes.clear()
-        output_node = material.node_tree.nodes.new(type='ShaderNodeOutputMaterial')
-        node_0 = material.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
-        node_0.inputs[0].default_value = [c/255 for c in self.shader.color.to_array()]
+        tree = material.node_tree
+        output_node = tree.nodes.new(type='ShaderNodeOutputMaterial')
+        output_node.location = (1400, 0)
+        node_0 = tree.nodes.new('ShaderNodeBsdfPrincipled')
+        node_0.location = (1100, 0)
+        node_0.inputs["Specular IOR Level"].default_value = 0
         material.material_color = [c/255 for c in self.shader.color.to_array()]
         # Preserve the texture offset (RE texture_offset[2]) so it survives a
         # round-trip even though it is not exposed in the UI.
         material['texture_offset'] = self.texture_offset
-        material.node_tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
+        tree.links.new(node_0.outputs['BSDF'], output_node.inputs['Surface'])
         material['id'] = self.id
         material['format'] = self.format
         # RE: a mesh uses the Vtx_tn (normals) vertex format when the material
-        # type has bit 0x1 OR 0x10 set. Recognize both so the shader wires the
-        # per-vertex data into the Normal input for either variant (previously
-        # only 0x1 was detected, so 0x10-only materials were mis-wired as color).
+        # type has bit 0x1 OR 0x10 set.
         material['normal_map'] = bool(self.format & 0x11)
-        
+
         self.shader.make(material)
-        
-        if (self.texture is None and tex_name is None):
-            node_1 = material.node_tree.nodes.new("ShaderNodeVertexColor")
-            node_0.inputs["Specular IOR Level"].default_value = 0
-            if material.get('normal_map'):
-                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Normal"])
-            else:
-                material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
-            material.preview_render_type = 'FLAT'
-            return material
-    
-        tex_name = tex_name or str(self.texture.id)
+        material.use_backface_culling = bool(self.format & 8)
+        material.preview_render_type = 'FLAT'
 
-        material['scroll_x'] = self.scroll_x
-        material['scroll_y'] = self.scroll_y
-        material['clip_x'] = self.clip_x
-        material['clip_y'] = self.clip_y
-        
-        set_material_blend(material, 'OPAQUE')
+        image_node = None
+        if not (self.texture is None and tex_name is None):
+            tex_name = tex_name or str(self.texture.id)
 
+            material['scroll_x'] = self.scroll_x
+            material['scroll_y'] = self.scroll_y
+            material['clip_x'] = self.clip_x
+            material['clip_y'] = self.clip_y
 
-        if self.texture and self.texture.format == 3:
+            image_node = tree.nodes.new("ShaderNodeTexImage")
+            image_node.location = (-200, 300)
+            self.make_uv_nodes(material, image_node, remake)
+
+            b_tex = bpy.data.images.get(tex_name)
+            if b_tex is None:
+                b_tex = self.texture_image
+            if b_tex is None and self.texture and self.model is not None:
+                b_tex = self.texture.make()
+            image_node.image = b_tex
+            if self.texture and self.texture.id == MaterialTexture.NO_TEXTURE:
+                # a texture slot without a texture: keep its size and format so export writes it back
+                material['untextured_texture'] = [self.texture.width, self.texture.height, self.texture.format]
+            if b_tex is None:
+                image_node = None  # samples as white in game (renderer_hook.cpp default texture)
+
+        # NOTE: texture-swap animation (self.texture_anim) is not implemented.
+        # See TexturePose.write, which is likewise a stub, for the export side of this feature.
+        color, alpha = make_combiner_nodes(tree, self.shader, image_node, material['normal_map'])
+        tree.links.new(color, node_0.inputs["Base Color"])
+
+        render_mode = self.shader.render_mode_1 | self.shader.render_mode_2
+        if render_mode_is_cutout(render_mode):
+            # the renderer discards texels under 0.5 alpha and draws the rest opaque (n64_shader.frag)
+            cutoff = tree.nodes.new("ShaderNodeMath")
+            cutoff.operation = 'GREATER_THAN'
+            cutoff.inputs[1].default_value = 0.5
+            cutoff.location = (900, -300)
+            tree.links.new(alpha, cutoff.inputs[0])
+            tree.links.new(cutoff.outputs[0], node_0.inputs["Alpha"])
+            set_material_blend(material, 'OPAQUE')
+        elif render_mode_is_alpha_blend(render_mode):
+            tree.links.new(alpha, node_0.inputs["Alpha"])
             set_material_blend(material, 'BLEND')
-            
-        if (self.format & 8):
-            material.use_backface_culling = True
-        
-        node_1 = material.node_tree.nodes.new("ShaderNodeTexImage")
-        node_2 = material.node_tree.nodes.new("ShaderNodeVertexColor")
-        node_3 = material.node_tree.nodes.new("ShaderNodeMixRGB")
-        node_3.blend_type = 'MULTIPLY'
-        node_3.inputs['Fac'].default_value = 1
-        material.node_tree.links.new(node_1.outputs["Color"], node_3.inputs["Color2"])
-        if material.get('normal_map'):
-            material.node_tree.links.new(node_2.outputs["Color"], node_0.inputs["Normal"])
         else:
-            material.node_tree.links.new(node_2.outputs["Color"], node_3.inputs["Color1"])
-        material.node_tree.links.new(node_3.outputs["Color"], node_0.inputs["Base Color"])
-        material.node_tree.links.new(node_1.outputs["Alpha"], node_0.inputs["Alpha"])
-        node_0.inputs["Specular IOR Level"].default_value = 0
+            # opaque modes never use alpha, so near-zero texture alpha must not punch holes
+            set_material_blend(material, 'OPAQUE')
+        return material
 
+    def make_uv_nodes(self, material, image_node, remake):
+        """UVs the way the game samples them: scroll, static offset, then per-axis clamp and mirror."""
+        tree = material.node_tree
+        uv = None
+        mapping_node = None
         if self.scroll_x != 0 or self.scroll_y != 0:
-            shader_node = material.node_tree.nodes.new("ShaderNodeTexCoord")
-            mapping_node = material.node_tree.nodes.new("ShaderNodeMapping")
-            material.node_tree.links.new(shader_node.outputs["UV"], mapping_node.inputs["Vector"])
-            material.node_tree.links.new(mapping_node.outputs["Vector"], node_1.inputs["Vector"])
-            
+            shader_node = tree.nodes.new("ShaderNodeTexCoord")
+            shader_node.location = (-1200, 300)
+            mapping_node = tree.nodes.new("ShaderNodeMapping")
+            mapping_node.location = (-1000, 300)
+            tree.links.new(shader_node.outputs["UV"], mapping_node.inputs["Vector"])
+            uv = mapping_node.outputs["Vector"]
+
             keyframes = [0, abs(self.scroll_x) if self.scroll_x != 0 else abs(self.scroll_y)]
             poses = [0, 1]
-            
+
             if self.scroll_x < 0 or self.scroll_y < 0:
                 poses.reverse()
-            
+
             for i, time in enumerate(keyframes):
                 default_value = [0, 0, 0]
-                if self.scroll_x: 
+                if self.scroll_x:
                     default_value[0] = poses[i]
-                elif self.scroll_y: 
+                elif self.scroll_y:
                     default_value[1] = poses[i]
-                    
+
                 mapping_node.inputs[1].default_value = default_value
                 mapping_node.inputs[1].keyframe_insert(data_path="default_value", frame = time * (bpy.context.scene.render.fps if remake else self.model.fps))
-            
-            if material.node_tree.animation_data is not None and material.node_tree.animation_data.action is not None:
-                bag = anim_utils.action_get_channelbag_for_slot(material.node_tree.animation_data.action, material.node_tree.animation_data.action_slot)
+
+            if tree.animation_data is not None and tree.animation_data.action is not None:
+                bag = anim_utils.action_get_channelbag_for_slot(tree.animation_data.action, tree.animation_data.action_slot)
                 for fcurves_f in bag.fcurves:
                     ensure_cycles_first(fcurves_f)
                     for k in fcurves_f.keyframe_points:
                         k.interpolation = 'LINEAR'
-        
-        # NOTE: probably shouldn't do it this way
-        # TODO: find specific tag
-        if tex_name in ["1167", "1077", "1461", "1596"]:
-            set_material_blend(material, 'BLEND')
-            material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Alpha"])
-        
-        if self.format in [31, 15, 7]:
-            material.node_tree.links.new(node_2.outputs["Color"], node_0.inputs["Normal"])
-            material.node_tree.links.new(node_1.outputs["Color"], node_0.inputs["Base Color"])
-        
+
+        # Tile flags (SW_RACER_RE dinput_hook/renderer_hook.cpp): 0x10 mirrors U, 0x01 mirrors V,
+        # 0x20 clamps U, 0x02 clamps V. The flip/clip property names don't follow the axes; they
+        # are kept as they are for existing files.
         chunk_tag = self.texture.chunks[0].unk1 if self.texture and len(self.texture.chunks) else 0
-        if(self.texture and self.texture.chunks and chunk_tag & 0x11 != 0):
-            node_4 = material.node_tree.nodes.new("ShaderNodeUVMap")
-            node_5 = material.node_tree.nodes.new("ShaderNodeSeparateXYZ")
-            node_6 = material.node_tree.nodes.new("ShaderNodeCombineXYZ")
-            material.node_tree.links.new(node_4.outputs["UV"], node_5.inputs["Vector"])
-            material.node_tree.links.new(node_6.outputs["Vector"], node_1.inputs["Vector"])
+        if chunk_tag & 0x1:
+            material.flip_x = True
+        if chunk_tag & 0x10:
+            material.flip_y = True
+        if chunk_tag & 0x2:
+            material.clip_x = True
+        if chunk_tag & 0x20:
+            material.clip_y = True
 
-            if self.scroll_x or self.scroll_y:
-                material.node_tree.links.new(mapping_node.outputs["Vector"], node_5.inputs["Vector"])
+        texture = self.texture
+        offsets = [0.0, 0.0]
+        if texture is not None and texture.width and texture.height:
+            # static offset in 1/4 texels over res = (w*4, h*4); the renderer adds -offset/res
+            offsets = [self.texture_offset[0] / (texture.width * 4), self.texture_offset[1] / (texture.height * 4)]
+        mirror = [bool(chunk_tag & 0x10), bool(chunk_tag & 0x01)]
+        clamp = [bool(chunk_tag & 0x20), bool(chunk_tag & 0x02)]
+        if not (any(mirror) or any(clamp) or any(offsets)):
+            if uv is not None:
+                tree.links.new(uv, image_node.inputs["Vector"])
+            return
 
-            if(chunk_tag & 0x1):
-                material.flip_x = True
-            if(chunk_tag & 0x10):
-                material.flip_y = True
-            if(chunk_tag & 0x2):
-                material.clip_x = True
-            if(chunk_tag & 0x20):
-                material.clip_y = True
-                
-            if(chunk_tag & 0x11 == 0x11):
-                node_7 = material.node_tree.nodes.new("ShaderNodeMath")
-                node_7.operation = 'PINGPONG'
-                node_7.inputs[1].default_value = 1
-                material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
-                material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
-                node_8 = material.node_tree.nodes.new("ShaderNodeMath")
-                node_8.operation = 'PINGPONG'
-                node_8.inputs[1].default_value = 1
-                material.node_tree.links.new(node_5.outputs["Y"], node_8.inputs["Value"])
-                material.node_tree.links.new(node_8.outputs["Value"], node_6.inputs["Y"])
-            elif(chunk_tag & 0x11 == 0x01):
-                material.node_tree.links.new(node_5.outputs["X"], node_6.inputs["X"])
-                node_7 = material.node_tree.nodes.new("ShaderNodeMath")
-                node_7.operation = 'PINGPONG'
-                node_7.inputs[1].default_value = 1
-                material.node_tree.links.new(node_5.outputs["Y"], node_7.inputs["Value"])
-                material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["Y"])
-            elif(chunk_tag & 0x11 == 0x10):
-                node_7 = material.node_tree.nodes.new("ShaderNodeMath")
-                node_7.operation = 'PINGPONG'
-                node_7.inputs[1].default_value = 1
-                material.node_tree.links.new(node_5.outputs["X"], node_7.inputs["Value"])
-                material.node_tree.links.new(node_7.outputs["Value"], node_6.inputs["X"])
-                material.node_tree.links.new(node_5.outputs["Y"], node_6.inputs["Y"])
-
-        b_tex = bpy.data.images.get(tex_name)
-        if b_tex is None:
-            b_tex = self.texture_image
-        if b_tex is None and self.texture and self.model is not None:
-            b_tex = self.texture.make()
-        
-        image_node = material.node_tree.nodes["Image Texture"]
-        image_node.image = b_tex
-        if self.texture and self.texture.id == MaterialTexture.NO_TEXTURE:
-            # a texture slot without a texture: keep its size and format so export writes it back
-            material['untextured_texture'] = [self.texture.width, self.texture.height, self.texture.format]
-
-        # NOTE: texture-swap animation (self.texture_anim) is not implemented.
-        # The previous stub here referenced a hardcoded local path and undefined
-        # variables and could never run; it was removed. See TexturePose.write,
-        # which is likewise a stub, for the export side of this feature.
-        material.preview_render_type = 'FLAT'
-        return material
-            
+        if uv is None:
+            uv_node = tree.nodes.new("ShaderNodeUVMap")
+            uv_node.location = (-1000, 300)
+            uv = uv_node.outputs["UV"]
+        separate = tree.nodes.new("ShaderNodeSeparateXYZ")
+        separate.location = (-800, 300)
+        combine = tree.nodes.new("ShaderNodeCombineXYZ")
+        combine.location = (-400, 300)
+        tree.links.new(uv, separate.inputs["Vector"])
+        tree.links.new(combine.outputs["Vector"], image_node.inputs["Vector"])
+        for axis in range(2):
+            value = separate.outputs[axis]
+            y = 300 - 150 * axis
+            # a mirrored tile is baked to twice its size, so the offset and clamp range double
+            scale = 2 if mirror[axis] else 1
+            if offsets[axis]:
+                shift = tree.nodes.new("ShaderNodeMath")
+                shift.operation = 'SUBTRACT'
+                shift.inputs[1].default_value = offsets[axis] * scale
+                shift.location = (-650, y)
+                tree.links.new(value, shift.inputs[0])
+                value = shift.outputs[0]
+            if clamp[axis]:
+                limit = tree.nodes.new("ShaderNodeClamp")
+                limit.inputs["Min"].default_value = 0
+                limit.inputs["Max"].default_value = scale
+                limit.location = (-550, y)
+                tree.links.new(value, limit.inputs["Value"])
+                value = limit.outputs[0]
+            if mirror[axis]:
+                pingpong = tree.nodes.new("ShaderNodeMath")
+                pingpong.operation = 'PINGPONG'
+                pingpong.inputs[1].default_value = 1
+                pingpong.location = (-450, y)
+                tree.links.new(value, pingpong.inputs[0])
+                value = pingpong.outputs[0]
+            tree.links.new(value, combine.inputs[axis])
 
     def unmake(self, material):
         material_name: str = ""
