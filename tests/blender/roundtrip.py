@@ -14,6 +14,7 @@ For each model: import it, export it into a scratch copy of the game data, and c
 The game's own files are never written; everything happens in a temp copy.
 """
 import argparse
+import functools
 import importlib
 import importlib.util
 import json
@@ -22,6 +23,7 @@ import shutil
 import struct
 import sys
 import tempfile
+import time
 import traceback
 import unittest
 from collections import Counter
@@ -167,10 +169,12 @@ def triangles(col):
         if obj.type != 'MESH' or not (obj.visible or obj.collidable):
             continue
         visible = drawn(obj)  # selectors only gate rendering; collision is checked regardless
+        material_keys = {}
         evaluated = obj.evaluated_get(depsgraph)
         mesh = evaluated.to_mesh()
         mesh.calc_loop_triangles()
         world = [evaluated.matrix_world @ v.co for v in mesh.vertices]
+        collision = collision_key(obj) if obj.collidable else None
         if any(i >= len(world) for tri in mesh.loop_triangles for i in tri.vertices):
             raise ValueError(f"imported mesh {obj.name} has faces referencing missing vertices (invalid mesh)")
         for tri in mesh.loop_triangles:
@@ -178,9 +182,11 @@ def triangles(col):
                 continue  # degenerate: nothing to draw or hit
             corners = sorted(tuple(world[i]) for i in tri.vertices)
             if obj.visible and visible:
-                tris.append((("visual", material_key(obj, tri.material_index)), corners))
+                if tri.material_index not in material_keys:
+                    material_keys[tri.material_index] = material_key(obj, tri.material_index)
+                tris.append((("visual", material_keys[tri.material_index]), corners))
             if obj.collidable:
-                tris.append((("collision", collision_key(obj)), corners))
+                tris.append((("collision", collision), corners))
         evaluated.to_mesh_clear()
     return tris
 
@@ -262,10 +268,16 @@ def splines(col):
     return sorted(rounded(p, 2) for p in points)
 
 
+def set_frame(frame):
+    # scene.frame_set also evaluates all 24 game view layers, seconds per call on a track; the
+    # snapshot only reads the active one
+    bpy.context.scene.frame_current = frame
+    bpy.context.view_layer.update()
+
+
 def snapshot(col):
     """What the game would see of an imported model: geometry and behaviour, not its node layout."""
-    scene = bpy.context.scene
-    scene.frame_set(0)
+    set_frame(0)
     snap = {
         "triangles": triangles(col),
         "header_slots": header_slots(col),
@@ -274,9 +286,9 @@ def snapshot(col):
         "animation": {},
     }
     for frame in animation_frames(col):
-        scene.frame_set(frame)
+        set_frame(frame)
         snap["animation"][frame] = triangles(col)
-    scene.frame_set(0)
+    set_frame(0)
     return snap
 
 
@@ -381,10 +393,13 @@ class RoundTripTest(unittest.TestCase):
         cls.work = tempfile.mkdtemp(prefix=f"swe1r_rt_{cls.model_id}_")
         cls.trip = RoundTrip(cls.model_id, cls.source_dir, cls.work)
         cls.error = None
+        start = time.time()
         try:
             cls.trip.run()
         except Exception:
             cls.error = traceback.format_exc()
+        # run.py reports this per model when several share a Blender process
+        print(f"SWE1R_MODEL_SECONDS {cls.model_id} {time.time() - start:.1f}", flush=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -514,6 +529,15 @@ def known_issues():
         return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
 
 
+def expected_failure(test):
+    """unittest.expectedFailure on a copy: it flags the function itself, which every model's test
+    class shares, so one model's known issue would apply to all models run in the same process."""
+    @functools.wraps(test)
+    def copy(self):
+        return test(self)
+    return unittest.expectedFailure(copy)
+
+
 def build_suite(model_ids, source_dir):
     model_list = importlib.import_module(f"{PACKAGE}.swe1r.model_list").model_list
     names = {m["index"]: f'{m["extension"]}_{m["name"]}' for m in model_list}
@@ -525,7 +549,7 @@ def build_suite(model_ids, source_dir):
         attrs = {"model_id": model_id, "source_dir": source_dir}
         for test_name in known.get(str(model_id), {}):
             if test_name.startswith("test_"):
-                attrs[test_name] = unittest.expectedFailure(getattr(RoundTripTest, test_name))
+                attrs[test_name] = expected_failure(getattr(RoundTripTest, test_name))
         case = type(f"Model{model_id:03d}_{label}", (RoundTripTest,), attrs)
         suite.addTests(loader.loadTestsFromTestCase(case))
     return suite

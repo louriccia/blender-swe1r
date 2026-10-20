@@ -56,8 +56,8 @@ Set `SWE1R_MODELBLOCK` to the path of the game's `out_modelblock.bin` to also ch
 Before tagging a release, run the round-trip suite. It needs Blender 5.x and a copy of the game:
 
 ```
-python tests/blender/run.py          # smoke set, ~30s
-python tests/blender/run.py --full   # every exportable model
+python tests/blender/run.py          # smoke set, ~20s
+python tests/blender/run.py --full   # every exportable model, ~2-3 min on 8 cores
 python tests/blender/run.py --models 2,109
 ```
 
@@ -68,7 +68,7 @@ For each model it imports from the game's `data/lev01` files and exports into a 
 - the same spline points,
 - the export left every other model, texture and spline byte-identical, and the export settles: after one round-trip, exporting again gives the same size.
 
-Each model runs in its own Blender process, so a Blender crash only fails that model. Logs go to `tests/blender/logs/`. Blender is found from `BLENDER` or the newest `Blender 5.x` under Program Files; the game data from `SWE1R_GAME_DATA` (default: the Steam install's `data/lev01`).
+Small models share a Blender process (`--batch`, default 8; starting Blender takes longer than most models' round-trip), while tracks and known crashers get their own. If a shared process crashes, its models are run again one per process, so a Blender crash still fails only that model. `--jobs` sets how many processes run at once (default: half the CPU threads, at most 8). Logs go to `tests/blender/logs/`. Blender is found from `BLENDER` or the newest `Blender 5.x` under Program Files; the game data from `SWE1R_GAME_DATA` (default: the Steam install's `data/lev01`).
 
 Failures that already exist are listed in `tests/blender/known_issues.json` and run as expected failures, so the suite fails only on regressions. When a fix makes one of them pass, the run fails with `unexpected success` (or `FIXED?` for a known crash) until its entry is removed.
 

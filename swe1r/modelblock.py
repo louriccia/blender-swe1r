@@ -38,6 +38,56 @@ def find_existing_light(objects, color, location, rotation):
                 return light
     return None
 
+def set_hidden(model, obj, hidden, view_layer):
+    """obj.hide_set(hidden, view_layer=view_layer), deferred to the end of Model.make when importing.
+
+    New objects start shown in every view layer, so only hiding needs doing. Hiding right after
+    creating each object makes Blender resync the view layer's object list on every call, which
+    grows with the object count and dominated import time on tracks.
+    """
+    pending = getattr(model, 'pending_hides', None)
+    if pending is not None:
+        if hidden:
+            pending.append((obj, view_layer))
+    elif hidden or obj.hide_get(view_layer = view_layer):
+        obj.hide_set(hidden, view_layer = view_layer)
+
+_children_map = None
+
+def object_children(obj):
+    """obj.children, which scans every object in the file per call; export precomputes it once."""
+    if _children_map is not None:
+        return _children_map.get(obj.as_pointer(), ())
+    return obj.children
+
+def index_children():
+    """Until clear_children_index, object_children uses one parent -> children map built now.
+
+    Only valid while no objects are added, removed or reparented.
+    """
+    global _children_map
+    _children_map = {}
+    for obj in bpy.data.objects:  # same order as Object.children
+        if obj.parent is not None:
+            _children_map.setdefault(obj.parent.as_pointer(), []).append(obj)
+
+def clear_children_index():
+    global _children_map
+    _children_map = None
+
+def object_collections(obj, model = None):
+    """obj.users_collection, which scans every collection's objects per call; cached per export model."""
+    if model is None:
+        return obj.users_collection
+    index = getattr(model, 'collections_index', None)
+    if index is None:
+        index = {}
+        for collection in [*bpy.data.collections, *(scene.collection for scene in bpy.data.scenes)]:
+            for member in collection.objects:
+                index.setdefault(member.as_pointer(), []).append(collection)
+        model.collections_index = index
+    return index.get(obj.as_pointer(), [])
+
 def get_model_type(name):
     for code, model_name, description in model_types:
         if model_name == name:
@@ -526,7 +576,7 @@ class CollisionTags(DataStruct):
             elif val == 2:
                 self.unload |= (1 << (i + 8))
         
-        for child in mesh.children:
+        for child in object_children(mesh):
             trigger = CollisionTrigger(self, self.model).unmake(child)
             if trigger:
                 self.triggers.append(trigger)
@@ -688,6 +738,10 @@ class VisualsVertChunk(DataStruct):
         struct.pack_into(self.format_string, buffer, cursor, *self.co, *self.uv, *self.color.make())
         return cursor + self.size
     
+def vert_key(vert):
+    """A hashable value that is equal for two VisualsVertChunks exactly when they compare equal."""
+    return (tuple(vert.co), tuple(vert.uv), tuple(vert.color.to_array()), getattr(vert, '_hooked', False))
+
 class VisualsVertBuffer():
     def __init__(self, parent, model, length = 0):
         self.parent = parent
@@ -726,17 +780,44 @@ class VisualsVertBuffer():
         #         color_data = d.attributes[d.attributes.default_color_name].data
         for vert in d.vertices:
             self.data.append(VisualsVertChunk(self, self.model))
-            
-        #there's probably a better way to do this but this works for now
-        #https://docs.blender.org/api/current/bpy.types.Mesh.html
 
-        for poly in d.polygons:
-            for loop_index in poly.loop_indices:
-                vert_index = d.loops[loop_index].vertex_index
-                uv = None if not uv_data else uv_data[loop_index].uv
-                color = None if not color_data else color_data[loop_index].color
-                self.data[vert_index].unmake(d.vertices[vert_index].co, uv, color) #mesh.matrix_world @ 
-                
+        # Read everything in bulk; per-element RNA access dominated export time on big meshes.
+        loop_count = len(d.loops)
+        co = [0.0] * (3 * len(d.vertices))
+        d.vertices.foreach_get('co', co)
+        loop_verts = [0] * loop_count
+        d.loops.foreach_get('vertex_index', loop_verts)
+        loop_starts = [0] * len(d.polygons)
+        d.polygons.foreach_get('loop_start', loop_starts)
+        loop_totals = [0] * len(d.polygons)
+        d.polygons.foreach_get('loop_total', loop_totals)
+        uvs = None
+        if uv_data:
+            uvs = [0.0] * (2 * loop_count)
+            uv_data.foreach_get('uv', uvs)
+        colors = None
+        if color_data:
+            colors = [0.0] * (4 * loop_count)
+            color_data.foreach_get('color', colors)
+
+        # Each vertex takes the uv of its first loop (in polygon order) and the color of the last
+        # loop with that same uv, as VisualsVertChunk.unmake does when called once per loop.
+        scale = self.model.scale
+        for start, total in zip(loop_starts, loop_totals):
+            for loop_index in range(start, start + total):
+                vert_index = loop_verts[loop_index]
+                vert = self.data[vert_index]
+                if not vert.unmade:
+                    vert.co = [round(c/scale) for c in co[3*vert_index:3*vert_index + 3]]
+                if uvs is not None:
+                    new_uv = [round(c*4096) for c in uvs[2*loop_index:2*loop_index + 2]]
+                    if vert.unmade and vert.uv != new_uv:
+                        continue
+                    vert.uv = new_uv
+                if colors is not None:
+                    vert.color.unmake(colors[4*loop_index:4*loop_index + 4])
+                vert.unmade = True
+
         self.length = len(self.data)
         return self
     
@@ -1311,7 +1392,7 @@ class MaterialShader(DataStruct):
         mesh = mat.parent
         if mat.parent:
             obj = mesh.original_object
-            for collection in obj.users_collection:
+            for collection in object_collections(obj, self.model):
                 if collection.collection_type == '1':
                     # render modes have to be these exact values to fix small stitching issues
                     if mat.scroll_x or mat.scroll_y:
@@ -1836,7 +1917,7 @@ def get_uv_islands(obj, max_tile_size=16):
         # Start a new island group
         stack = list(seed_faces)
         current_island = []
-        island_uvs = []
+        island_bounds = None  # min_u, max_u, min_v, max_v of the current island's uvs
 
         while stack:
             current_face = stack.pop()
@@ -1855,14 +1936,19 @@ def get_uv_islands(obj, max_tile_size=16):
 
             # UV bound check for island growth
             current_uv_coords = [loop[uv_layer].uv.copy() for loop in current_face.loops]
-            combined_uvs = island_uvs + current_uv_coords
+            face_bounds = get_uv_bounds(current_uv_coords)
+            if island_bounds is not None:
+                combined = (min(island_bounds[0], face_bounds[0]), max(island_bounds[1], face_bounds[1]),
+                            min(island_bounds[2], face_bounds[2]), max(island_bounds[3], face_bounds[3]))
+            else:
+                combined = face_bounds
 
-            if not is_within_bounds(combined_uvs, max_tile_size):
+            if not (combined[1] - combined[0] <= max_tile_size and combined[3] - combined[2] <= max_tile_size):
                 # Commit the current island and start a new one
                 if current_island:
                     islands.append(current_island)
                 current_island = []
-                island_uvs = []
+                combined = face_bounds
 
             # Add the current face data
             face_data = {
@@ -1876,7 +1962,7 @@ def get_uv_islands(obj, max_tile_size=16):
                 ],
             }
             current_island.append(face_data)
-            island_uvs.extend(current_uv_coords)
+            island_bounds = combined
 
             # Traverse adjacent faces (topological neighbors); your comment says "shared UVs"
             # but the original code used edge adjacency, so we keep that behavior.
@@ -2092,7 +2178,7 @@ class Mesh(DataStruct):
             for i in range(24):
                 view_layer = bpy.context.scene.view_layers[i + 1]
                 if 'col_flags' in parent or parent.col_flags:
-                    b_obj.hide_set(not bool(int(parent['col_flags']) & (1 << (i + 8))), view_layer = view_layer)            
+                    set_hidden(self.model, b_obj, not bool(int(parent['col_flags']) & (1 << (i + 8))), view_layer)            
                 
         if self.has_visuals():
             
@@ -2123,16 +2209,16 @@ class Mesh(DataStruct):
             uv_layer = b_obj.data.uv_layers.active.data
             color_layer = b_obj.data.vertex_colors.active.data                
             
-            for poly in mesh.polygons:
-                for p in range(len(poly.vertices)):
-                    v = self.visuals_vert_buffer.data[poly.vertices[p]]
-                    uv_layer[poly.loop_indices[p]].uv = [u/4096 for u in v.uv]
-                    color_layer[poly.loop_indices[p]].color = [a/255 for a in v.color.to_array()]
+            loop_verts = [0] * len(mesh.loops)
+            mesh.loops.foreach_get('vertex_index', loop_verts)
+            vert_data = self.visuals_vert_buffer.data
+            uv_layer.foreach_set('uv', [u/4096 for i in loop_verts for u in vert_data[i].uv])
+            color_layer.foreach_set('color', [a/255 for i in loop_verts for a in vert_data[i].color.to_array()])
                     
             for i in range(24):
                 view_layer = bpy.context.scene.view_layers[i + 1]
                 if 'vis_flags' in parent or parent.vis_flags:
-                    b_obj.hide_set(not bool(int(parent['vis_flags']) & (1 << (i+8))), view_layer = view_layer)
+                    set_hidden(self.model, b_obj, not bool(int(parent['vis_flags']) & (1 << (i+8))), view_layer)
                     
             if self.group_parent_id:
                 vg = b_obj.vertex_groups.get(f'{self.id}')
@@ -2268,39 +2354,47 @@ class Mesh(DataStruct):
             # Each face keeps its own vertex order (winding).
             faces.sort(key=lambda face: [(*vert.to_array(), getattr(vert, '_hooked', False)) for vert in face])
 
-            # reorder faces to maximize shared edges
-            ordered_faces = []
-            ordered_faces.append(faces.pop(0))
-            while len(faces):
-                last_face = ordered_faces[-1]
-                shared = None
-                for f, face in enumerate(faces):
-                    if len([i for i in face if i in last_face]) > 1:
-                        shared = f
-                        break
-                if shared != None:
-                    ordered_faces.append(faces.pop(shared))
-                else:
-                    ordered_faces.append(faces.pop(0))
-                    
-            # relist vertices so indices aren't too far apart    
+            # reorder faces to maximize shared edges: each next face is the first remaining one that
+            # shares two or more verts with the last, else the first remaining one. Verts compare by
+            # value (VisualsVertChunk.__eq__), so index the faces by vert key instead of scanning them all.
+            face_keys = [[vert_key(vert) for vert in face] for face in faces]
+            faces_with_key = {}
+            for f, keys in enumerate(face_keys):
+                for key in keys:
+                    faces_with_key.setdefault(key, []).append(f)
+            remaining = [True] * len(faces)
+            first_remaining = 0
+            order = []
+            current = 0
+            while True:
+                remaining[current] = False
+                order.append(current)
+                while first_remaining < len(faces) and not remaining[first_remaining]:
+                    first_remaining += 1
+                if first_remaining == len(faces):
+                    break
+                last_keys = set(face_keys[current])
+                candidates = sorted({f for key in last_keys for f in faces_with_key[key] if remaining[f]})
+                current = next((f for f in candidates if sum(key in last_keys for key in face_keys[f]) > 1),
+                               first_remaining)
+            ordered_faces = [faces[f] for f in order]
+
+            # relist vertices so indices aren't too far apart
             new_verts = []
             new_faces = []
+            last_index = {}
             for face in ordered_faces:
                 new_face = []
                 for vert in face:
                     current_index = len(new_verts)
-                    index = -1
-                    # find last instance of vert
-                    try:
-                        index = current_index - new_verts[::-1].index(vert) - 1
-                    except ValueError:
-                        index = -1
-
+                    key = vert_key(vert)
+                    # reuse the last instance of vert if it's close enough
+                    index = last_index.get(key, -1)
                     if index > -1 and current_index - index < 60: #FIXME figure out what value this should be
                         new_face.append(index)
-                    else: 
+                    else:
                         new_verts.append(vert)
+                        last_index[key] = current_index
                         new_face.append(current_index)
 
                 new_faces.append(new_face)
@@ -2341,8 +2435,23 @@ class Mesh(DataStruct):
             if len(faces) == 0:
                 return None
 
-            # replace each index with its vert
-            faces = [[verts[i] for i in face] for face in faces]
+            # replace each index with an id shared by equal verts (ShortPosition compares by value),
+            # so the strip search below compares ints
+            vert_ids = {}
+            id_verts = []
+            for vert in verts:
+                key = tuple(vert.data)
+                if key not in vert_ids:
+                    vert_ids[key] = len(id_verts)
+                    id_verts.append(vert)
+            faces = [[vert_ids[tuple(verts[i].data)] for i in face] for face in faces]
+            # the strip search only ever continues onto a face sharing a vert with the last one
+            faces_with_vert = {}
+            for f, face in enumerate(faces):
+                for v in face:
+                    faces_with_vert.setdefault(v, []).append(f)
+            remaining = [True] * len(faces)
+            first_remaining = 0
 
             def unshared_vert(list1, list2):
                 for i, index in enumerate(list1):
@@ -2363,18 +2472,27 @@ class Mesh(DataStruct):
 
                 return edge
 
+            def take_face(f):
+                nonlocal first_remaining
+                remaining[f] = False
+                while first_remaining < len(faces) and not remaining[first_remaining]:
+                    first_remaining += 1
+                return faces[f]
+
             # restrip mesh
             strips = []
             new_verts = []
             strip = []
-            strip.append(faces.pop(0))
+            strip.append(take_face(0))
             strip_verts = []
-            while len(faces):
+            while first_remaining < len(faces):
                 last_face = strip[-1]
                 shared = None
 
-                # search for a suitable adjacent face to continue strip
-                for f, face in enumerate(faces):
+                # search for a suitable adjacent face to continue strip, in face order
+                candidates = sorted({f for v in last_face for f in faces_with_vert[v] if remaining[f]})
+                for f in candidates:
+                    face = faces[f]
                     # ignore faces with less than 2 shared verts
                     if len([i for i in face if i in last_face]) < 2:
                         continue
@@ -2402,7 +2520,7 @@ class Mesh(DataStruct):
                     break
 
                 if shared is not None:
-                    strip.append(faces.pop(shared))
+                    strip.append(take_face(shared))
                 else:
                     if len(strip_verts) == 0:
                         strip_verts.extend(last_face)
@@ -2410,12 +2528,13 @@ class Mesh(DataStruct):
                     new_verts.extend(strip_verts[:])
                     strip_verts = []
                     strip = []
-                    strip.append(faces.pop(0))
+                    strip.append(take_face(first_remaining))
 
             if len(strip):
                 new_verts.extend(strip_verts[:])
                 strips.append(strip)
                 new_verts.extend([s for s in strip[0]])
+            new_verts = [id_verts[v] for v in new_verts]
             
             strip_list = [2+ len(strip) for strip in strips]
             self.collision_vert_buffer.data = new_verts
@@ -2674,7 +2793,7 @@ class Node(DataStruct):
             
         for i in range(24):
             view_layer = bpy.context.scene.view_layers.get(f"VisLayer_{i}")
-            b_node.hide_set(not bool(self.vis_flags & (1 << (i + 8))), view_layer = view_layer)
+            set_hidden(self.model, b_node, not bool(self.vis_flags & (1 << (i + 8))), view_layer)
             
         return b_node
     def unmake(self, node, unmake_children = False):
@@ -3745,7 +3864,7 @@ def get_imported_part_root(immediate_children):
 def children_through_pivot_helpers(obj):
     """obj's children, looking through the pivot helpers import inserts (they are not file nodes)."""
     children = []
-    for child in obj.children:
+    for child in object_children(obj):
         children.extend(children_through_pivot_helpers(child) if child.get('pivot_helper') else [child])
     return children
 
@@ -3778,7 +3897,7 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
     # through them transparently so the helper's children attach to the file parent.
     if obj.get('pivot_helper'):
         children = []
-        for child in obj.children:
+        for child in object_children(obj):
             children.extend(deep_unmake(child, parent, model, target_map, skybox))
         return children
 
@@ -3809,7 +3928,7 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
             mesh = Mesh(empty, model).unmake(obj)
             empty_children.append(mesh)
 
-        for child in obj.children:
+        for child in object_children(obj):
             empty_children = empty_children + deep_unmake(child, empty, model, target_map)
         assign_objs_to_node_by_type(empty_children, empty, model)
         children.append(empty)
@@ -3819,7 +3938,7 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
     elif obj.type == 'MESH':
         children.append(Mesh(parent, model).unmake(obj))
     
-    for child in obj.children:
+    for child in object_children(obj):
         children.extend(deep_unmake(child, parent, model, target_map))
             
     return children
@@ -3833,9 +3952,22 @@ def get_all_objects_in_collection(collection):
 
 def split_meshes_by_material(collection):
     bpy.ops.object.select_all(action='DESELECT')
-    
-    deep_select_objects(collection)
-    
+
+    # only meshes with faces on more than one material need splitting; entering Edit mode on
+    # every mesh of a track takes most of a second
+    to_split = []
+    for obj in get_all_objects_in_collection(collection):
+        if obj.type == 'MESH' and len(obj.data.polygons):
+            indices = [0] * len(obj.data.polygons)
+            obj.data.polygons.foreach_get('material_index', indices)
+            if len(set(indices)) > 1:
+                to_split.append(obj)
+    if not to_split:
+        return
+    for obj in to_split:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = to_split[0]
+
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.separate(type='MATERIAL')
     bpy.ops.object.mode_set(mode='OBJECT')
@@ -3984,9 +4116,17 @@ class Model():
         if self.alt_model:
             self.alt_model.collection = collection
         
+        self.pending_hides = []
+        if self.alt_model:
+            self.alt_model.pending_hides = self.pending_hides
         for node in self.nodes:
             self.modelblock.update_progress(f"Making node {node.id}")
             node.make(None, collection)
+        for obj, view_layer in self.pending_hides:
+            obj.hide_set(True, view_layer = view_layer)
+        self.pending_hides = None
+        if self.alt_model:
+            self.alt_model.pending_hides = None
 
         # update trigger targets
         for trigger in self.triggers:
@@ -4010,6 +4150,12 @@ class Model():
         return collection
 
     def unmake(self, collection, texture_export, textureblock):
+        try:
+            return self._unmake(collection, texture_export, textureblock)
+        finally:
+            clear_children_index()
+
+    def _unmake(self, collection, texture_export, textureblock):
         self.textureblock = textureblock
         self.image_map = {}
         self.type = collection.export_type
@@ -4056,14 +4202,19 @@ class Model():
             bpy.context.window.view_layer = working_layer
         for obj in get_all_objects_in_collection(collection):
             if obj.type == 'MESH':
-                obj.hide_viewport = False
-                obj.hide_select = False
+                # only write what changes: each hide_viewport/hide_select write costs ~1ms
+                if obj.hide_viewport:
+                    obj.hide_viewport = False
+                if obj.hide_select:
+                    obj.hide_select = False
                 obj.hide_set(False, view_layer=working_layer)
 
         split_meshes_by_material(collection)
         apply_scale(collection)
         objects = get_all_objects_in_collection(collection)
         triangulate_mesh(objects)
+        # the hierarchy is fixed from here on: walk it with one children map, not obj.children
+        index_children()
         
         # check for too many faces
         for obj in objects:
@@ -4132,7 +4283,7 @@ class Model():
                 root.header = [0]
                 if imported_root.name in target_map.keys():
                     target_map[imported_root.name] = root
-                immediate_children = imported_root.children
+                immediate_children = list(object_children(imported_root))
             for obj in immediate_children:
                 unmade.extend(deep_unmake(obj, root, self, target_map))
             assign_objs_to_node_by_type(unmade, root, self)
