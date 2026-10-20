@@ -96,35 +96,8 @@
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
-  "55": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "56": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "57": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "58": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "59": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "61": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "63": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "64": {
     "test_round_trip_completes": "stock import fails: texture pixels index past the palette (textureblock.py Texture.make)"
-  },
-  "65": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "66": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "77": {
     "test_reexport_does_not_keep_growing": "not accumulation: size wanders between exports from vertex packing (9260, 9456, 9556, 9648, 9184 bytes over 5 exports), so 3 rising samples are a false positive"
@@ -193,19 +166,6 @@
   "144": {
     "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
   },
-  "145": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "148": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "152": {
-    "test_animation_preserved": "export gives untextured visual triangles a 1x1 texture with flip/clip flags (159 triangles); was hidden while import produced an invalid mesh",
-    "test_geometry_preserved": "export gives untextured visual triangles a 1x1 texture with flip/clip flags (159 triangles); was hidden while import produced an invalid mesh",
-    "test_reexport_does_not_keep_growing": "size creeps up across exports (229900, 230156, 230232 bytes); not yet triaged, was hidden while import produced an invalid mesh"
-  },
   "156": {
     "test_header_slots_preserved": "slots 5, 19, 33, 47, 61, 75 point at nodes import doesn't create objects for, so export can't write them back"
   },
@@ -216,10 +176,6 @@
     "test_round_trip_completes": "stock import fails: texture pixels index past the palette (textureblock.py Texture.make)"
   },
   "228": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "231": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "269": {

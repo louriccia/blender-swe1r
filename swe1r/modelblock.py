@@ -1043,6 +1043,8 @@ class MaterialTextureChunk(DataStruct):
         return [self.unk0, self.unk1, self.unk2, self.unk3, self.unk4, self.unk5]
     
 class MaterialTexture(DataStruct):
+    NO_TEXTURE = 65535  # low half of the stock "no texture" word 0x0AFFFFFF
+
     def __init__(self, parent, model):
         super().__init__('>I2H4x8H6I4xHH4x')
 
@@ -1083,7 +1085,7 @@ class MaterialTexture(DataStruct):
         return [self.unk0, 0, 0, self.format, self.unk4, self.width, self.height, 0, 0, self.unk7, self.unk8, *[0,0,0,0,0,0], self.unk9, self.id]
 
     def make(self):
-        if self.id == 65535:
+        if self.id == MaterialTexture.NO_TEXTURE:
             return
         textureblock = self.model.modelblock.textureblock
         self.texture = Texture(self.id, self.format, self.width, self.height)
@@ -1091,9 +1093,17 @@ class MaterialTexture(DataStruct):
         self.texture.read(pixel_buffer, palette_buffer)
         return self.texture.make()
 
-    def unmake(self, image):
+    def unmake(self, image, untextured = None):
         if image is None:
-            print('image is None')
+            # A texture slot with no texture (an empty image node): write the game's "no texture"
+            # index rather than texture 0. The file stores the index as 0x0A000000 | index and
+            # stock untextured slots hold 0x0AFFFFFF, i.e. index -1 (SW_RACER_RE src/types.h
+            # swrModel_MaterialTexture, src/Swr/swrModel.c texture index patch-up).
+            self.id = MaterialTexture.NO_TEXTURE
+            self.unk9 = 0x0AFF
+            if untextured:
+                self.width, self.height, self.format = (int(v) for v in untextured)
+            self.chunks.append(MaterialTextureChunk(self, self.model).unmake(self)) #this struct is required
             return self
 
         if 'id' in image:
@@ -1549,6 +1559,9 @@ class Material(DataStruct):
         
         image_node = material.node_tree.nodes["Image Texture"]
         image_node.image = b_tex
+        if self.texture and self.texture.id == MaterialTexture.NO_TEXTURE:
+            # a texture slot without a texture: keep its size and format so export writes it back
+            material['untextured_texture'] = [self.texture.width, self.texture.height, self.texture.format]
 
         # NOTE: texture-swap animation (self.texture_anim) is not implemented.
         # The previous stub here referenced a hardcoded local path and undefined
@@ -1579,7 +1592,7 @@ class Material(DataStruct):
             # if material.node_tree:
             for node in material.node_tree.nodes:
                 if node.type == 'TEX_IMAGE':
-                    self.texture = MaterialTexture(self, self.model).unmake(node.image)
+                    self.texture = MaterialTexture(self, self.model).unmake(node.image, material.get('untextured_texture'))
                     self.texture_image = node.image
 
             if hasattr(material, 'id') and material['id']:
