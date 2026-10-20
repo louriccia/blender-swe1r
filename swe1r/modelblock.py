@@ -2476,6 +2476,9 @@ class Node(DataStruct):
         self.header = []
         if len(header):
             self.header.extend(header)
+        # header slots this node held in the imported file; Model.resolve_header_slots
+        # writes them back unless an export template already fills the slot
+        self.imported_header = []
         self.node_type = type
         self.vis_flags = 0xFF
         self.col_flags = 0xFF
@@ -2635,8 +2638,8 @@ class Node(DataStruct):
             self.mirror_flags = node['mirror_flags']
         elif 'unk2' in node:
             self.mirror_flags = int(node['unk2'])
-        # if 'header' in node:
-        #     self.header = node['header']
+        if 'header' in node:
+            self.imported_header = [int(slot) for slot in node['header']]
         
         if self.model.type == '7' and 2 in self.header:
             self.skybox = True
@@ -2918,7 +2921,9 @@ class Group20580(Node):
     def make(self, parent = None, collection = None):
         return super().make(parent, collection)
     def unmake(self, node):
-        return super().unmake(node)
+        super().unmake(node)
+        self.node_type = 20580  # Node.unmake defaults empties to 53349
+        return self
     def write(self, buffer, cursor):
         cursor = super().write(buffer, cursor)
         child_data_start = cursor - 8
@@ -2940,6 +2945,7 @@ class Group20581(Node):
         return empty
     def unmake(self, node):
         super().unmake(node)
+        self.node_type = 20581
         self.selected_child = node.get('selected_child', 0)
         return self
     def write(self, buffer, cursor):
@@ -2965,6 +2971,7 @@ class Group20582(Node):
         return empty
     def unmake(self, node):
         super().unmake(node)
+        self.node_type = 20582
         self.floats = node['floats']
         return self
     def write(self, buffer, cursor):
@@ -3683,9 +3690,19 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
 
     children = []
 
-    if (obj.get('node_type') == 53349) or (obj.get('node_type') == 53350 and not skybox)  or obj.animation_data or obj.name in target_map.keys(): # cases in which we need to retain hierarchy
+    # The game reads header slots as typed nodes (e.g. a puppet's slot 0 as a transform,
+    # SW_RACER_RE swrRace_GetEngineNodeOffsetPos), so a node that held a slot must survive export.
+    holds_header_slot = obj.type == 'EMPTY' and bool(obj.get('header'))
+    # Selectors draw only their selected child and LOD selectors one child by distance
+    # (SW_RACER_RE src/types.h); flattening them would draw every child.
+    is_selector = obj.type == 'EMPTY' and obj.get('node_type') in (20581, 20582)
+    if (obj.get('node_type') == 53349) or (obj.get('node_type') == 53350 and not skybox)  or obj.animation_data or obj.name in target_map.keys() or holds_header_slot or is_selector: # cases in which we need to retain hierarchy
         if obj.get('node_type') == 53350 and not skybox:
             empty = Group53350(parent, model, 53350).unmake(obj)
+        elif obj.get('node_type') in (20580, 20581, 20582):
+            # keep group/selector/LOD nodes as themselves rather than as a transform; they have
+            # no transform of their own for an animation to drive
+            empty = create_node(obj['node_type'], parent, model).unmake(obj)
         else:
             empty = NodeTransformedWithPivot(parent, model, 53349).unmake(obj)
 
@@ -4176,6 +4193,7 @@ class Model():
         root.vis_flags = 0xFFFFFFFF
         root.col_flags = 0xFFFFFFFF
         self.nodes.append(root)
+        self.resolve_header_slots()
                 
         #update trigger targets
         for trigger in self.triggers:
@@ -4185,6 +4203,22 @@ class Model():
         self.header.unmake(collection)
             
         return self
+
+    def resolve_header_slots(self):
+        """Give imported nodes back the header slots they held, where no export template claims the slot."""
+        nodes = []
+        stack = list(self.nodes)
+        while stack:
+            node = stack.pop()
+            if isinstance(node, Node):
+                nodes.append(node)
+                stack.extend(child for child in node.children if child is not None)
+        claimed = {slot for node in nodes for slot in node.header}
+        for node in nodes:
+            for slot in node.imported_header:
+                if slot not in claimed:
+                    node.header.append(slot)
+                    claimed.add(slot)
 
     def write(self):
         buffer = bytearray(8000000)

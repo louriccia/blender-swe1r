@@ -2,100 +2,99 @@
   "_about": "Round-trip failures that exist on main today. Listed tests run as expected failures, so the suite gates on regressions; when a fix makes one pass, the run fails with 'unexpected success' until its entry is removed here. 'crash' marks a model whose run is known to crash Blender.",
   "1": {
     "test_animation_preserved": "animated geometry differs at sampled frames",
-    "test_geometry_preserved": "3 visual triangles lost",
-    "test_header_slots_preserved": "slot 4 lost; track export only writes template slots 0-2"
+    "test_geometry_preserved": "3 visual triangles lost"
   },
   "2": {
     "test_geometry_preserved": "Podd export only understands the authoring template (engine/cockpit/cable child collections); a stock pod exports as an empty skeleton",
-    "test_header_slots_preserved": "Podd export writes the template's slots, not the stock pod's"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "4": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "6": {
     "test_geometry_preserved": "Podd export only understands the authoring template; a stock pod exports as an empty skeleton",
-    "test_header_slots_preserved": "Podd export writes the template's slots, not the stock pod's"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "8": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "9": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "12": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "14": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "16": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "17": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "20": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "22": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "24": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "26": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "28": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "30": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "32": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "34": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "36": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "38": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "40": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "42": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "44": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "46": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "47": {
     "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (~100 bytes)"
@@ -207,101 +206,19 @@
   },
   "86": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "87": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "88": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "89": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "90": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "91": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "92": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "93": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "94": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "95": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "96": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "97": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "98": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "99": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "100": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "101": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "102": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "103": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "104": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "105": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "106": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "107": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "108": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "109": {
-    "test_header_slots_preserved": "all slots (incl. root slot 0) come out empty: Node.unmake doesn't carry imported header slots onto exported nodes (modelblock.py, commented-out 'header' line); only template slots get written"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "110": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "111": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "112": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "113": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "114": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "115": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "119": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
@@ -327,122 +244,82 @@
   "128": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "129": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_splines_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
-  "130": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "131": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "132": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "133": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "134": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "135": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "136": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "137": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "138": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "139": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "140": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "141": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "142": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "143": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "144": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "145": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "146": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "147": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "148": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "149": {
     "test_round_trip_completes": "import creates a mesh whose faces reference missing vertices; Blender crashes entering Edit mode on it during export"
   },
-  "150": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "151": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "152": {
     "test_round_trip_completes": "import creates a mesh whose faces reference missing vertices; Blender crashes entering Edit mode on it during export"
-  },
-  "153": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "154": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
-  "155": {
-    "test_header_slots_preserved": "root slot 0 comes out empty: Node.unmake doesn't carry imported header slots onto exported nodes (modelblock.py, commented-out 'header' line); only template slots get written"
-  },
   "156": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "slots 5, 19, 33, 47, 61, 75 point at nodes import doesn't create objects for, so export can't write them back"
   },
   "157": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
@@ -497,14 +374,6 @@
   },
   "174": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
-  },
-  "175": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "176": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "export flattens selector nodes, so every child renders instead of only the selected one",
-    "test_animation_preserved": "export flattens selector nodes, so every child renders instead of only the selected one"
   },
   "177": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
@@ -565,11 +434,6 @@
   },
   "196": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
-  },
-  "197": {
-    "test_header_slots_preserved": "root slot 0 comes out empty: Node.unmake doesn't carry imported header slots onto exported nodes (modelblock.py, commented-out 'header' line); only template slots get written",
-    "test_geometry_preserved": "export flattens selector nodes, so every child renders instead of only the selected one",
-    "test_animation_preserved": "export flattens selector nodes, so every child renders instead of only the selected one"
   },
   "198": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
@@ -673,14 +537,7 @@
   },
   "231": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "232": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "233": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "234": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
@@ -709,21 +566,6 @@
   "243": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
-  "244": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "245": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "246": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "247": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "248": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "249": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
@@ -740,98 +582,75 @@
     "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "255": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "256": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "257": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "258": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "259": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "260": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "261": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "262": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "263": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "264": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "265": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "266": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "267": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "268": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "269": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "270": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "271": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "272": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "273": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "274": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "275": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "276": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "277": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "278": {
@@ -843,49 +662,12 @@
   "280": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
-  "281": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "282": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "283": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "284": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "285": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "286": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "287": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "288": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "289": {
     "test_round_trip_completes": "import creates a mesh whose faces reference missing vertices; Blender crashes entering Edit mode on it during export"
   },
-  "290": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "291": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "292": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "293": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "294": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "295": {
     "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
@@ -893,31 +675,20 @@
   "296": {
     "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
-  "297": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "299": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "301": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
   },
   "302": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
   "303": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged",
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
-  },
-  "304": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "305": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "306": {
     "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
@@ -943,16 +714,9 @@
   "313": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
   },
-  "314": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "315": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "316": {
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "317": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
@@ -961,8 +725,7 @@
     "test_reexport_does_not_keep_growing": "each Part export wraps the model in one more node (as for other Parts on main); hidden on main because the location animation was dropped, which shrank the export"
   },
   "319": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_header_slots_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_animation_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "320": {
     "test_reexport_does_not_keep_growing": "recorded 2026-10-20, not yet triaged"
