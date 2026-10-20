@@ -2600,7 +2600,7 @@ class Node(DataStruct):
         
         #write references to this node in the model header
         for i in self.header:
-            struct.pack_into(f">{len(self.header)}I", buffer, 4 + 4*i, *[cursor]*len(self.header))
+            struct.pack_into(">I", buffer, 4 + 4*i, cursor)
              
         struct.pack_into(self.format_string, buffer, cursor, self.node_type, self.vis_flags, self.col_flags, self.transform_flags, self.light_index, self.mirror_flags, 0, 0)
         return cursor + self.size
@@ -3356,6 +3356,7 @@ class ModelHeader():
         self.offsets = []
         self.AltN = []
         self.model = model
+        self.size = None
 
     def read(self, buffer, cursor):
         type = readString(buffer, cursor)
@@ -3412,6 +3413,12 @@ class ModelHeader():
     def unmake(self, collection):
         self.model.id = collection.export_model
         self.model.type = collection.export_type
+        # Header slot count varies within a type (e.g. pod-part Parts have 5
+        # slots, other Parts 2), and the game indexes into it, so preserve the
+        # length read on import. Fall back to the per-type default otherwise.
+        imported_header = collection.get('header')
+        if imported_header is not None and len(imported_header):
+            self.size = len(imported_header)
         if self.model.type == "7":
             self.model.Data = ModelData(self, self.model).unmake()
         self.model.Anim = AnimList(self, self.model).unmake()
@@ -3419,7 +3426,8 @@ class ModelHeader():
     def write(self, buffer, cursor):
         cursor = writeString(buffer,  model_types[int(self.model.type)][1], cursor)
 
-        for header_value in range(header_sizes[int(self.model.type)]):
+        size = self.size if self.size is not None else header_sizes[int(self.model.type)]
+        for header_value in range(size):
             self.model.highlight(cursor)
             cursor += 4  # writeInt32BE(buffer, header_value, cursor)
 
