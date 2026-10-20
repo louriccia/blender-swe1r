@@ -130,9 +130,11 @@ def set_material_blend(material, blend):
 RM_ZMODE_MASK = 0xC00
 RM_ZMODE_XLU = 0x800
 RM_CYCLE1_MASK = 0xCCCC0000
-# the stock opaque and translucent surfaces, by far the most common pairs in the game's own models
+# the stock opaque surface (by far the most common pair in the game's own models) and the stock
+# translucent surface
 RM_OPAQUE = (0xC8000000, 0x00112078)        # AA, z compare + update, IN*A + MEM*A_MEM
-RM_TRANSLUCENT = (0xC8000000, 0x00104979)   # z compare, ZMODE_XLU, IN*A + MEM*(1-A)
+RM_TRANSLUCENT = (0xC8000000, 0x001049D8)   # z compare, ZMODE_XLU, IN*A + MEM*(1-A); no alpha compare,
+                                            # which the renderer treats as a cutout instead
 # old add-on exports wrote these; the replacement renderer aborts on them (rm2 = 0 selects a
 # cycle-2 blender it has no mode for, n64_shader.cpp set_render_mode)
 RM_LEGACY_DEFAULTS = ((0x18, 0), (0x818, 0))
@@ -1465,7 +1467,7 @@ class MaterialShader(DataStruct):
                 self.render_mode_1, self.render_mode_2 = RM_TRANSLUCENT if self.render_mode_1 & RM_ZMODE_XLU else RM_OPAQUE
 
             # Only rewrite the render mode when the Transparent toggle disagrees with it, so an
-            # untouched material exports exactly as imported. 0x8 in unk1 goes with the stock
+            # untouched material exports exactly as imported. 0x8 in unk1 goes with stock
             # translucent mode.
             translucent = render_mode_is_translucent(self.render_mode_1 | self.render_mode_2)
             if material.transparent and not translucent:
