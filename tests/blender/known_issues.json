@@ -110,16 +110,11 @@
   },
   "128": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "129": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "132": {
-    "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "133": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
@@ -127,13 +122,11 @@
   },
   "134": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "135": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
+    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "136": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
@@ -154,12 +147,6 @@
   "141": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "143": {
-    "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "144": {
-    "test_splines_preserved": "recorded 2026-10-20, not yet triaged"
   },
   "156": {
     "test_header_slots_preserved": "slots 5, 19, 33, 47, 61, 75 point at nodes import doesn't create objects for, so export can't write them back"
