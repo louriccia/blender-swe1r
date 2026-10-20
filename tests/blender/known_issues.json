@@ -2,7 +2,8 @@
   "_about": "Round-trip failures that exist on main today. Listed tests run as expected failures, so the suite gates on regressions; when a fix makes one pass, the run fails with 'unexpected success' until its entry is removed here. 'crash' marks a model whose run is known to crash Blender.",
   "1": {
     "test_animation_preserved": "animated geometry differs at sampled frames",
-    "test_geometry_preserved": "3 visual triangles lost"
+    "test_geometry_preserved": "3 visual triangles lost",
+    "test_reexport_is_stable": "settles one round-trip later (587184, 587012, 587020, then 587020): export drops a few triangles and a mesh on the first two round-trips, the same loss as its geometry issue"
   },
   "2": {
     "test_geometry_preserved": "Podd export only understands the authoring template (engine/cockpit/cable child collections); a stock pod exports as an empty skeleton",
@@ -99,9 +100,6 @@
   "64": {
     "test_round_trip_completes": "stock import fails: texture pixels index past the palette (textureblock.py Texture.make)"
   },
-  "77": {
-    "test_reexport_does_not_keep_growing": "not accumulation: size wanders between exports from vertex packing (9260, 9456, 9556, 9648, 9184 bytes over 5 exports), so 3 rising samples are a false positive"
-  },
   "98": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
@@ -109,9 +107,6 @@
   "110": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "119": {
-    "test_reexport_does_not_keep_growing": "not accumulation: size wanders between exports from vertex packing (9260, 9456, 9556, 9648, 9184 bytes over 5 exports), so 3 rising samples are a false positive"
   },
   "128": {
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",

@@ -2262,6 +2262,12 @@ class Mesh(DataStruct):
             #TODO: Automatically split meshes?
             assert len(faces) <= 2048, f"Max faces reached in {node.name} {len(new_faces)}/2048"
             
+            # Seed the chaining below from an order that depends only on the triangles' data, not
+            # on Blender's face/vertex order: that order changes on every re-import, so the vertex
+            # packing (and the exported size) would otherwise wander from one export to the next.
+            # Each face keeps its own vertex order (winding).
+            faces.sort(key=lambda face: [(*vert.to_array(), getattr(vert, '_hooked', False)) for vert in face])
+
             # reorder faces to maximize shared edges
             ordered_faces = []
             ordered_faces.append(faces.pop(0))

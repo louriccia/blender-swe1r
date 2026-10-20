@@ -9,7 +9,7 @@ For each model: import it, export it into a scratch copy of the game data, and c
   - re-importing the export behaves the same in game: the same visual and collision triangles in world
     space (however they are grouped into meshes and nodes), the same materials and surface flags, the same
     animated motion, the same nodes behind each header slot, the same spline,
-  - repeated export/import settles instead of growing the model every time,
+  - repeated export/import settles: after one round-trip, exporting again gives the same size,
   - every exported display list loads vertices the way the game's renderer requires.
 The game's own files are never written; everything happens in a temp copy.
 """
@@ -474,6 +474,13 @@ class RoundTripTest(unittest.TestCase):
         sizes = [sum(map(len, read_block(folder + "out_modelblock.bin", 2).data[self.model_id]))
                  for folder in (trip.first, trip.second, trip.third)]
         self.assertFalse(sizes[0] < sizes[1] < sizes[2], f"model grows on every export: {sizes} bytes")
+
+    def test_reexport_is_stable(self):
+        """After one round-trip the export has settled: exporting the re-import again gives the same size."""
+        trip = self.trip
+        sizes = [sum(map(len, read_block(folder + "out_modelblock.bin", 2).data[self.model_id]))
+                 for folder in (trip.first, trip.second, trip.third)]
+        self.assertEqual(sizes[1], sizes[2], f"export size still changing after a round-trip: {sizes} bytes")
 
 
 class ImmediateResult(unittest.TextTestResult):
