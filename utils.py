@@ -470,6 +470,10 @@ def show_custom_popup(context, title, message):
         layout = self.layout
         layout.label(text=message)
 
+    # popup_menu crashes Blender when there is no window (--background test runs)
+    if bpy.app.background or bpy.context.window is None:
+        print(f"{title}: {message}")
+        return
     bpy.context.window_manager.popup_menu(draw, title=title, icon='INFO')
     
 def reselect_obj(obj):

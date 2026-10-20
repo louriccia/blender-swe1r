@@ -3855,7 +3855,8 @@ class Model():
         # first; the exported vis/col flags are unaffected. The operator restores
         # the user's convenience visibility afterward.
         working_layer = bpy.context.scene.view_layers[0]
-        bpy.context.window.view_layer = working_layer
+        if bpy.context.window:
+            bpy.context.window.view_layer = working_layer
         for obj in get_all_objects_in_collection(collection):
             if obj.type == 'MESH':
                 obj.hide_viewport = False

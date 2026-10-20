@@ -1,0 +1,466 @@
+"""Headless Blender round-trip tests against the game's real .bin files.
+
+Run inside Blender (see tests/blender/run.py, which finds Blender and sets this up):
+
+    blender --background --factory-startup --python tests/blender/roundtrip.py -- [--full] [--models 2,109]
+
+For each model: import it, export it into a scratch copy of the game data, and check that
+  - the export doesn't touch any other asset in the blocks,
+  - re-importing the export behaves the same in game: the same visual and collision triangles in world
+    space (however they are grouped into meshes and nodes), the same materials and surface flags, the same
+    animated motion, the same nodes behind each header slot, the same spline,
+  - exporting that re-import doesn't grow the model.
+The game's own files are never written; everything happens in a temp copy.
+"""
+import argparse
+import importlib
+import importlib.util
+import json
+import os
+import shutil
+import sys
+import tempfile
+import traceback
+import unittest
+from collections import Counter
+from itertools import permutations
+
+import bpy
+
+ADDON_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PACKAGE = "swe1r_addon"
+DEFAULT_GAME_DATA = r"C:\Program Files (x86)\Steam\steamapps\common\Star Wars Episode I Racer\data\lev01"
+BLOCK_FILES = ["out_modelblock.bin", "out_textureblock.bin", "out_splineblock.bin"]
+
+# One or two of each exportable type, picked for coverage: deep node hierarchies with pivots
+# (Pit Droid, Opee Sea Killer), Podd + MAlt merging, a track with a spline, animated scenery.
+SMOKE_MODELS = [
+    2,    # Podd  Anakin Skywalker
+    6,    # Podd  Sebulba
+    109,  # Pupp  Pit Droid
+    155,  # Pupp  Opee Sea Killer
+    1,    # Trak  The Boonta Classic (+ spline 10)
+    47,   # Part  Sentry
+    197,  # Modl  Flag
+    149,  # Scen  Jabba's Spectator Booth
+]
+
+
+def load_addon():
+    if PACKAGE in sys.modules:
+        return sys.modules[PACKAGE]
+    spec = importlib.util.spec_from_file_location(
+        PACKAGE, os.path.join(ADDON_DIR, "__init__.py"), submodule_search_locations=[ADDON_DIR])
+    package = importlib.util.module_from_spec(spec)
+    sys.modules[PACKAGE] = package
+    spec.loader.exec_module(package)
+    package.register()
+    return package
+
+
+def game_data_dir():
+    path = os.environ.get("SWE1R_GAME_DATA", DEFAULT_GAME_DATA)
+    for f in BLOCK_FILES:
+        if not (os.path.exists(os.path.join(path, f + ".bak")) or os.path.exists(os.path.join(path, f))):
+            return None
+    return path
+
+
+def copy_game_data(src, dst):
+    for f in BLOCK_FILES:
+        # prefer the add-on's pristine backup in case the live file has been modded
+        original = os.path.join(src, f + ".bak")
+        shutil.copy(original if os.path.exists(original) else os.path.join(src, f), os.path.join(dst, f))
+
+
+def no_progress(*args, **kwargs):
+    pass
+
+
+def clear_scene():
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+
+def model_collection(model_id):
+    for col in bpy.context.scene.collection.children:
+        if col.get("header") is not None and str(col.export_model) == str(model_id):
+            return col
+    raise AssertionError(f"import created no collection for model {model_id}")
+
+
+def read_block(path, items_per_asset):
+    block_module = importlib.import_module(f"{PACKAGE}.swe1r.block")
+    return block_module.Block(path, items_per_asset).read()
+
+
+def all_objects(col):
+    objs = list(col.objects)
+    for child in col.children:
+        objs += all_objects(child)
+    return objs
+
+
+TOLERANCE = 0.02  # Blender units, i.e. 2 game units: positions are int16 game units imported at scale 0.01
+ANIMATION_SAMPLES = 4
+SURFACE_FLAGS = None  # filled from the add-on's SurfaceEnum on first use
+
+
+def rounded(values, digits=3):
+    return tuple(round(v, digits) + 0.0 for v in values)  # + 0.0 folds -0.0 into 0.0
+
+
+def material_key(obj, index):
+    """What the game draws a visual triangle with: texture size and the material's render settings."""
+    if index >= len(obj.material_slots) or not obj.material_slots[index].material:
+        return None
+    mat = obj.material_slots[index].material
+    size = None
+    if mat.node_tree:
+        size = next((tuple(n.image.size) for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image), None)
+    return (size, rounded((mat.scroll_x, mat.scroll_y)), mat.flip_x, mat.flip_y, mat.clip_x, mat.clip_y, mat.transparent)
+
+
+def collision_key(obj):
+    """What the game does when a pod touches a collision triangle."""
+    global SURFACE_FLAGS
+    if SURFACE_FLAGS is None:
+        surface_enum = importlib.import_module(f"{PACKAGE}.swe1r.modelblock").SurfaceEnum
+        SURFACE_FLAGS = sorted(f for f in dir(surface_enum) if not f.startswith("__"))
+    return (tuple(f for f in SURFACE_FLAGS if getattr(obj, f)), obj.magnet, obj.strict_spline, obj.elevation,
+            obj.trigger_id, obj.trigger_settings)
+
+
+def triangles(col):
+    """Every triangle the game would draw or collide with, in world space, keyed by how it behaves.
+
+    Grouping into meshes and nodes is the add-on's choice and may change on export; the triangles
+    and what they do are what the game sees.
+    """
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    tris = []
+    for obj in all_objects(col):
+        if obj.type != 'MESH' or not (obj.visible or obj.collidable):
+            continue
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        mesh.calc_loop_triangles()
+        world = [evaluated.matrix_world @ v.co for v in mesh.vertices]
+        if any(i >= len(world) for tri in mesh.loop_triangles for i in tri.vertices):
+            raise ValueError(f"imported mesh {obj.name} has faces referencing missing vertices (invalid mesh)")
+        for tri in mesh.loop_triangles:
+            if tri.area * obj.matrix_world.median_scale ** 2 < 1e-10:
+                continue  # degenerate: nothing to draw or hit
+            corners = sorted(tuple(world[i]) for i in tri.vertices)
+            if obj.visible:
+                tris.append((("visual", material_key(obj, tri.material_index)), corners))
+            if obj.collidable:
+                tris.append((("collision", collision_key(obj)), corners))
+        evaluated.to_mesh_clear()
+    return tris
+
+
+def same_corners(a, b, tol):
+    # corners are sorted, but near-equal coordinates can sort either way, so try every pairing
+    return any(all(abs(x - y) <= tol for p, q in zip(a, perm) for x, y in zip(p, q))
+               for perm in permutations(b))
+
+
+def match_triangles(before, after, tol=TOLERANCE):
+    """Pairs up triangles with the same behaviour whose corners are all within tol; returns the leftovers."""
+    def cell(corners):
+        return tuple(int(sum(c[i] for c in corners) / 3 // tol) for i in range(3))
+
+    grid = {}
+    for key, corners in after:
+        grid.setdefault((key, cell(corners)), []).append(corners)
+    lost = []
+    for key, corners in before:
+        cx, cy, cz = cell(corners)
+        found = False
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    bucket = grid.get((key, (cx + dx, cy + dy, cz + dz)))
+                    if not bucket:
+                        continue
+                    for i, other in enumerate(bucket):
+                        if same_corners(corners, other, tol):
+                            bucket.pop(i)
+                            found = True
+                            break
+                    if found:
+                        break
+                if found:
+                    break
+            if found:
+                break
+        if not found:
+            lost.append((key, corners))
+    gained = [(key, c) for (key, _), bucket in grid.items() for c in bucket]
+    return lost, gained
+
+
+def animation_frames(col):
+    ranges = [obj.animation_data.action.frame_range for obj in all_objects(col)
+              if obj.animation_data and obj.animation_data.action]
+    if not ranges:
+        return []
+    start, end = min(r[0] for r in ranges), max(r[1] for r in ranges)
+    if end <= start:
+        return []
+    return sorted({round(start + (end - start) * i / (ANIMATION_SAMPLES - 1)) for i in range(ANIMATION_SAMPLES)})
+
+
+def header_slots(col):
+    """The game looks nodes up by header slot (slot 0 is the model root).
+
+    Returns the populated slots, and the world transform of the node behind each slot that import
+    turned into an object.
+    """
+    populated = [i for i, offset in enumerate(col["header"]) if offset]
+    transforms = {}
+    for obj in all_objects(col):
+        for slot in obj.get("header", []):
+            m = obj.matrix_world
+            transforms[slot] = [m[r][c] for r in range(3) for c in range(4)]
+    return populated, transforms
+
+
+def splines(col):
+    points = []
+    for obj in all_objects(col):
+        if obj.type == 'CURVE':
+            for spline in obj.data.splines:
+                points += [tuple(obj.matrix_world @ p.co) for p in spline.bezier_points]
+                points += [tuple(obj.matrix_world @ p.co.xyz) for p in spline.points]
+    return sorted(rounded(p, 2) for p in points)
+
+
+def snapshot(col):
+    """What the game would see of an imported model: geometry and behaviour, not its node layout."""
+    scene = bpy.context.scene
+    scene.frame_set(0)
+    snap = {
+        "triangles": triangles(col),
+        "header_slots": header_slots(col),
+        "header_length": len(col["header"]),
+        "splines": splines(col),
+        "animation": {},
+    }
+    for frame in animation_frames(col):
+        scene.frame_set(frame)
+        snap["animation"][frame] = triangles(col)
+    scene.frame_set(0)
+    return snap
+
+
+class RoundTrip:
+    """Imports, exports, and re-imports one model, keeping every intermediate for the assertions."""
+
+    def __init__(self, model_id, source_dir, work_root):
+        self.model_id = model_id
+        self.imp = importlib.import_module(f"{PACKAGE}.swr_import")
+        self.exp = importlib.import_module(f"{PACKAGE}.swr_export")
+        self.utils = importlib.import_module(f"{PACKAGE}.utils")
+        self.original = os.path.join(work_root, "original") + os.sep
+        self.first = os.path.join(work_root, "first") + os.sep
+        self.second = os.path.join(work_root, "second") + os.sep
+        for d in (self.original, self.first, self.second):
+            os.makedirs(d)
+        copy_game_data(source_dir, self.original)
+        copy_game_data(source_dir, self.first)
+
+    def import_from(self, folder):
+        clear_scene()
+        self.imp.import_model(folder, [self.model_id], no_progress)
+        return model_collection(self.model_id)
+
+    def export_to(self, col, folder):
+        bpy.context.scene.is_export_separate = False
+        bpy.context.scene.is_export_debug = False
+        self.exp.export_model(col, folder, [True, True, True], no_progress)
+
+    def run(self):
+        col = self.import_from(self.original)
+        self.before = snapshot(col)
+        self.export_to(col, self.first)
+
+        col = self.import_from(self.first)
+        self.after = snapshot(col)
+        # the second export starts from the first export's blocks, so only the model itself can differ
+        for f in BLOCK_FILES:
+            shutil.copy(self.first + f, self.second + f)
+        self.export_to(col, self.second)
+
+
+class RoundTripTest(unittest.TestCase):
+    model_id = None
+    source_dir = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.work = tempfile.mkdtemp(prefix=f"swe1r_rt_{cls.model_id}_")
+        cls.trip = RoundTrip(cls.model_id, cls.source_dir, cls.work)
+        cls.error = None
+        try:
+            cls.trip.run()
+        except Exception:
+            cls.error = traceback.format_exc()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.work, ignore_errors=True)
+
+    def setUp(self):
+        # test_round_trip_completes reports the error; the rest have nothing to check
+        if self.error and self._testMethodName != "test_round_trip_completes":
+            self.skipTest("round-trip raised")
+
+    def test_round_trip_completes(self):
+        if self.error:
+            self.fail(f"round-trip raised:\n{self.error}")
+
+    def test_export_leaves_other_models_untouched(self):
+        trip = self.trip
+        before = read_block(trip.original + "out_modelblock.bin", 2)
+        after = read_block(trip.first + "out_modelblock.bin", 2)
+        self.assertEqual(len(before.data), len(after.data))
+        malt = trip.utils.Podd_MAlt.get(str(self.model_id))
+        changed = [i for i in range(len(before.data))
+                   if i not in (self.model_id, malt) and before.data[i] != after.data[i]]
+        self.assertEqual(changed, [], "export modified models it wasn't asked to")
+
+    def test_export_leaves_existing_textures_untouched(self):
+        trip = self.trip
+        before = read_block(trip.original + "out_textureblock.bin", 2)
+        after = read_block(trip.first + "out_textureblock.bin", 2)
+        self.assertGreaterEqual(len(after.data), len(before.data))
+        changed = [i for i in range(len(before.data)) if before.data[i] != after.data[i]]
+        self.assertEqual(changed, [], "export rewrote existing textures")
+
+    def test_export_leaves_other_splines_untouched(self):
+        trip = self.trip
+        spline_map = importlib.import_module(f"{PACKAGE}.swe1r.spline_map").spline_map
+        before = read_block(trip.original + "out_splineblock.bin", 1)
+        after = read_block(trip.first + "out_splineblock.bin", 1)
+        own = spline_map.get(self.model_id)
+        changed = [i for i in range(len(before.data)) if i != own and before.data[i] != after.data[i]]
+        self.assertEqual(changed, [], "export modified splines it wasn't asked to")
+
+    def assertSameTriangles(self, before, after, what):
+        lost, gained = match_triangles(before, after)
+        if lost or gained:
+            kinds = Counter(key[0] for key, _ in lost), Counter(key[0] for key, _ in gained)
+            self.fail(f"{what}: {len(lost)} of {len(before)} triangles lost {dict(kinds[0])} and {len(gained)} "
+                      f"gained {dict(kinds[1])} across the round-trip (tolerance {TOLERANCE})\n"
+                      f"  first lost:   {[(k, rounded(sum(c, ()))) for k, c in lost[:2]]}\n"
+                      f"  first gained: {[(k, rounded(sum(c, ()))) for k, c in gained[:2]]}")
+
+    def test_geometry_preserved(self):
+        """Same visual and collision triangles in the same places, drawn and behaving the same way."""
+        self.assertSameTriangles(self.trip.before["triangles"], self.trip.after["triangles"], "frame 0")
+
+    def test_animation_preserved(self):
+        """Animated geometry ends up in the same places at sampled frames."""
+        before, after = self.trip.before["animation"], self.trip.after["animation"]
+        self.assertEqual(sorted(before), sorted(after), "animated frame range changed")
+        for frame in before:
+            self.assertSameTriangles(before[frame], after[frame], f"frame {frame}")
+
+    def test_header_slots_preserved(self):
+        """The game finds attachment points, engines, cameras, etc. by header slot."""
+        before, after = self.trip.before, self.trip.after
+        self.assertEqual(before["header_length"], after["header_length"], "header slot count changed")
+        (populated, transforms), (populated_after, transforms_after) = before["header_slots"], after["header_slots"]
+        self.assertEqual(populated, populated_after, "populated header slots changed")
+        moved = [slot for slot, m in transforms.items() if slot in transforms_after
+                 and any(abs(a - b) > TOLERANCE for a, b in zip(m, transforms_after[slot]))]
+        self.assertEqual(moved, [], "nodes behind these header slots moved")
+
+    def test_splines_preserved(self):
+        self.assertEqual(self.trip.before["splines"], self.trip.after["splines"], "spline points changed")
+
+    def test_reexport_does_not_grow(self):
+        """Exporting the re-import must not keep adding data (e.g. a wrapper node per export)."""
+        trip = self.trip
+        first = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id]
+        second = read_block(trip.second + "out_modelblock.bin", 2).data[self.model_id]
+        self.assertLessEqual(sum(map(len, second)), sum(map(len, first)), "model grew on re-export")
+
+
+class ImmediateResult(unittest.TextTestResult):
+    """Prints each failure as it happens; a hard Blender crash would otherwise lose the end-of-run report."""
+
+    def addFailure(self, test, err):
+        super().addFailure(test, err)
+        self.stream.writeln(f"\n--- FAIL {test.id()}\n{self._exc_info_to_string(err, test)}")
+        self.stream.flush()
+
+    def addExpectedFailure(self, test, err):
+        super().addExpectedFailure(test, err)
+        # known issues stay quiet in the summary, but the log should still say what is wrong
+        message = self._exc_info_to_string(err, test).strip().splitlines()
+        self.stream.writeln(f"\n--- KNOWN {test.id()}\n{chr(10).join(message[-8:])}")
+        self.stream.flush()
+
+    def addError(self, test, err):
+        super().addError(test, err)
+        self.stream.writeln(f"\n--- ERROR {test.id()}\n{self._exc_info_to_string(err, test)}")
+        self.stream.flush()
+
+
+def exportable_models():
+    model_list = importlib.import_module(f"{PACKAGE}.swe1r.model_list").model_list
+    return [m["index"] for m in model_list if m["extension"] != "MAlt"]
+
+
+def known_issues():
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "known_issues.json")) as f:
+        return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+
+
+def build_suite(model_ids, source_dir):
+    model_list = importlib.import_module(f"{PACKAGE}.swe1r.model_list").model_list
+    names = {m["index"]: f'{m["extension"]}_{m["name"]}' for m in model_list}
+    known = known_issues()
+    suite = unittest.TestSuite()
+    loader = unittest.TestLoader()
+    for model_id in model_ids:
+        label = "".join(c if c.isalnum() else "_" for c in names.get(model_id, "unknown"))
+        attrs = {"model_id": model_id, "source_dir": source_dir}
+        for test_name in known.get(str(model_id), {}):
+            if test_name.startswith("test_"):
+                attrs[test_name] = unittest.expectedFailure(getattr(RoundTripTest, test_name))
+        case = type(f"Model{model_id:03d}_{label}", (RoundTripTest,), attrs)
+        suite.addTests(loader.loadTestsFromTestCase(case))
+    return suite
+
+
+def main():
+    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    parser = argparse.ArgumentParser(prog="roundtrip.py")
+    parser.add_argument("--full", action="store_true", help="every exportable model instead of the smoke set")
+    parser.add_argument("--models", help="comma-separated model ids")
+    parser.add_argument("--failfast", action="store_true")
+    args = parser.parse_args(argv)
+
+    source_dir = game_data_dir()
+    if source_dir is None:
+        print("SWE1R game data not found; set SWE1R_GAME_DATA to the game's data/lev01 folder")
+        sys.exit(2)
+
+    load_addon()
+    if args.models:
+        model_ids = [int(m) for m in args.models.split(",")]
+    elif args.full:
+        model_ids = exportable_models()
+    else:
+        model_ids = SMOKE_MODELS
+
+    runner = unittest.TextTestRunner(verbosity=2, failfast=args.failfast, resultclass=ImmediateResult)
+    result = runner.run(build_suite(model_ids, source_dir))
+    sys.exit(0 if result.wasSuccessful() else 1)
+
+
+if __name__ == "__main__":
+    main()
