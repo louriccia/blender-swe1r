@@ -789,6 +789,112 @@ def vert_key(vert):
     """A hashable value that is equal for two VisualsVertChunks exactly when they compare equal."""
     return (tuple(vert.co), tuple(vert.uv), tuple(vert.color.to_array()), getattr(vert, '_hooked', False))
 
+# Vertex normals.
+# A mesh whose material type has bit 0x1 or 0x10 set uses the Vtx_tn vertex format: bytes 12-14 are
+# a signed int8 normal (nx, ny, nz) and byte 15 the alpha, instead of Vtx_t's r, g, b, a
+# (SW_RACER_RE src/types.h:1579-1585, 1689-1703). The renderer reads them as n / 128, in the mesh's
+# own space (the same model matrix as the positions, renderer_hook.cpp:481, 513-521), and lights
+# with them (assets/shaders/n64_shader.frag:50). The add-on's mesh space is that space (positions
+# are imported unrotated, only scaled by Model.scale), so Blender's corner normals are used as is.
+#
+# The 4 bytes stay in the 'colors' attribute like Vtx_t colors, so an untouched mesh writes back
+# exactly what it read. Import also sets them as the mesh's custom normals, so Blender shows and
+# edits the game's normals, and records each corner's resulting normal in NORMAL_ATTR. On export a
+# corner whose Blender normal still matches its record keeps its bytes; any other (edited geometry,
+# a new face, a new mesh) gets round(normal * 127).
+NORMAL_ATTR = 'swe1r_normal'
+# how far a corner normal may drift from the recorded one and still count as unchanged. Compared as
+# vectors, not angles: Blender gives zero-area faces' corners short or zero normals.
+NORMAL_MATCH = 0.01
+
+
+def uses_normals(material):
+    return material is not None and bool(material.format & 0x11)
+
+
+def object_uses_normals(obj):
+    """uses_normals for the Material that Mesh.unmake will make from obj's first material."""
+    material = next((slot.material for slot in obj.material_slots if slot.material), None)
+    if material is None:
+        return False
+    return bool((material.get('format') or 14) & 0x11) or bool(material.get('normal_map', False))
+
+
+def signed_byte(b):
+    return b - 256 if b > 127 else b
+
+
+def make_vertex_normals(mesh):
+    """Show a normals-format mesh's stored normals (in its 'colors' bytes) as custom normals."""
+    colors = mesh.vertex_colors.active
+    if colors is None or not len(mesh.loops):
+        return
+    values = [0.0] * (4 * len(mesh.loops))
+    colors.data.foreach_get('color', values)
+    normals = []
+    for i in range(len(mesh.loops)):
+        n = [signed_byte(round(c * 255)) for c in values[4*i:4*i + 3]]
+        length = math.sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2])
+        # a zero vector keeps Blender's own normal
+        normals.append((n[0]/length, n[1]/length, n[2]/length) if length else (0.0, 0.0, 0.0))
+    mesh.polygons.foreach_set('use_smooth', [True] * len(mesh.polygons))
+    mesh.normals_split_custom_set(normals)
+    record_vertex_normals(mesh)
+
+
+def record_vertex_normals(mesh, normals = None):
+    if normals is None:
+        normals = [0.0] * (3 * len(mesh.loops))
+        mesh.corner_normals.foreach_get('vector', normals)
+    attr = mesh.attributes.get(NORMAL_ATTR)
+    if attr is not None and (attr.domain != 'CORNER' or attr.data_type != 'FLOAT_VECTOR'):
+        mesh.attributes.remove(attr)
+        attr = None
+    if attr is None:
+        attr = mesh.attributes.new(NORMAL_ATTR, 'FLOAT_VECTOR', 'CORNER')
+    attr.data.foreach_set('vector', normals)
+
+
+def unmake_vertex_normals(mesh):
+    """Write each corner's Vtx_tn normal bytes into the mesh's 'colors' attribute for export.
+
+    Corners whose normal matches the one recorded at import keep their bytes (stock meshes stay
+    byte-identical); the rest get Blender's corner normal as round(n * 127), keeping their alpha.
+    """
+    loop_count = len(mesh.loops)
+    if not loop_count:
+        return
+    normals = [0.0] * (3 * loop_count)
+    mesh.corner_normals.foreach_get('vector', normals)
+    recorded = None
+    attr = mesh.attributes.get(NORMAL_ATTR)
+    if attr is not None and attr.domain == 'CORNER' and attr.data_type == 'FLOAT_VECTOR':
+        recorded = [0.0] * (3 * loop_count)
+        attr.data.foreach_get('vector', recorded)
+    colors = mesh.vertex_colors.active
+    if colors is None:
+        colors = mesh.vertex_colors.new(name = 'colors')
+        values = [1.0] * (4 * loop_count)
+    elif recorded is None:
+        # imported before normals were recorded: nothing tells an edited corner from an untouched
+        # one, so keep the bytes as they are (from now on edits are detected)
+        record_vertex_normals(mesh, normals)
+        return
+    else:
+        values = [0.0] * (4 * loop_count)
+        colors.data.foreach_get('color', values)
+    for i in range(loop_count):
+        n = normals[3*i:3*i + 3]
+        if recorded is not None and sum((a - b) ** 2 for a, b in zip(n, recorded[3*i:3*i + 3])) < NORMAL_MATCH ** 2:
+            continue
+        length = math.sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2])
+        for j in range(3):
+            c = round(n[j] / length * 127) if length > 1e-6 else 0
+            values[4*i + j] = (max(-127, min(127, c)) & 0xFF) / 255
+    colors.data.foreach_set('color', values)
+    # the bytes now match the current normals, so exporting again keeps them
+    record_vertex_normals(mesh, normals)
+
 class VisualsVertBuffer():
     def __init__(self, parent, model, length = 0):
         self.parent = parent
@@ -2470,6 +2576,8 @@ class Mesh(DataStruct):
             vert_data = self.visuals_vert_buffer.data
             uv_layer.foreach_set('uv', [u/4096 for i in loop_verts for u in vert_data[i].uv])
             color_layer.foreach_set('color', [a/255 for i in loop_verts for a in vert_data[i].color.to_array()])
+            if uses_normals(self.material):
+                make_vertex_normals(mesh)
                     
             vis_flags = effective_node_flags(parent, 'vis_flags')
             for i in range(24):
@@ -2544,6 +2652,9 @@ class Mesh(DataStruct):
                 
             if material is None:
                 self.material = Material(self, self.model).unmake(None)
+
+            # the normal bytes are already in 'colors' (Model.unmake, unmake_vertex_normals)
+            normals = uses_normals(self.material)
             
             self.visuals_vert_buffer = VisualsVertBuffer(self, self.model).unmake(node)
             verts = self.visuals_vert_buffer.data
@@ -2598,6 +2709,25 @@ class Mesh(DataStruct):
                             new_face.append(vert)
                         new_faces.append(new_face)
                 faces = new_faces
+            elif normals:
+                # one vert per corner: corners of a vertex can differ in normal (a sharp edge),
+                # and the dedup below merges the ones that are equal
+                d = node.data
+                uv_data = d.uv_layers.active.data if d.uv_layers and d.uv_layers.active else None
+                color_data = d.vertex_colors.active.data if d.vertex_colors.active else None
+                faces = []
+                for poly in d.polygons:
+                    face = []
+                    for loop_index in poly.loop_indices:
+                        vert_index = d.loops[loop_index].vertex_index
+                        vert = VisualsVertChunk(self.visuals_vert_buffer, self.model)
+                        vert.co = verts[vert_index].co
+                        vert.uv = [round(c*4096) for c in uv_data[loop_index].uv] if uv_data else [0, 0]
+                        if color_data is not None:
+                            vert.color.unmake(color_data[loop_index].color)
+                        vert._hooked = verts[vert_index]._hooked
+                        face.append(vert)
+                    faces.append(face)
             else:
                 # replace each index with its vert
                 faces = [[verts[i] for i in face] for face in faces]
@@ -4510,6 +4640,11 @@ class Model():
                 obj.hide_set(False, view_layer=working_layer)
 
         split_meshes_by_material(collection)
+        # before apply_scale: Blender's normals on zero-area faces shift when the mesh is rescaled,
+        # and unmake_vertex_normals compares them against the ones recorded at import
+        for obj in get_all_objects_in_collection(collection):
+            if obj.type == 'MESH' and (obj.visible or not obj.collidable) and object_uses_normals(obj):
+                unmake_vertex_normals(obj.data)
         apply_scale(collection)
         objects = get_all_objects_in_collection(collection)
         triangulate_mesh(objects)
