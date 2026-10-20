@@ -38,7 +38,18 @@ Alternatively, [download the latest release .zip](https://github.com/louriccia/b
 
 ## Known Issues
 
-- Podd / MAlt import/export is not supported
+- Pod (Podd) import merges in the paired high detail MAlt model the same way the game does. Pod export is still limited: it rebuilds a fixed template from the Right Engine / Left Engine / Cockpit / Cable collections, drops LODs and animations, and replaces the paired MAlt with an empty one
+
+## Development
+
+The file parsing code can be tested without Blender:
+
+```
+pip install numpy
+python -m unittest discover -s tests
+```
+
+Set `SWE1R_MODELBLOCK` to the path of the game's `out_modelblock.bin` to also check every pod against the real game data.
 
 ## License
 

@@ -2,7 +2,7 @@ schema_version = "1.0.0"
 
 # Unique identifier. Must not change between versions once published.
 id = "swe1r_import_export"
-version = "0.9.1"
+version = "0.9.2"
 name = "SWE1R Import/Export"
 tagline = "Import and export models for Star Wars Episode I: Racer"
 maintainer = "LightningPirate <lightningpirate@gmail.com>"
@@ -39,6 +39,7 @@ paths_exclude_pattern = [
   "/.github/",
   "/.gitignore",
   "/.gitattributes",
+  "/tests/",
   "*.zip",
   "*.tar.xz",
 ]

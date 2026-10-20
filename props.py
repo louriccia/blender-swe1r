@@ -1,5 +1,5 @@
 import bpy
-from .utils import save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable
+from .utils import save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item
 from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
 
@@ -34,9 +34,9 @@ def register():
         default=get_setting('new_type', 0)
     )
     
-    import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list) if model['extension'] == model_types[int(get_setting('import_type', 0))][1]]
+    import_items = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_types[int(get_setting('import_type', 0))][1]]
     if not len(import_items):
-        import_items = [(str(i), f"{model['extension']} {model['name']}", f"Import model {model['name']}") for i, model in enumerate(model_list)]
+        import_items = [model_enum_item(i, model) for i, model in enumerate(model_list)]
     import_items.append(("-1", "All", "Import all models of this type"))
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
         items=import_items,
@@ -50,7 +50,8 @@ def register():
     bpy.types.Scene.is_export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('is_export_texture', True))
     bpy.types.Scene.is_export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('is_export_spline', True))
     bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =save_settings, default=get_setting('export_separate', False), description = "Save a copy of the exported elements as individual .bin files")
-    
+    bpy.types.Scene.is_export_debug = bpy.props.BoolProperty(name ="Debug", update =save_settings, default=get_setting('export_debug', False), description = "Write a human-readable debug dump of the exported model buffer alongside the .bin files (for troubleshooting only)")
+
     bpy.types.Scene.flags_expanded = bpy.props.BoolProperty(name = 'flags_expanded', update=save_settings, default=get_setting('flags_expanded', False))
     bpy.types.Scene.fog_expanded = bpy.props.BoolProperty(name = 'fog_expanded', update=save_settings, default=get_setting('fog_expanded', False))
     bpy.types.Scene.lighting_expanded = bpy.props.BoolProperty(name = 'lighting_expanded', update=save_settings, default=get_setting('lighting_expanded', False))
@@ -129,8 +130,8 @@ def register():
     bpy.types.Object.fog_color_update = bpy.props.BoolProperty(name = 'fog_color_update', default=False)
     bpy.types.Object.fog_color = bpy.props.FloatVectorProperty(name="fog_color", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0), min=0, max=1, description="Fog color")
     bpy.types.Object.fog_range_update = bpy.props.BoolProperty(name = 'fog_range_update', default=False)
-    bpy.types.Object.fog_min = bpy.props.IntProperty(name="fog_min", default=1000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog min", subtype = 'DISTANCE')
-    bpy.types.Object.fog_max = bpy.props.IntProperty(name="fog_max", default=5000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog min", subtype = 'DISTANCE')
+    bpy.types.Object.fog_min = bpy.props.IntProperty(name="fog_min", default=1000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog min (distance at which fog begins)", subtype = 'DISTANCE')
+    bpy.types.Object.fog_max = bpy.props.IntProperty(name="fog_max", default=30000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog max (distance at which fog is fully opaque)", subtype = 'DISTANCE')
     bpy.types.Object.fog_clear = bpy.props.BoolProperty(name = 'fog_clear', default=False)
     bpy.types.Object.skybox_show = bpy.props.BoolProperty(name ='skybox_show', default=False)
     bpy.types.Object.skybox_hide = bpy.props.BoolProperty(name ='skybox_hide', default=False)
@@ -193,13 +194,37 @@ def register():
     bpy.types.Scene.collision_data = bpy.props.BoolProperty(name ='collision_data', update = update_selected('collision_data'), default = False)
     
     # terrain
+    # Best-effort human-readable tooltips for the terrain surface flags. These
+    # abbreviations are cryptic in the UI; descriptions should be verified by a
+    # domain expert but are far more useful than a bare 4-char code.
+    surface_flag_descriptions = {
+        'ZOn': "Enable collision detection on this surface",
+        'ZOff': "Disable collision detection on this surface",
+        'Fast': "Speed-boost surface",
+        'Slow': "Speed-reducing surface",
+        'Swst': "Start/finish line surface",
+        'Slip': "Slippery (low-grip) surface",
+        'Dust': "Kicks up dust particles",
+        'Snow': "Snow surface",
+        'Wet': "Wet surface (water spray)",
+        'Ruff': "Rough surface (rumble / vibration)",
+        'Swmp': "Swamp surface",
+        'NSnw': "No snow particles on this surface",
+        'Mirr': "Mirror / reflective surface",
+        'Lava': "Lava (damaging) surface",
+        'Fall': "Fall / out-of-bounds surface (triggers respawn)",
+        'Soft': "Soft surface",
+        'NRsp': "No respawn from this surface",
+        'Flat': "Flat surface",
+        'Side': "Side / wall surface",
+    }
     for flag in dir(SurfaceEnum):
         if not flag.startswith("__"):
-            setattr(bpy.types.Scene, flag, bpy.props.BoolProperty(name = flag, default=False, update = update_selected(flag)))
+            setattr(bpy.types.Scene, flag, bpy.props.BoolProperty(name = flag, default=False, update = update_selected(flag), description = surface_flag_descriptions.get(flag, f"Terrain surface flag: {flag}")))
     
     bpy.types.Scene.magnet = bpy.props.BoolProperty(name ='magnet', default=False, update = update_selected("magnet"), description = "Disable tilting and climbing")
     bpy.types.Scene.strict_spline = bpy.props.BoolProperty(name ='strict_spline', default=False, update = update_selected("strict_spline"), description = "Make lap progress stricter")
-    bpy.types.Scene.elevation = bpy.props.BoolProperty(name ='elevation', default=False, update = update_selected("elevation"), description = "Prevent pod getting stuck on overlapping collisions (MFG)")
+    bpy.types.Scene.elevation = bpy.props.BoolProperty(name ='elevation', default=False, update = update_selected("elevation"), description = "Prevent the pod getting stuck on overlapping collision surfaces")
     
     # lighting
     bpy.types.Scene.lighting_light = bpy.props.PointerProperty(type=bpy.types.Light, name="lighting_light", update = update_selected("lighting_light"))
@@ -212,8 +237,8 @@ def register():
     bpy.types.Scene.fog_color = bpy.props.FloatVectorProperty(name="fog_color", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0), min=0, max=1, description="Fog color", update = update_selected("fog_color"))
     bpy.types.Scene.fog_range_update = bpy.props.BoolProperty(name = 'fog_range_update', default=False, update = update_selected("fog_range_update"))
     bpy.types.Scene.fog_color_update = bpy.props.BoolProperty(name = 'fog_color_update', default=False, update = update_selected("fog_color_update"))
-    bpy.types.Scene.fog_min = bpy.props.IntProperty(name="fog_min", default=1000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog min", subtype = 'DISTANCE', update = update_selected("fog_min"))
-    bpy.types.Scene.fog_max = bpy.props.IntProperty(name="fog_max", default=5000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog min", subtype = 'DISTANCE', update = update_selected("fog_max"))
+    bpy.types.Scene.fog_min = bpy.props.IntProperty(name="fog_min", default=1000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog min (distance at which fog begins)", subtype = 'DISTANCE', update = update_selected("fog_min"))
+    bpy.types.Scene.fog_max = bpy.props.IntProperty(name="fog_max", default=30000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog max (distance at which fog is fully opaque)", subtype = 'DISTANCE', update = update_selected("fog_max"))
     bpy.types.Scene.fog_clear = bpy.props.BoolProperty(name = 'fog_clear', default=False, update = update_selected("fog_clear"))
     bpy.types.Scene.skybox_show = bpy.props.BoolProperty(name ='skybox_show', default=False, update = update_selected("skybox_show"))
     bpy.types.Scene.skybox_hide = bpy.props.BoolProperty(name ='skybox_hide', default=False, update = update_selected("skybox_hide"))
@@ -237,6 +262,7 @@ def unregister():
     del bpy.types.Scene.is_export_texture
     del bpy.types.Scene.is_export_spline
     del bpy.types.Scene.is_export_separate
+    del bpy.types.Scene.is_export_debug
     del bpy.types.Scene.collision_visible
     del bpy.types.Scene.collision_selectable
     del bpy.types.Scene.visuals_visible
@@ -276,8 +302,7 @@ def unregister():
     del bpy.types.Object.fog_clear
     del bpy.types.Object.skybox_show
     del bpy.types.Object.skybox_hide
-   
-    bpy.types.Object.load_trigger = bpy.props.EnumProperty(
-        name="View Layer",
-        items= populate_enum
-    )
+
+    del bpy.types.Object.load_trigger
+    del bpy.types.Scene.load_trigger
+    del bpy.types.Scene.load_trigger_index
