@@ -144,9 +144,6 @@
     "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },
-  "156": {
-    "test_header_slots_preserved": "slots 5, 19, 33, 47, 61, 75 point at nodes import doesn't create objects for, so export can't write them back"
-  },
   "228": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   },

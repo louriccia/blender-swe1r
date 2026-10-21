@@ -4343,16 +4343,29 @@ class ModelHeader():
         self.AltN = []
         self.model = model
         self.size = None
+        # {slot: value} for slots holding a plain value rather than a pointer (see read)
+        self.values = {}
 
     def read(self, buffer, cursor):
         type = readString(buffer, cursor)
         self.model.type = get_model_type(type)
         assert self.model.type, f"This model extension was not recognized: {type}"
-        
+
+        # A header entry is a node, an animation or a plain value (SW_RACER_RE src/types.h:1416
+        # swrModel_HeaderEntry); the load only relocates the words the model's pointer mask marks
+        # (src/Swr/swrModel.c:126-144). Scen 156 (the cutscene) holds unmasked values such as
+        # 0x80000002 in slots 5, 19, 33, 47, 61 and 75; keep them to write back as they are.
+        mask = None
+        modelblock = getattr(self.model, 'modelblock', None)
+        if modelblock is not None and self.model.id is not None and buffer is modelblock.fetch(self.model.id)[1]:
+            mask = modelblock.fetch(self.model.id)[0]
+
         cursor = 4
         header = readInt32BE(buffer, cursor)
 
         while header != -1:
+            if header and mask is not None and cursor // 32 < len(mask) and                     not mask[cursor // 32] & (1 << (7 - (cursor % 32) // 4)):
+                self.values[len(self.offsets)] = header
             self.offsets.append(header)
             cursor += 4
             header = readInt32BE(buffer, cursor)
@@ -4385,6 +4398,8 @@ class ModelHeader():
     
     def make(self):
         self.model.collection['header'] = self.offsets
+        if self.values:
+            self.model.collection['header_values'] = {str(slot): value for slot, value in self.values.items()}
         self.model.collection.export_type = self.model.type
         self.model.collection.export_model = str(self.model.id)
         
@@ -4405,6 +4420,7 @@ class ModelHeader():
         imported_header = collection.get('header')
         if imported_header is not None and len(imported_header):
             self.size = len(imported_header)
+        self.values = {int(slot): int(value) for slot, value in collection.get('header_values', {}).items()}
         if self.model.type == "7":
             self.model.Data = ModelData(self, self.model).unmake()
         self.model.Anim = AnimList(self, self.model).unmake()
@@ -4413,9 +4429,12 @@ class ModelHeader():
         cursor = writeString(buffer,  model_types[int(self.model.type)][1], cursor)
 
         size = self.size if self.size is not None else header_sizes[int(self.model.type)]
-        for header_value in range(size):
-            self.model.highlight(cursor)
-            cursor += 4  # writeInt32BE(buffer, header_value, cursor)
+        for slot in range(size):
+            if slot in self.values:
+                writeInt32BE(buffer, self.values[slot], cursor)
+            else:
+                self.model.highlight(cursor)
+            cursor += 4
 
         cursor = writeInt32BE(buffer, -1, cursor)
 
