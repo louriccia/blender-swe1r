@@ -411,6 +411,41 @@ def animation_types(model_buffer):
     return dict(types)
 
 
+def mesh_boxes(model_buffer):
+    """{vertex positions: (bounding box, vertex_base_offset)} for the meshes reachable from slot nodes.
+
+    The renderer culls by these boxes, and a mesh with a vertex_base_offset (a hooked prefix) is
+    drawn partly with its referenced node's matrix (SW_RACER_RE dinput_hook/renderer_hook.cpp).
+    """
+    u32 = lambda o: struct.unpack_from(">I", model_buffer, o)[0]
+    slots, cursor = [], 4
+    while u32(cursor) != 0xFFFFFFFF:
+        slots.append(u32(cursor))
+        cursor += 4
+    boxes, seen = {}, set()
+    stack = [s for s in slots if s and s < len(model_buffer) - 28 and u32(s) in NODE_TYPES]
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        count, children = u32(node + 20), u32(node + 24)
+        for i in range(count if children else 0):
+            child = u32(children + 4 * i)
+            if not child or child >= len(model_buffer) - 64:
+                continue
+            if u32(node) != 0x3064:
+                if u32(child) in NODE_TYPES:
+                    stack.append(child)
+                continue
+            vertices, n = u32(child + 52), struct.unpack_from(">H", model_buffer, child + 58)[0]
+            if not vertices:
+                continue
+            key = frozenset(struct.unpack_from(">3h", model_buffer, vertices + 16 * v) for v in range(n))
+            boxes[key] = (struct.unpack_from(">6f", model_buffer, child + 8), struct.unpack_from(">h", model_buffer, child + 62)[0])
+    return boxes
+
+
 def display_list_problems(buffer, mesh_start, mesh_format):
     """Checks one exported mesh's display list the way the game's renderer reads it.
 
@@ -619,6 +654,27 @@ class RoundTripTest(unittest.TestCase):
         before = read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1]
         after = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
         self.assertEqual(animation_types(before), animation_types(after), "animations by type (stock vs export)")
+
+    def test_mesh_boxes_and_hooks_kept(self):
+        """Each stock mesh export writes back keeps its bounding box and hooked prefix.
+
+        Computed from the stored vertices, a hooked mesh's box came out smaller than stock and the
+        game culled racers' feet; reading a hooked mesh's referenced node as collision indices
+        dropped the hooks of the cutscene models.
+        """
+        trip = self.trip
+        before = mesh_boxes(read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1])
+        after = mesh_boxes(read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1])
+        problems = []
+        for key, (box, hooked) in before.items():
+            if key not in after or not any(box):
+                continue  # export may merge small meshes (the triangle tests cover the geometry); a
+                          # stock box of all zeros (one Boonta mesh) is no box to keep
+            new_box, new_hooked = after[key]
+            # the prefix may shrink where export merges identical hooked vertices
+            if bool(new_hooked) != bool(hooked) or any(abs(a - b) > 1.5 for a, b in zip(box, new_box)):
+                problems.append((hooked, new_hooked, tuple(round(v) for v in box), tuple(round(v) for v in new_box)))
+        self.assertEqual(problems[:3], [], f"{len(problems)} meshes changed box or hooked prefix (stock vs export)")
 
     def test_display_lists_valid(self):
         """Exported display lists are drawable by the game (see display_list_problems)."""

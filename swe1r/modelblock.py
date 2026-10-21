@@ -2279,6 +2279,41 @@ class Material(DataStruct):
         material = self.make(remake = True, tex_name = tex_name)
         return material
 
+def bounding_vertices(mesh):
+    """The vertices a mesh's bounding box is computed from: collision ones, else visual ones."""
+    if mesh.collision_vert_buffer:
+        verts = mesh.collision_vert_buffer.make()
+        if len(verts):
+            return verts
+    if mesh.visuals_vert_buffer:
+        return mesh.visuals_vert_buffer.make()
+    return []
+
+def identity_vertices(mesh):
+    """The vertices that say whether a mesh is still the one imported: its visual ones if it has any.
+
+    Collision vertices change on export even for an untouched mesh (they are re-stripped, and
+    import drops faces that index past them), so they only count for collision-only meshes.
+    """
+    if mesh.visuals_vert_buffer:
+        verts = mesh.visuals_vert_buffer.make()
+        if len(verts):
+            return verts
+    return bounding_vertices(mesh)
+
+def vertex_fingerprint(verts):
+    return compute_hash(repr(sorted({tuple(int(round(c)) for c in v) for v in verts if len(v) == 3})).encode())
+
+def deformed_vertices(obj, scale):
+    """obj's evaluated (modifier-deformed) vertex positions in game units, in the object's space."""
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = obj.evaluated_get(depsgraph)
+    mesh = evaluated.to_mesh()
+    try:
+        return [[c / scale for c in v.co] for v in mesh.vertices]
+    finally:
+        evaluated.to_mesh_clear()
+
 class MeshBoundingBox(DataStruct):
     """Defines the minimum and maximum bounds of a mesh"""
     
@@ -2295,20 +2330,19 @@ class MeshBoundingBox(DataStruct):
         self.max_y = 0
         self.max_z = 0
     def unmake(self, mesh):
-        verts = []
         if mesh is None:
             return self
-        
-        
-        if mesh.collision_vert_buffer:
-            verts.extend(mesh.collision_vert_buffer.make())
-            
-        # on meshes with both collision and visuals, collision takes precedence
-        if mesh.visuals_vert_buffer and len(verts) == 0:
-            verts.extend(mesh.visuals_vert_buffer.make())
-        
+        verts = bounding_vertices(mesh)
         if len(verts) == 0:
             return self
+        source = getattr(mesh, 'original_object', None)
+        if source is not None and source.get('stock_aabb') is not None and                 source.get('stock_aabb_key') == vertex_fingerprint(identity_vertices(mesh)):
+            # unchanged vertices: the stock box (see Mesh.keep_stock_aabb)
+            self.min_x, self.min_y, self.min_z, self.max_x, self.max_y, self.max_z = (float(v) for v in source['stock_aabb'])
+            return self
+        if getattr(mesh, 'group_count', 0) and source is not None and source.type == 'MESH':
+            # an edited hooked mesh: also cover the prefix where the HOOK modifier puts it
+            verts = list(verts) + deformed_vertices(source, self.model.scale)
         self.min_x = min([vert[0] for vert in verts])
         self.min_y = min([vert[1] for vert in verts])
         self.min_z = min([vert[2] for vert in verts])
@@ -2639,9 +2673,23 @@ class Mesh(DataStruct):
         self.bounding_box = MeshBoundingBox(self, self.model).unmake(self)
         return self
     
+    def keep_stock_aabb(self, b_obj):
+        """Record the mesh's stored bounding box, written back while its vertices are unchanged.
+
+        A hooked mesh's box covers its shape with the hooked prefix where the game draws it,
+        which can't be rebuilt from the stored vertices (the prefix is in the referenced node's
+        space); computed from them it came out smaller than stock on most pilot meshes, so parts
+        of the racers (feet) got culled. See MeshBoundingBox.unmake.
+        """
+        if getattr(self, 'stock_aabb', None) is None:
+            return
+        b_obj['stock_aabb'] = list(self.stock_aabb)
+        b_obj['stock_aabb_key'] = vertex_fingerprint(identity_vertices(self))
+
     def read(self, buffer, cursor):
         self.id = cursor
-        mat_addr, collision_tags_addr, min_x, min_y, min_z, max_x, max_y, max_z, self.strip_count, self.strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count = struct.unpack_from(self.format_string, buffer, cursor)
+        mat_addr, collision_tags_addr,min_x, min_y, min_z, max_x, max_y, max_z, self.strip_count, self.strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count = struct.unpack_from(self.format_string, buffer, cursor)
+        self.stock_aabb = [min_x, min_y, min_z, max_x, max_y, max_z]
         
         
         if mat_addr:
@@ -2665,10 +2713,13 @@ class Mesh(DataStruct):
             
         if collision_vert_buffer_addr:
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model, collision_vert_count).read(buffer, collision_vert_buffer_addr)
-            if self.group_parent_id:
-                # With collision vertices, the word at +40 is a list of u16 indices into them, not a
-                # bone node (SW_RACER_RE src/types.h swrModel_Mesh, src/Swr/swrModel.c byte swap
-                # and swrModel_MeshIterateOverCollisionFaces). A stock mesh never has both.
+            if self.group_parent_id and not self.group_count:
+                # With collision vertices, the word at +40 can be a list of u16 indices into them
+                # (SW_RACER_RE src/types.h swrModel_Mesh, src/Swr/swrModel.c byte swap and
+                # swrModel_MeshIterateOverCollisionFaces). A mesh with a hooked prefix
+                # (vertex_base_offset) uses it for its referenced node instead: all 143 stock meshes
+                # with both (cutscenes 149, 152, 289) point it at a mesh group node, and reading it
+                # as indices dropped their hooks. No stock mesh has true indexed collision.
                 if self.strip_size in (5, 7) and self.vert_strips is not None:
                     count = sum(self.vert_strips.data)
                 else:
@@ -2725,6 +2776,7 @@ class Mesh(DataStruct):
             
             b_obj.collidable = True   
             b_obj.id = self.model.obj_key(self.id)
+            self.keep_stock_aabb(b_obj)
             b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
             collection.objects.link(b_obj)
@@ -2766,6 +2818,7 @@ class Mesh(DataStruct):
             b_obj = bpy.data.objects.new(mesh_name, mesh)
             b_obj.visible = True
             b_obj.id = self.model.obj_key(self.id)
+            self.keep_stock_aabb(b_obj)
             b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
             collection.objects.link(b_obj)
@@ -3555,6 +3608,8 @@ class MeshGroup(Node):
         super().__init__( parent,model, type, header)
         self.parent = parent
         self.bounding_box = None
+        # stock mesh groups have flags_3 0 (32 on a few), never the 0x3 Node starts with
+        self.transform_flags = 0
         
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
@@ -5010,6 +5065,34 @@ def get_immediate_children(collection):
             immediate_children.append(obj)
     return immediate_children
 
+def imported_mesh_group(mesh):
+    """The imported mesh group empty a mesh object sits under, if any."""
+    obj = getattr(mesh, 'original_object', None)
+    parent = obj.parent if obj is not None else None
+    while parent is not None and parent.get('pivot_helper'):
+        parent = parent.parent
+    if parent is not None and parent.get('node_type') == 12388:
+        return parent
+    return None
+
+def restore_mesh_group_flags(group):
+    """See Model.restore_node_flags."""
+    sources = {imported_mesh_group(mesh) for mesh in group.children if mesh is not None}
+    if len(sources) != 1 or None in sources:
+        return
+    source = sources.pop()
+    if 'vis_flags' not in source or 'col_flags' not in source:
+        return
+    vis, col = int(source['vis_flags']), int(source['col_flags'])
+    has_col = any(mesh.has_collision() for mesh in group.children if mesh is not None)
+    has_vis = any(mesh.has_visuals() for mesh in group.children if mesh is not None)
+    if bool(col & 0x2) != has_col or bool(vis & 0x4) != has_vis:
+        return
+    group.vis_flags = (group.vis_flags & 0xFFFFFF00) | (vis & 0xFF)
+    group.col_flags = (group.col_flags & 0xFFFFFF00) | (col & 0xFF)
+    if 'transform_flags' in source:
+        group.transform_flags = int(source['transform_flags'])
+
 def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
     """The exported nodes and meshes for obj and its descendants, to be added under parent.
 
@@ -5810,7 +5893,9 @@ class Model():
         The game switches pod parts (shadows, sparks, ...) on and off by setting the low flag bits
         of the node it looks up (SW_RACER_RE src/Swr/swrModel.c:1761 swrModel_NodeModifyFlags), so a
         node the stock pod keeps hidden must stay hidden, rather than get set_flags' all-visible
-        flags. Mesh groups keep the flags export gave them from their meshes.
+        flags. A mesh group whose meshes all come from one imported mesh group gets that group's
+        flags_3 and low flag bytes back (its layer bits come from the meshes), unless its
+        collision/visuals bits (0x2 of col_flags, 0x4 of vis_flags) no longer match its meshes.
         """
         seen = set()
         stack = list(self.nodes)
@@ -5825,6 +5910,9 @@ class Model():
                     node.vis_flags = int(source['vis_flags'])
                 if 'col_flags' in source:
                     node.col_flags = int(source['col_flags'])
+            if isinstance(node, MeshGroup):
+                restore_mesh_group_flags(node)
+                continue
             stack.extend(child for child in node.children if child is not None)
 
     def write_altn_slot(self, buffer, node, index, child_ptr):
