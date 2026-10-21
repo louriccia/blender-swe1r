@@ -204,7 +204,7 @@ class Spline(DataStruct):
                     drawn.add((i, j))
         return polylines
     
-    def calculate_progress(self, loop):
+    def calculate_progress(self):
         # calculate progress/indexing
         path_list = []
         current = [0]
@@ -230,13 +230,15 @@ class Spline(DataStruct):
             path_list.append(current_unique)
             current = next
 
+        # progress is the point's depth from point 0. swrSpline_BuildProgressTable (0x0047f470)
+        # walks progress 0..n-1, finds the points at each depth with
+        # swrSpline_getControlPointIdFromProgress (swrSpline.c:86-93) and traces their outgoing
+        # segments. An open spline's end point has none, so the game ignores its value; it
+        # keeps its own depth like every stock open spline (e.g. spline 41 point 9 -> 9).
         for i, path in enumerate(path_list):
             for p in path:
-                point = self.points[p]
-                point.progress = i
-                if i == len(path_list) - 1 and not loop:
-                    point.progress = 0
-    
+                self.points[p].progress = i
+
     def unmake(self, collection, scale = 0.01):
         spline_objects = [obj for obj in collection.objects if obj.type == 'CURVE']
         
@@ -303,7 +305,7 @@ class Spline(DataStruct):
             self.points.append(p)
             point_count += 1
 
-        self.calculate_progress(loop)
+        self.calculate_progress()
 
         def game_position(co):
             return [c/scale for c in spline_object.matrix_world @ co]
@@ -366,18 +368,19 @@ class Spline(DataStruct):
                 self.points.append(p)
                 point_count += 1
 
-            self.calculate_progress(loop)
+            self.calculate_progress()
 
         # unk_set[slot] is the segment id of the segment that leaves through next<slot+1>
-        # (swrSpline.c:394-401): next1 segments are numbered by point, next2 segments follow
+        # (swrSpline.c:394-401): next1 segments are numbered by point, next2 segments follow.
+        # An open spline's end point starts no segment: the cursor stops on the segment before it
+        # (swrSpline.c:188-194), so swrSpline_getControlPoint (swrSpline.c:96-106) never reads
+        # its slot. It keeps its own index anyway, as in every stock open spline.
         splits = 0
         for i, point in enumerate(self.points):
             point.unk_set[0] = i
             if len(point.next) == 2:
                 point.unk_set[1] = len(self.points) + splits
                 splits += 1
-            if i == len(self.points) - 1 and not loop:
-                point.unk_set[0] = 0
 
         # LIMITATIONS:
         # a point can split into at most 2 paths and join at most 4
