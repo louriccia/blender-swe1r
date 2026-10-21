@@ -40,6 +40,7 @@ paths_exclude_pattern = [
   "/.gitignore",
   "/.gitattributes",
   "/tests/",
+  "/levels/",
   "*.zip",
   "*.tar.xz",
 ]
