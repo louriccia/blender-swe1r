@@ -4684,6 +4684,19 @@ def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
         group = Group20580(parent, model, 20580)
         assign_objs_to_node_by_type(meshes, group, model)
         node = group
+        # assign_objs_to_node_by_type gives visual and collision meshes their own groups; import
+        # splits a stock mesh holding both (e.g. Modl 176's shared mesh group) into two objects,
+        # so put them back in one mesh group when the groups' layers agree
+        groups = group.children
+        if len(groups) > 1 and all(isinstance(g, MeshGroup) for g in groups) and \
+                len({(g.vis_flags, g.col_flags) for g in groups}) == 1:
+            merged = groups[0]
+            for other in groups[1:]:
+                for mesh in other.children:
+                    mesh.parent = merged
+                    merged.children.append(mesh)
+            merged.calc_bounding()
+            group.children = [merged]
         if len(group.children) == 1 and isinstance(group.children[0], MeshGroup):
             node = group.children[0]
             node.parent = parent
@@ -5087,10 +5100,12 @@ class Model():
             # node, so they share the generic traversal.
             unmade = []
             immediate_children = get_immediate_children(collection)
-            imported_root = get_imported_part_root(immediate_children) if self.type == '3' else None
+            imported_root = get_imported_part_root(immediate_children) if self.type in ('2', '3') else None
             if imported_root is not None:
                 # Re-exporting an imported Part: its root already is the slot-0 pivot node the
                 # template would create, so use it rather than wrapping it in another one each export.
+                # A Modl whose slot 0 is a pivot node (e.g. 176) likewise has it as its first node,
+                # with no basic node above it.
                 root = NodeTransformedWithPivot(self, self, 53349).unmake(imported_root)
                 root.header = [0]
                 if imported_root.name in target_map.keys():
