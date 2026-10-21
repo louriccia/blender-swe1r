@@ -2661,6 +2661,21 @@ class Mesh(DataStruct):
            
             edges = []
             faces = self.visuals_index_buffer.make()
+            # source[i]: the buffer vertex behind mesh vertex i. A face on the same three vertices
+            # as an earlier one (the back of a double-sided triangle: the game culls one side per
+            # material, SW_RACER_RE dinput_hook/renderer_hook.cpp:901-910, so both windings draw)
+            # gets its own copies of them: mesh.validate() deletes faces that repeat another's
+            # vertices. Stock models store such pairs on separate vertices; export shares equal ones.
+            source = list(range(len(verts)))
+            seen_faces = set()
+            for face in faces:
+                key = frozenset(face)
+                if len(key) == 3 and key in seen_faces and all(i < len(verts) for i in face):
+                    copies = list(range(len(source), len(source) + 3))
+                    source += face
+                    verts += [verts[i] for i in face]
+                    face[:] = copies
+                seen_faces.add(key)
             mesh_name = '{:07d}'.format(self.id) + "_" + "visuals"
             mesh = bpy.data.meshes.new(mesh_name)
             b_obj = bpy.data.objects.new(mesh_name, mesh)
@@ -2687,8 +2702,8 @@ class Mesh(DataStruct):
             loop_verts = [0] * len(mesh.loops)
             mesh.loops.foreach_get('vertex_index', loop_verts)
             vert_data = self.visuals_vert_buffer.data
-            uv_layer.foreach_set('uv', [u/4096 for i in loop_verts for u in vert_data[i].uv])
-            color_layer.foreach_set('color', [a/255 for i in loop_verts for a in vert_data[i].color.to_array()])
+            uv_layer.foreach_set('uv', [u/4096 for i in loop_verts for u in vert_data[source[i]].uv])
+            color_layer.foreach_set('color', [a/255 for i in loop_verts for a in vert_data[source[i]].color.to_array()])
             if uses_normals(self.material):
                 make_vertex_normals(mesh)
                     
@@ -2702,7 +2717,7 @@ class Mesh(DataStruct):
                 vg = b_obj.vertex_groups.get(f'{self.id}')
                 if vg is None:
                     vg = b_obj.vertex_groups.new(name=f'{self.id}')
-                vg.add(range(self.group_count), 1.0, 'REPLACE')
+                vg.add([i for i, s in enumerate(source) if s < self.group_count], 1.0, 'REPLACE')
 
                 hook = b_obj.modifiers.new(name=f"Hook_{self.id}", type='HOOK')
                 hook.vertex_group = vg.name
@@ -3301,6 +3316,13 @@ class Node(DataStruct):
                 b_node['null_slots'] = null_slots
             if shared:
                 b_node['shared_children'] = shared
+            # Podd child slots the game fills from the MAlt (Model.read_alt_node): the MAlt node is
+            # a child object, but its file offset says nothing about its index among the Podd's
+            # nodes, so keep the index for export (Model.begin_alt_export)
+            alt_children = {str(i): c.model.obj_key(c.id) for i, c in enumerate(self.children)
+                            if isinstance(c, Node) and c.model is not self.model}
+            if alt_children:
+                b_node['alt_children'] = alt_children
 
         if self.id in self.model.header.offsets:
             b_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
@@ -3339,6 +3361,9 @@ class Node(DataStruct):
             self.null_slots = [int(slot) for slot in node['null_slots']]
         if 'shared_children' in node:
             self.shared_slots = {int(slot): str(key) for slot, key in node['shared_children'].items()}
+        if 'alt_children' in node and getattr(self.model, 'alt_model', None) is not None:
+            # MAlt nodes go back at their index like shared children do (Model.begin_alt_export)
+            self.shared_slots.update({int(slot): str(key) for slot, key in node['alt_children'].items()})
         
         if self.model.type == '7' and 2 in self.header:
             self.skybox = True
@@ -3387,6 +3412,10 @@ class Node(DataStruct):
             child_ptr = child_list_addr + 4*index
             self.model.highlight(child_ptr)
             if child is None:
+                continue
+            if isinstance(child, Node) and child.model is not self.model:
+                # a high detail node of the Podd's MAlt: the game plugs it into this null pointer
+                self.model.write_altn_slot(buffer, self, index, child_ptr)
                 continue
             #check if child is already written
             if child.write_location:
@@ -4482,9 +4511,14 @@ class ModelHeader():
         if self.model.Anim:
             cursor = self.model.Anim.write(buffer, cursor)
 
-        if self.model.AltN:
-            cursor = self.model.ref_map['AltN'] = cursor + 4
-            #cursor = write_altn(buffer, cursor, model, hl)0
+        if self.model.altn_count:
+            # null terminated list of pointers, filled in once the nodes are written
+            # (Model.write_altn_slot for a Podd, Model.write for a MAlt)
+            cursor = writeString(buffer, 'AltN', cursor)
+            self.model.ref_map['AltN'] = cursor
+            for i in range(self.model.altn_count + 1):
+                self.model.highlight(cursor)
+                cursor += 4
 
         cursor = writeString(buffer, 'HEnd', cursor)
         self.model.ref_map['HEnd'] = cursor
@@ -4650,6 +4684,23 @@ def children_through_pivot_helpers(obj):
             children.append(child)
     return children
 
+def get_imported_podd_root(collection):
+    """The slot 0 node of an imported Podd, if the collection holds one rather than the authoring template.
+
+    The "new pod" template keeps its parts in Right Engine/Left Engine/Cockpit/Cable child
+    collections (collection_type '2'..'5'); an imported pod is its node tree, rooted at the
+    selector that held header slot 0.
+    """
+    if any(child.collection_type in ('2', '3', '4', '5') for child in collection.children):
+        return None
+    immediate_children = through_pivot_helpers(get_immediate_children(collection))
+    if len(immediate_children) != 1:
+        return None
+    obj = immediate_children[0]
+    if obj.type == 'EMPTY' and 0 in obj.get('header', []):
+        return obj
+    return None
+
 def get_imported_skybox_root(immediate_children):
     """(slot-2 pivot, camera-follow node) of an imported skybox, if it is the collection's only top-level object."""
     immediate_children = through_pivot_helpers(immediate_children)
@@ -4690,6 +4741,18 @@ def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
     if obj is None:
         return []
 
+    if obj.get('MAlt') and model.alt_model is not None:
+        # a high detail node import merged in from the Podd's MAlt goes back to the MAlt, as the
+        # one node the Podd's AltN slot points at (Model.begin_alt_export). When the Podd parent
+        # recorded its index, resolve_child_slots puts it back there.
+        nodes = deep_unmake(obj, parent, model.alt_model, target_map, skybox, keep = True)
+        file_parent = obj.parent
+        while file_parent is not None and file_parent.get('pivot_helper'):
+            file_parent = file_parent.parent
+        if file_parent is not None and obj.id in file_parent.get('alt_children', {}).values():
+            return []
+        return nodes
+
     # Pivot-helper empties are inserted on import to realise T(-pivot) on
     # NodeTransformedWithPivot nodes. They do not correspond to a file node — descend
     # through them transparently so the helper's children attach to the file parent.
@@ -4712,10 +4775,14 @@ def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
     # (Model.resolve_child_slots), so the node holding them, and the shared node, must stay nodes
     has_child_slots = obj.type == 'EMPTY' and bool(obj.get('null_slots') or obj.get('shared_children'))
     is_shared = obj.id in model.shared_target_ids
-    retained = (obj.get('node_type') == 53349) or (obj.get('node_type') == 53350 and not skybox) or obj.animation_data or obj.name in target_map.keys() or holds_header_slot or is_selector or has_child_slots
-    if (keep or is_shared) and not retained and obj.type == 'EMPTY' and obj.get('node_type') == 12388:
+    # an imported pod keeps every node as itself (Model.begin_alt_export): the game flips the
+    # flags of pod nodes at run time, e.g. one hidden basic node holds a copy of the engines
+    keep_node = model.keep_imported_nodes and obj.type == 'EMPTY' and obj.get('node_type') is not None
+    retained_as_transform = (obj.get('node_type') == 53349) or (obj.get('node_type') == 53350 and not skybox) or obj.animation_data or obj.name in target_map.keys() or is_selector or has_child_slots
+    retained = retained_as_transform or holds_header_slot or keep_node
+    if (keep or is_shared or holds_header_slot or keep_node) and not retained_as_transform and obj.type == 'EMPTY' and obj.get('node_type') == 12388:
         # a mesh group kept as one node: regroup its meshes and keep the single mesh group that
-        # gives, rather than wrapping it in a transform
+        # gives, rather than wrapping it in a transform (a pod's slot 59 is a mesh group)
         meshes = []
         for child in object_children(obj):
             meshes.extend(deep_unmake(child, parent, model, target_map))
@@ -4738,6 +4805,8 @@ def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
         if len(group.children) == 1 and isinstance(group.children[0], MeshGroup):
             node = group.children[0]
             node.parent = parent
+        if holds_header_slot:
+            node.imported_header = [int(slot) for slot in obj['header']]
         model.register_node(obj, node)
         return [node]
     if retained or keep or is_shared: # cases in which we need to retain hierarchy
@@ -4747,6 +4816,9 @@ def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
             # keep group/selector/LOD nodes as themselves rather than as a transform; they have
             # no transform of their own for an animation to drive
             empty = create_node(obj['node_type'], parent, model).unmake(obj)
+        elif keep_node and obj.get('node_type') == 53348:
+            empty = NodeTransformed(parent, model, 53348).unmake(obj)
+            empty.node_type = 53348  # Node.unmake defaults empties to 53349
         else:
             empty = NodeTransformedWithPivot(parent, model, 53349).unmake(obj)
 
@@ -4887,6 +4959,12 @@ class Model():
         # export: ids of objects another node links to as a shared child, and the node each became
         self.shared_target_ids = set()
         self.shared_nodes = {}
+        # export of an imported Podd (see begin_alt_export): AltN list length, the AltN index of
+        # each Podd child slot holding a MAlt node, and (MAlt) the node behind each index
+        self.altn_count = 0
+        self.altn_slots = {}
+        self.altn_nodes = []
+        self.keep_imported_nodes = False
 
     def read(self, buffer):
         if self.id is None:
@@ -5153,7 +5231,15 @@ class Model():
             for obj in immediate_children:
                 unmade.extend(deep_unmake(obj, root, self, target_map))
             assign_objs_to_node_by_type(unmade, root, self)
-                    
+
+        elif self.type == '4' and get_imported_podd_root(collection) is not None:
+            # Re-exporting an imported pod: write its own node tree back (LODs, animations and
+            # every header slot the game looks up), not the authoring template below, and split
+            # the high detail nodes import merged in from the MAlt back out (see begin_alt_export).
+            imported_root = get_imported_podd_root(collection)
+            self.begin_alt_export(objects)
+            root = deep_unmake(imported_root, None, self, target_map, keep = True)[0]
+
         elif self.type == '4': #PODD
             def create_podd_component(mesh, type):
                 comp_a = NodeTransformedWithPivot(None, self, 53349)
@@ -5327,15 +5413,101 @@ class Model():
         self.nodes.append(root)
         self.resolve_child_slots()
         self.resolve_header_slots()
-                
+        if self.keep_imported_nodes:
+            self.restore_node_flags()
+        if self.alt_model is not None:
+            self.end_alt_export()
+
         #update trigger targets
         for trigger in self.triggers:
             if trigger.target:
                 trigger.target = target_map[trigger.target.name]
-        
+
         self.header.unmake(collection)
-            
+
         return self
+
+    def begin_alt_export(self, objects):
+        """Export the nodes import merged in from this Podd's MAlt into a MAlt model of their own.
+
+        The game loads a Podd with its MAlt and merges them (SW_RACER_RE
+        src/Swr/swrModel.h:365-366 swrModel_FixupAltNodePointers, 0x00448c70; the MAlt's AltN
+        node list is byte swapped as nodes, src/Swr/swrModel.c:216-228): each Podd AltN entry is
+        the address of a null child pointer, which gets the MAlt AltN node with the same index,
+        and each empty Podd header slot gets the MAlt's node in that slot. Import grafts the MAlt
+        nodes into the Podd tree the same way and tags them 'MAlt' (Model.read_alt_model);
+        deep_unmake gives those to self.alt_model, and end_alt_export pairs each graft point with
+        an AltN index.
+        """
+        self.keep_imported_nodes = True
+        MAlt_id = Podd_MAlt.get(str(self.id))
+        if MAlt_id is None:
+            return
+        alt = Model(MAlt_id)
+        alt.keep_imported_nodes = True
+        alt.type = '1'
+        alt.id_prefix = 'MAlt_'
+        alt.textureblock = self.textureblock
+        alt.texture_export = self.texture_export
+        alt.image_map = self.image_map  # texture ids are global to the textureblock
+        # shared-child keys are namespaced by model ('MAlt_<offset>'), so one registry serves both
+        alt.shared_target_ids = self.shared_target_ids
+        alt.shared_nodes = self.shared_nodes
+        self.shared_target_ids.update(str(key) for obj in objects for key in obj.get('alt_children', {}).values())
+        self.alt_model = alt
+
+    def end_alt_export(self):
+        """Pair every Podd child slot holding a MAlt node with an AltN index (see begin_alt_export)."""
+        alt = self.alt_model
+        self.altn_slots = {}
+        alt.altn_nodes = []
+        roots = []
+        seen = set()
+        stack = list(self.nodes)
+        while stack:
+            node = stack.pop(0)
+            if not isinstance(node, Node) or id(node) in seen or node.model is not self:
+                continue
+            seen.add(id(node))
+            for index, child in enumerate(node.children):
+                if isinstance(child, Node) and child.model is alt:
+                    self.altn_slots[(id(node), index)] = len(alt.altn_nodes)
+                    alt.altn_nodes.append(child)
+                    if child not in roots:
+                        roots.append(child)
+            stack.extend(child for child in node.children if child is not None)
+        alt.nodes = roots
+        self.altn_count = alt.altn_count = len(alt.altn_nodes)
+        alt.header.size = self.header.size
+        alt.Anim = AnimList(alt.header, alt).unmake()
+
+    def restore_node_flags(self):
+        """Give the imported nodes back their own vis/col flags.
+
+        The game switches pod parts (shadows, sparks, ...) on and off by setting the low flag bits
+        of the node it looks up (SW_RACER_RE src/Swr/swrModel.c:1761 swrModel_NodeModifyFlags), so a
+        node the stock pod keeps hidden must stay hidden, rather than get set_flags' all-visible
+        flags. Mesh groups keep the flags export gave them from their meshes.
+        """
+        seen = set()
+        stack = list(self.nodes)
+        while stack:
+            node = stack.pop()
+            if not isinstance(node, Node) or id(node) in seen:
+                continue
+            seen.add(id(node))
+            source = node.original_object
+            if source is not None and not isinstance(node, MeshGroup):
+                if 'vis_flags' in source:
+                    node.vis_flags = int(source['vis_flags'])
+                if 'col_flags' in source:
+                    node.col_flags = int(source['col_flags'])
+            stack.extend(child for child in node.children if child is not None)
+
+    def write_altn_slot(self, buffer, node, index, child_ptr):
+        """List a null child pointer that the game fills with a MAlt node in the AltN header list."""
+        altn_index = self.altn_slots[(id(node), index)]
+        writeUInt32BE(buffer, child_ptr, self.ref_map['AltN'] + 4 * altn_index)
 
     def find_mesh_group(self, obj):
         """The exported mesh group node holding obj's child meshes (export regroups meshes)."""
@@ -5406,7 +5578,10 @@ class Model():
 
         # write all nodes
         for node in self.nodes:
-            cursor = node.write(buffer, cursor)
+            if node.write_location is None:  # a MAlt's AltN nodes can sit under one another
+                cursor = node.write(buffer, cursor)
+        for i, node in enumerate(self.altn_nodes):
+            writeUInt32BE(buffer, node.write_location, self.ref_map['AltN'] + 4 * i)
             
         # write all animations
         if self.Anim:
