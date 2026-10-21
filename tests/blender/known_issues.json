@@ -1,18 +1,3 @@
 {
-  "_about": "Round-trip failures that exist on main today. Listed tests run as expected failures, so the suite gates on regressions; when a fix makes one pass, the run fails with 'unexpected success' until its entry is removed here. 'crash' marks a model whose run is known to crash Blender.",
-  "46": {
-    "test_geometry_preserved": "1 visual triangle lost: the stock model draws a triangle twice (exact duplicate faces); export loads the pair from the same vertices and the re-import's mesh.validate() merges them"
-  },
-  "64": {
-    "test_round_trip_completes": "stock import fails: texture pixels index past the palette (textureblock.py Texture.make)"
-  },
-  "156": {
-    "test_header_slots_preserved": "slots 5, 19, 33, 47, 61, 75 point at nodes import doesn't create objects for, so export can't write them back"
-  },
-  "216": {
-    "test_round_trip_completes": "stock import fails: texture pixels index past the palette (textureblock.py Texture.make)"
-  },
-  "222": {
-    "test_round_trip_completes": "stock import fails: texture pixels index past the palette (textureblock.py Texture.make)"
-  }
+  "_about": "Round-trip failures that exist on main today. Listed tests run as expected failures, so the suite gates on regressions; when a fix makes one pass, the run fails with 'unexpected success' until its entry is removed here. 'crash' marks a model whose run is known to crash Blender."
 }

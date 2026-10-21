@@ -26,7 +26,7 @@ import bmesh
 import math
 import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt16BE, readUInt32BE, readUInt8, readFloatBE
-from .textureblock import Texture, compute_image_hash, compute_hash
+from .textureblock import Texture, compute_image_hash, compute_hash, needed_pixel_bytes, format_map
 from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt
 
 def find_existing_light(objects, color, location, rotation):
@@ -1352,7 +1352,18 @@ class MaterialTexture(DataStruct):
     def image_name(self):
         # a use with a mip chain gets its own image: it is shown deswizzled and carries the chain
         # for export, and stock texture 80 is used both with one (model 127) and without (1, 115)
-        return f"{self.id}_lod" if self.lod else str(self.id)
+        if self.lod:
+            return f"{self.id}_lod"
+        # a use at a larger size than the block entry holds (Pixels.read) is a different image
+        # from the texture at its stored size, which other models use under the plain id
+        textureblock = getattr(getattr(self.model, 'modelblock', None), 'textureblock', None)
+        if textureblock is not None and self.id != MaterialTexture.NO_TEXTURE and self.format in format_map \
+                and 0 <= self.id < len(textureblock.data):
+            pixel_buffer = textureblock.fetch(self.id)[0]
+            if pixel_buffer is not None and \
+                    len(pixel_buffer) < needed_pixel_bytes(self.width, self.height, self.format):
+                return f"{self.id}_{self.width}x{self.height}"
+        return str(self.id)
 
     def read(self, buffer, cursor):
         if cursor == 0:
@@ -3932,6 +3943,13 @@ class TexturePose(DataStruct):
 # finely (in frames) curves are checked for that.
 ANIM_BAKE_TOLERANCE = {'location': 1e-3, 'scale': 1e-3, 'rotation': math.radians(0.1)}
 ANIM_BAKE_STEP = 0.5
+# A rotation error of a radians moves a point r Blender units from the pivot by about a * r, so a
+# large rotating part (a whole track section, hundreds of units across) needs a much finer angle
+# than ANIM_BAKE_TOLERANCE['rotation'] for its far vertices to stay within this distance.
+ANIM_BAKE_ROTATION_DISTANCE = 1e-3
+# below this the single-precision quaternions the game stores can't follow (about 6e-8 per
+# component, i.e. 2.4e-7 rad), and keys would be added for rounding noise
+ANIM_BAKE_MIN_ROTATION = 1e-6
 
 ROTATION_PATHS = ('rotation_quaternion', 'rotation_euler', 'rotation_axis_angle')
 
@@ -3975,16 +3993,47 @@ def _anim_deviation(kind, value, interpolated):
     return (value - interpolated).length
 
 
-def _anim_bake(kind, knots, evaluate):
+def _anim_subtree_extent(obj):
+    """How far (Blender units, world space) the farthest geometry obj's transform moves is from its origin."""
+    origin = obj.matrix_world.translation
+    extent = 0.0
+    for o in (obj, *obj.children_recursive):
+        if o.type != 'MESH':
+            continue
+        matrix = o.matrix_world
+        for corner in o.bound_box:
+            extent = max(extent, (matrix @ mathutils.Vector(corner) - origin).length)
+    return extent
+
+
+def _anim_rotation_tolerance(obj):
+    """The angle the bake may stray by: ANIM_BAKE_TOLERANCE['rotation'], or finer when that would
+    move obj's farthest geometry by more than ANIM_BAKE_ROTATION_DISTANCE."""
+    tolerance = ANIM_BAKE_TOLERANCE['rotation']
+    extent = _anim_subtree_extent(obj)
+    if extent > 0:
+        tolerance = min(tolerance, ANIM_BAKE_ROTATION_DISTANCE / extent)
+    return max(tolerance, ANIM_BAKE_MIN_ROTATION)
+
+
+def _anim_bake(kind, knots, evaluate, tolerance=None):
     """Keys that the game's interpolation (linear, or slerp for rotation; SW_RACER_RE
-    src/Swr/swrModel.c:648-726) turns into Blender's evaluated curve within ANIM_BAKE_TOLERANCE.
+    src/Swr/swrModel.c:648-726) turns into Blender's evaluated curve within tolerance (by default
+    ANIM_BAKE_TOLERANCE[kind]).
 
     knots are the curve's own key frames and are always kept; between them the curve is sampled
     every ANIM_BAKE_STEP frames and the worst-fitting sample is added until every sample fits.
+    A finer tolerance samples more finely: the error between two keys grows with the square of
+    their spacing, so the step shrinks with the square root of the tolerance, which keeps the
+    motion between samples (which is never checked) as small next to the tolerance as it is at
+    the default.
     """
+    if tolerance is None:
+        tolerance = ANIM_BAKE_TOLERANCE[kind]
+    step = ANIM_BAKE_STEP * max(1 / 64, min(1.0, math.sqrt(tolerance / ANIM_BAKE_TOLERANCE[kind])))
     times = []
     for t0, t1 in zip(knots, knots[1:]):
-        steps = max(1, math.ceil((t1 - t0) / ANIM_BAKE_STEP - 1e-6))
+        steps = max(1, math.ceil((t1 - t0) / step - 1e-6))
         times += [t0 + (t1 - t0) * i / steps for i in range(steps)]
     times.append(knots[-1])
     values = [evaluate(t) for t in times]
@@ -3994,7 +4043,6 @@ def _anim_bake(kind, knots, evaluate):
         values = [mathutils.Vector(v) for v in values]
     knot_set = set(knots)
     keep = {i for i, t in enumerate(times) if t in knot_set}
-    tolerance = ANIM_BAKE_TOLERANCE[kind]
     stack = sorted(keep)
     segments = list(zip(stack, stack[1:]))
     while segments:
@@ -4079,7 +4127,8 @@ def get_animations(obj, model, entity):
             # the game interpolates these the way Blender does: keep the keys as they are
             poses = [evaluate(frame) for frame in times]
         else:
-            times, poses = _anim_bake(kind, times, evaluate)
+            tolerance = _anim_rotation_tolerance(obj) if kind == 'rotation' else None
+            times, poses = _anim_bake(kind, times, evaluate, tolerance)
             if kind == 'rotation':
                 # keep each key in the previous one's hemisphere, so the arc the game slerps (always
                 # the shorter one) is also the one a re-import's quaternion lerp follows
@@ -4361,16 +4410,29 @@ class ModelHeader():
         self.AltN = []
         self.model = model
         self.size = None
+        # {slot: value} for slots holding a plain value rather than a pointer (see read)
+        self.values = {}
 
     def read(self, buffer, cursor):
         type = readString(buffer, cursor)
         self.model.type = get_model_type(type)
         assert self.model.type, f"This model extension was not recognized: {type}"
-        
+
+        # A header entry is a node, an animation or a plain value (SW_RACER_RE src/types.h:1416
+        # swrModel_HeaderEntry); the load only relocates the words the model's pointer mask marks
+        # (src/Swr/swrModel.c:126-144). Scen 156 (the cutscene) holds unmasked values such as
+        # 0x80000002 in slots 5, 19, 33, 47, 61 and 75; keep them to write back as they are.
+        mask = None
+        modelblock = getattr(self.model, 'modelblock', None)
+        if modelblock is not None and self.model.id is not None and buffer is modelblock.fetch(self.model.id)[1]:
+            mask = modelblock.fetch(self.model.id)[0]
+
         cursor = 4
         header = readInt32BE(buffer, cursor)
 
         while header != -1:
+            if header and mask is not None and cursor // 32 < len(mask) and                     not mask[cursor // 32] & (1 << (7 - (cursor % 32) // 4)):
+                self.values[len(self.offsets)] = header
             self.offsets.append(header)
             cursor += 4
             header = readInt32BE(buffer, cursor)
@@ -4403,6 +4465,8 @@ class ModelHeader():
     
     def make(self):
         self.model.collection['header'] = self.offsets
+        if self.values:
+            self.model.collection['header_values'] = {str(slot): value for slot, value in self.values.items()}
         self.model.collection.export_type = self.model.type
         self.model.collection.export_model = str(self.model.id)
         
@@ -4423,6 +4487,7 @@ class ModelHeader():
         imported_header = collection.get('header')
         if imported_header is not None and len(imported_header):
             self.size = len(imported_header)
+        self.values = {int(slot): int(value) for slot, value in collection.get('header_values', {}).items()}
         if self.model.type == "7":
             self.model.Data = ModelData(self, self.model).unmake()
         self.model.Anim = AnimList(self, self.model).unmake()
@@ -4431,9 +4496,12 @@ class ModelHeader():
         cursor = writeString(buffer,  model_types[int(self.model.type)][1], cursor)
 
         size = self.size if self.size is not None else header_sizes[int(self.model.type)]
-        for header_value in range(size):
-            self.model.highlight(cursor)
-            cursor += 4  # writeInt32BE(buffer, header_value, cursor)
+        for slot in range(size):
+            if slot in self.values:
+                writeInt32BE(buffer, self.values[slot], cursor)
+            else:
+                self.model.highlight(cursor)
+            cursor += 4
 
         cursor = writeInt32BE(buffer, -1, cursor)
 
@@ -4721,6 +4789,19 @@ def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
         group = Group20580(parent, model, 20580)
         assign_objs_to_node_by_type(meshes, group, model)
         node = group
+        # assign_objs_to_node_by_type gives visual and collision meshes their own groups; import
+        # splits a stock mesh holding both (e.g. Modl 176's shared mesh group) into two objects,
+        # so put them back in one mesh group when the groups' layers agree
+        groups = group.children
+        if len(groups) > 1 and all(isinstance(g, MeshGroup) for g in groups) and \
+                len({(g.vis_flags, g.col_flags) for g in groups}) == 1:
+            merged = groups[0]
+            for other in groups[1:]:
+                for mesh in other.children:
+                    mesh.parent = merged
+                    merged.children.append(mesh)
+            merged.calc_bounding()
+            group.children = [merged]
         if len(group.children) == 1 and isinstance(group.children[0], MeshGroup):
             node = group.children[0]
             node.parent = parent
@@ -5135,10 +5216,12 @@ class Model():
             # node, so they share the generic traversal.
             unmade = []
             immediate_children = get_immediate_children(collection)
-            imported_root = get_imported_part_root(immediate_children) if self.type == '3' else None
+            imported_root = get_imported_part_root(immediate_children) if self.type in ('2', '3') else None
             if imported_root is not None:
                 # Re-exporting an imported Part: its root already is the slot-0 pivot node the
                 # template would create, so use it rather than wrapping it in another one each export.
+                # A Modl whose slot 0 is a pivot node (e.g. 176) likewise has it as its first node,
+                # with no basic node above it.
                 root = NodeTransformedWithPivot(self, self, 53349).unmake(imported_root)
                 root.header = [0]
                 if imported_root.name in target_map.keys():
