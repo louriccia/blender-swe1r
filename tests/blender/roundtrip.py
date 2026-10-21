@@ -411,6 +411,42 @@ def animation_types(model_buffer):
     return dict(types)
 
 
+def zero_axis_rotation_keys(model_buffer):
+    """(animation index, key time, angle) of every axis-angle rotation key whose axis has no length.
+
+    The game builds the rotation with rdMatrix_BuildFromVectorAngle44, which divides by zero for a
+    zero axis (SW_RACER_RE src/Primitives/rdMatrix.c); the NaN sticks to the node, so its subtree
+    stops drawing. Stock files never hold one.
+    """
+    u32 = lambda o: struct.unpack_from(">I", model_buffer, o)[0]
+    cursor = 4
+    while u32(cursor) != 0xFFFFFFFF:
+        cursor += 4
+    cursor += 4
+    anims = []
+    while model_buffer[cursor:cursor + 4] != b"HEnd":
+        tag = model_buffer[cursor:cursor + 4]
+        cursor += 4
+        if tag == b"Data":
+            cursor += 4 + 4 * u32(cursor)
+            continue
+        while u32(cursor):
+            if tag == b"Anim":
+                anims.append(u32(cursor))
+            cursor += 4
+        cursor += 4
+    bad = []
+    for index, anim in enumerate(anims):
+        if u32(anim + 256) & 0xF != 8:
+            continue
+        count, times, values = u32(anim + 260), u32(anim + 284), u32(anim + 288)
+        for k in range(count if times and values else 0):
+            x, y, z, angle = struct.unpack_from(">4f", model_buffer, values + 16 * k)
+            if x * x + y * y + z * z < 1e-8:
+                bad.append((index, round(struct.unpack_from(">f", model_buffer, times + 4 * k)[0], 3), angle))
+    return bad
+
+
 def mesh_boxes(model_buffer):
     """{vertex positions: (bounding box, vertex_base_offset)} for the meshes reachable from slot nodes.
 
@@ -654,6 +690,16 @@ class RoundTripTest(unittest.TestCase):
         before = read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1]
         after = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
         self.assertEqual(animation_types(before), animation_types(after), "animations by type (stock vs export)")
+
+    def test_rotation_keys_have_an_axis(self):
+        """Export never writes a rotation key with a zero axis (identity is (1, 0, 0), 0 as in stock).
+
+        Identity came out of Blender as a zero axis with 360 degrees; at the vehicle-select clip
+        start the game turned it into a NaN transform and racers lost a foot (Aldar Beedo his body).
+        """
+        after = read_block(self.trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
+        bad = zero_axis_rotation_keys(after)
+        self.assertEqual(bad[:5], [], f"{len(bad)} rotation keys with a zero axis (animation, time, angle)")
 
     def test_mesh_boxes_and_hooks_kept(self):
         """Each stock mesh export writes back keeps its bounding box and hooked prefix.

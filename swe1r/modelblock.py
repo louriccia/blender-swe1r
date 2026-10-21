@@ -4002,8 +4002,11 @@ class RotationPose(DataStruct):
     def make(self, target, time):
         axis = self.data[:3]
         angle = self.data[3]*math.pi/180
-        R = mathutils.Matrix.Rotation(angle, 4, axis)
-        R = R.to_quaternion()
+        if mathutils.Vector(axis).length < 1e-6:
+            # files written before the zero-axis fix in unmake hold identity as a zero axis
+            R = mathutils.Quaternion()
+        else:
+            R = mathutils.Matrix.Rotation(angle, 4, axis).to_quaternion()
         self.R = R
         
         if self.previous is not None and self.previous.R is not None:
@@ -4014,7 +4017,13 @@ class RotationPose(DataStruct):
     
     def unmake(self, pose):
         q = mathutils.Quaternion(pose)
-        axis, angle = q.to_axis_angle()    
+        axis, angle = q.to_axis_angle()
+        if axis.length < 1e-6:
+            # Identity (q = +-1) comes back as a zero axis, with 360 degrees for q = -1. The game
+            # builds the matrix with rdMatrix_BuildFromVectorAngle44, which divides by 1 - (1 - x^2 - y^2)
+            # and turns a zero axis into NaN, so the node and everything under it stops drawing
+            # (SW_RACER_RE src/Primitives/rdMatrix.c). Stock writes identity as (1, 0, 0), 0.
+            axis, angle = mathutils.Vector((1.0, 0.0, 0.0)), 0.0
         self.data = [*axis, angle*180/math.pi]
     
         return self
