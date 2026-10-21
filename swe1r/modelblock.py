@@ -43,13 +43,20 @@ def effective_node_flags(obj, key):
 
     The renderer skips a node's whole subtree when its flags fail the viewport's masks
     (SW_RACER_RE dinput_hook/renderer_hook.cpp debug_render_node), so a mesh is drawn only where
-    every node above it allows. Export writes the flags back on the mesh groups only (other nodes
-    get all bits, or are merged into their parent), so the mesh takes the AND of them all.
+    every node it is reached through allows. Export writes the flags back on the mesh groups only
+    (other nodes get all bits, or are merged into their parent), so the mesh takes the AND of them.
+
+    The game starts drawing at header slot nodes (the track at slots 0/1, the skybox at slot 2, a
+    pod's parts), not at the file's top node, so the AND stops at the nearest node holding a slot.
+    Stock tracks park the skybox under a group with flags 0 so the track traversal skips it;
+    ANDing past slot 2 hid the skybox everywhere, and pod parts the same way.
     """
     flags = None
     while obj is not None:
         if key in obj:
             flags = int(obj[key]) if flags is None else flags & int(obj[key])
+        if obj.get('header'):
+            break
         obj = obj.parent
     return flags
 
@@ -1339,6 +1346,10 @@ class MaterialTexture(DataStruct):
         self.unk8 = 0
         self.chunks = []
         self.unk9 = 2560 #this is a required value
+        # unk0 and the four u16s after height (types.h swrModel_MaterialTexture unk2..unk5) as
+        # read, written back while the texture keeps its size and format (Material.unmake)
+        self.stock_unk0 = None
+        self.stock_sizes = None
         self.id = 0
         # specs[1..4] (mip levels) as read, None where null, and the fields that go with them.
         # Stock textures with specs[1] set are stored swizzled (see read, STORED_UNSWIZZLED).
@@ -1387,6 +1398,8 @@ class MaterialTexture(DataStruct):
         if self.lod:
             # num_children and the four u16s after height, written back with the chain
             self.lod_fields = [self.unk4, unk5, unk6, self.unk7, self.unk8]
+        self.stock_unk0 = self.unk0
+        self.stock_sizes = [unk5, unk6, self.unk7, self.unk8]
 
         self.model.textures[cursor] = self
 
@@ -1554,9 +1567,12 @@ class MaterialTexture(DataStruct):
         # u16s after height are written back as read (keep_lod; renderer_hook.cpp:828).
         if self.lod and self.lod_fields is not None:
             num_children, *sizes = self.lod_fields
+        elif self.stock_sizes is not None:
+            num_children, sizes = 0, self.stock_sizes
         else:
             num_children, sizes = 0, [min(self.width*512, 65535), min(self.height*512, 65535), 683, 503]
-        struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 32767), min(self.height*4, 32767), self.format, num_children, self.width, self.height, *sizes, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
+        unk0 = self.stock_unk0 if self.stock_unk0 is not None else 0
+        struct.pack_into(self.format_string, buffer, cursor, unk0, min(self.width*4, 32767),min(self.height*4, 32767), self.format, num_children, self.width, self.height, *sizes, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
         cursor += self.size
 
         specs = [(0, chunk) for chunk in self.chunks[:1]]
@@ -1978,6 +1994,19 @@ class Material(DataStruct):
             if self.texture and self.texture.id == MaterialTexture.NO_TEXTURE:
                 # a texture slot without a texture: keep its size and format so export writes it back
                 material['untextured_texture'] = [self.texture.width, self.texture.height, self.texture.format]
+            if self.texture is not None and self.texture.stock_sizes is not None and self.texture.chunks:
+                # The texture struct and tile fields the add-on can't derive (stock tiles hold e.g.
+                # log2 sizes and (size - 1) * 4; SW_RACER_RE src/types.h swrModel_MaterialTexture,
+                # swrModel_MaterialTextureChild). The game's texture converter isn't decompiled, so
+                # export writes them back as read rather than guessing (Material.unmake). They
+                # belong to this material's texture slot, not the image: one image is used with
+                # different tiles.
+                material['texture_fields'] = {
+                    'size': [self.texture.width, self.texture.height, self.texture.format],
+                    'unk0': self.texture.stock_unk0,
+                    'sizes': list(self.texture.stock_sizes),
+                    'tile': self.texture.chunks[0].to_array(),
+                }
             if b_tex is None:
                 image_node = None  # samples as white in game (renderer_hook.cpp default texture)
 
@@ -2142,6 +2171,18 @@ class Material(DataStruct):
                 self.texture.chunks[0].unk1 |= 0x02
             if material.clip_y:
                 self.texture.chunks[0].unk1 |= 0x20
+
+            # write the imported texture struct and tile fields back while the texture keeps its
+            # size and format; only the mirror/clamp bits (0x33) come from the material settings
+            fields = material.get('texture_fields')
+            if fields is not None and self.texture is not None and self.texture.chunks and \
+                    [self.texture.width, self.texture.height, self.texture.format] == [int(v) for v in fields['size']]:
+                self.texture.stock_unk0 = int(fields['unk0'])
+                self.texture.stock_sizes = [int(v) for v in fields['sizes']]
+                chunk = self.texture.chunks[0]
+                bits = chunk.unk1 & 0x33
+                chunk.unk0, chunk.unk1, chunk.unk2, chunk.unk3, chunk.unk4, chunk.unk5 = (int(v) for v in fields['tile'])
+                chunk.unk1 = (chunk.unk1 & ~0x33) | bits
 
             # get animations
             if self.model:
@@ -3301,6 +3342,11 @@ class Node(DataStruct):
             b_node.parent = parent
             b_node.matrix_parent_inverse.identity()
 
+        # before the children: their meshes look up which nodes above them hold a slot
+        # (effective_node_flags)
+        if self.id in self.model.header.offsets:
+            b_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
+
         for node in self.children:
             if not isinstance(node, dict):
                 node.make(b_node, collection)
@@ -3324,9 +3370,6 @@ class Node(DataStruct):
             if alt_children:
                 b_node['alt_children'] = alt_children
 
-        if self.id in self.model.header.offsets:
-            b_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
-            
         for i in range(24):
             view_layer = bpy.context.scene.view_layers.get(f"VisLayer_{i}")
             set_hidden(self.model, b_node, not bool(self.vis_flags & (1 << (i + 8))), view_layer)

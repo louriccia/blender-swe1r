@@ -309,6 +309,41 @@ def snapshot(col):
 VERTEX_CACHE_SIZE = 32
 
 
+NODE_TYPES = (0x3064, 0x5064, 0x5065, 0x5066, 0xD064, 0xD065, 0xD066)
+
+
+def hidden_mesh_groups(model_buffer):
+    """Mesh groups reachable from a header slot whose flags_1 has none of the 24 layer bits (8-31).
+
+    The renderer skips a node whose flags_1 shares no bit with the viewport's mask
+    (SW_RACER_RE dinput_hook/renderer_hook.cpp debug_render_node), so such a group is never drawn.
+    Read straight from the file: import and re-import agree with each other when import itself
+    hides a mesh, so the triangle tests can't see it.
+    """
+    u32 = lambda o: struct.unpack_from(">I", model_buffer, o)[0]
+    slots, cursor = [], 4
+    while u32(cursor) != 0xFFFFFFFF:
+        slots.append(u32(cursor))
+        cursor += 4
+    stack = [s for s in slots if s and s < len(model_buffer) - 28 and u32(s) in NODE_TYPES]
+    seen, hidden = set(), 0
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        node_type, flags_1 = struct.unpack_from(">2I", model_buffer, node)
+        if node_type == 0x3064:
+            hidden += not flags_1 & 0xFFFFFF00
+            continue
+        count, children = u32(node + 20), u32(node + 24)
+        for i in range(count if children else 0):
+            child = u32(children + 4 * i)
+            if child and child < len(model_buffer) - 28:
+                stack.append(child)
+    return hidden
+
+
 def display_list_problems(buffer, mesh_start, mesh_format):
     """Checks one exported mesh's display list the way the game's renderer reads it.
 
@@ -492,6 +527,14 @@ class RoundTripTest(unittest.TestCase):
         moved = [slot for slot, m in transforms.items() if slot in transforms_after
                  and any(abs(a - b) > TOLERANCE for a, b in zip(m, transforms_after[slot]))]
         self.assertEqual(moved, [], "nodes behind these header slots moved")
+
+    def test_mesh_groups_stay_visible(self):
+        """Export doesn't hide mesh groups from every layer that the stock file draws."""
+        trip = self.trip
+        before = read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1]
+        after = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
+        self.assertLessEqual(hidden_mesh_groups(after), hidden_mesh_groups(before),
+                             "export hides mesh groups in every layer (flags_1 bits 8-31 all clear)")
 
     def test_display_lists_valid(self):
         """Exported display lists are drawable by the game (see display_list_problems)."""
