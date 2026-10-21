@@ -142,15 +142,24 @@ def drawn(obj):
 
     A selector draws only its selected child (-1 all, -2 none) and a LOD selector one child by
     distance (SW_RACER_RE src/types.h swrModel_NodeSelector / swrModel_NodeLODSelector); for LODs
-    this counts the highest detail child. Import names nodes by file offset, so sorting children by
-    name gives their file order.
+    this counts the highest detail child, the first that is not a null slot. Import names nodes by
+    file offset, so sorting children by name gives their file order, and records the null and
+    shared-node slots that have no child object of their own ('null_slots', 'shared_children').
     """
     child, parent = obj, obj.parent
     while parent is not None:
         node_type = parent.get('node_type')
         if node_type in (SELECTOR, LOD_SELECTOR):
-            index = sorted(parent.children, key=lambda c: c.name).index(child)
-            selected = parent.get('selected_child', -1) if node_type == SELECTOR else 0
+            slots = sorted(parent.children, key=lambda c: c.name)
+            fills = sorted([*((int(s), None) for s in parent.get('null_slots', [])),
+                            *((int(s), 'shared') for s in parent.get('shared_children', {}).keys())])
+            for slot, fill in fills:
+                slots.insert(min(slot, len(slots)), fill)
+            index = slots.index(child)
+            if node_type == SELECTOR:
+                selected = parent.get('selected_child', -1)
+            else:
+                selected = next((i for i, slot in enumerate(slots) if slot is not None), 0)
             if selected == -2 or (selected >= 0 and index != selected):
                 return False
         child, parent = parent, parent.parent
