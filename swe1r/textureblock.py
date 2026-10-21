@@ -104,8 +104,28 @@ def next_power_of_2(value):
         next = next << 1
     return next
 
+def deswizzle_tmem(texels, width, height):
+    """Undo the N64 TMEM swizzle of a texture tile: on odd rows, swap adjacent 8-texel blocks.
+
+    texels is a row-major (height * width) list of texels (palette indices, intensities or RGBA
+    lists); a new list is returned. This is the replacement renderer's deswizzle_lod_texture
+    (SW_RACER_RE dinput_hook/renderer_hook.cpp:641-686), which runs on the decoded texels, so the
+    blocks are 8 texels whatever the format's bit depth. It skips tiles whose width is not a
+    whole number of block pairs, and so does this. The renderer then rebuilds the mirror copies
+    the game's converter baked into the upload; images here hold only the tile (mirroring is in
+    the material's UV nodes), so there is nothing to rebuild.
+    """
+    if width <= 0 or height <= 0 or width % 16 or len(texels) < width * height:
+        return texels
+    out = list(texels)
+    for y in range(1, height, 2):
+        row = y * width
+        for x in range(width):
+            out[row + x + (8 if (x // 8) % 2 == 0 else -8)] = texels[row + x]
+    return out
+
 class Texture():
-    def __init__(self, id, format = 513, width = 32, height = 32):
+    def __init__(self, id, format = 513, width = 32, height = 32, swizzled = False, name = None):
         assert int(id) != 65535, f"Unexpected texture index {id}"
         self.id = id
         self.format = format
@@ -113,6 +133,10 @@ class Texture():
         self.height = height
         self.palette = None
         self.pixels = None
+        # stored in the N64's swizzled TMEM layout (a material texture with a mip chain, see
+        # MaterialTexture.read); make() shows it deswizzled
+        self.swizzled = swizzled
+        self.name = name
     def read(self, pixel_buffer, palette_buffer):
         if self.id is None or self.id < 0:
             return
@@ -122,6 +146,8 @@ class Texture():
             
         self.pixels = Pixels(self)
         self.pixels.read(pixel_buffer)
+        if self.swizzled:
+            self.pixels.data = deswizzle_tmem(self.pixels.data, self.width, self.height)
     def make(self, cache_dir=None):
         """
         Create and save texture image, using cached version if available.
@@ -144,12 +170,12 @@ class Texture():
             print(f"Texture {self.id} is missing width/height/format data")
             return
         
-        tex_name = str(self.id)
+        tex_name = self.name or str(self.id)
 
         # Check if cached version exists
         if cache_dir:
             os.makedirs(cache_dir, exist_ok=True)
-            filepath = os.path.join(cache_dir, f"texture_{self.id:04d}.png")
+            filepath = os.path.join(cache_dir, f"texture_{self.id:04d}{'_lod' if self.swizzled else ''}.png")
 
             if os.path.exists(filepath):
                 # Load from cache
