@@ -38,7 +38,7 @@ Alternatively, [download the latest release .zip](https://github.com/louriccia/b
 
 ## Known Issues
 
-- Pod (Podd) import merges in the paired high detail MAlt model the same way the game does. Pod export is still limited: it rebuilds a fixed template from the Right Engine / Left Engine / Cockpit / Cable collections, drops LODs and animations, and replaces the paired MAlt with an empty one
+- Pods built from the add-on's template (the Right Engine / Left Engine / Cockpit / Cable collections) export without LODs or animations and with an empty high detail MAlt model. Imported pods export in full, MAlt included.
 
 ## Development
 
