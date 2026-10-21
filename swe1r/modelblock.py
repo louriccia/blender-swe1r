@@ -4643,6 +4643,12 @@ class Anim(DataStruct):
         if loop:
             self.flag2 |= 0x10
 
+        # end time, duration and duration3 hold the loop length the game picks on load (duration5
+        # with flag 0x20, else duration4; SW_RACER_RE src/Swr/swrModel.c swrModel_LoadAnimation),
+        # as in every stock file; the last key time made a puppet's limbs loop out of step wherever
+        # the game runs animations without that reset (the racer select pilots)
+        self.float1 = self.float2 = self.float3 = self.float5 if self.flag2 & 0x20 else self.float4
+
         return self
     
     def write(self, buffer, cursor):
