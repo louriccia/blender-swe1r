@@ -26,7 +26,7 @@ import bmesh
 import math
 import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt16BE, readUInt32BE, readUInt8, readFloatBE
-from .textureblock import Texture, compute_image_hash, compute_hash
+from .textureblock import Texture, compute_image_hash, compute_hash, needed_pixel_bytes, format_map
 from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt
 
 def find_existing_light(objects, color, location, rotation):
@@ -1352,7 +1352,18 @@ class MaterialTexture(DataStruct):
     def image_name(self):
         # a use with a mip chain gets its own image: it is shown deswizzled and carries the chain
         # for export, and stock texture 80 is used both with one (model 127) and without (1, 115)
-        return f"{self.id}_lod" if self.lod else str(self.id)
+        if self.lod:
+            return f"{self.id}_lod"
+        # a use at a larger size than the block entry holds (Pixels.read) is a different image
+        # from the texture at its stored size, which other models use under the plain id
+        textureblock = getattr(getattr(self.model, 'modelblock', None), 'textureblock', None)
+        if textureblock is not None and self.id != MaterialTexture.NO_TEXTURE and self.format in format_map \
+                and 0 <= self.id < len(textureblock.data):
+            pixel_buffer = textureblock.fetch(self.id)[0]
+            if pixel_buffer is not None and \
+                    len(pixel_buffer) < needed_pixel_bytes(self.width, self.height, self.format):
+                return f"{self.id}_{self.width}x{self.height}"
+        return str(self.id)
 
     def read(self, buffer, cursor):
         if cursor == 0:

@@ -97,6 +97,10 @@ def page_width_padding(width, format):
     elif format == 3:
         return (width + 0x1) & 0xFFFFFFFE
 
+def needed_pixel_bytes(width, height, format):
+    """Bytes of texel data a width x height texture of this format is read from (rows padded)."""
+    return int(page_width_padding(width, format) * format_map[format] * height)
+
 def next_power_of_2(value):
     next = 16
     
@@ -478,6 +482,18 @@ class Pixels():
         #         self.data.append(pixel)
         #         cursor += 1
 
+
+        # A few stock materials give a texture a larger size than its block entry holds: 382 is
+        # stored 32x64 and 294 74x47 (as most of their users declare them), but models 64 and 216
+        # use 382 and model 222 uses 294 as 64x64. The game converts a texture at the size its
+        # material texture declares (swrModel_ConvertTextureDataToRdMaterial's width/height,
+        # SW_RACER_RE src/Swr/swrSprite.c:754; it is not given the entry's length), so the stored
+        # texels are laid out at that size and the rest is read from whatever follows the entry in
+        # memory. Read it the same way, with the texels past the entry as 0, so the image keeps the
+        # declared size (export writes the size from the image) and the stock entry is unchanged.
+        stored = needed_pixel_bytes(self.texture.width, self.texture.height, self.texture.format)
+        if len(buffer) < stored:
+            buffer = bytes(buffer).ljust(stored, b'\0')
 
         fast = self.read_rows(buffer, padded_width)
         if fast is not None:
