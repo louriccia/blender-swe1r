@@ -1280,6 +1280,13 @@ MAX_TEXTURES = 1700
 
 class MaterialTexture(DataStruct):
     NO_TEXTURE = 65535  # low half of the stock "no texture" word 0x0AFFFFFF
+    # Stock textures that some material gives a specs[1] but whose block entry is in plain row
+    # order (deswizzling scrambles them): 80, the Boonta crowd (models 1 and 115 use it without a
+    # chain, model 127 with 966's chain), and 97/98, the Boonta sand, whose specs[1] is a
+    # second full-size tile with num_children 0 rather than a mip level. renderer_hook.cpp:828
+    # deswizzles these too; checked by eye against the deswizzled 924, 966, 972, 991, 992,
+    # 1000, 1014, 1048 and 1064.
+    STORED_UNSWIZZLED = {80, 97, 98}
 
     def __init__(self, parent, model):
         super().__init__('>I2H4x8H6I4xHH4x')
@@ -1296,6 +1303,19 @@ class MaterialTexture(DataStruct):
         self.chunks = []
         self.unk9 = 2560 #this is a required value
         self.id = 0
+        # specs[1..4] (mip levels) as read, None where null, and the fields that go with them.
+        # Stock textures with specs[1] set are stored swizzled (see read, STORED_UNSWIZZLED).
+        self.lod_chunks = [None] * 4
+        self.lod_fields = None
+
+    @property
+    def lod(self):
+        return self.lod_chunks[0] is not None
+
+    def image_name(self):
+        # a use with a mip chain gets its own image: it is shown deswizzled and carries the chain
+        # for export, and stock texture 80 is used both with one (model 127) and without (1, 115)
+        return f"{self.id}_lod" if self.lod else str(self.id)
 
     def read(self, buffer, cursor):
         if cursor == 0:
@@ -1307,11 +1327,18 @@ class MaterialTexture(DataStruct):
         unk_pointers = []
         self.id = cursor
         self.unk0, unk1, unk3, self.format, self.unk4, self.width, self.height, unk5, unk6, self.unk7, self.unk8, *unk_pointers, self.unk9, self.id = struct.unpack_from(self.format_string, buffer, cursor)
-        for pointer in unk_pointers:
+        # specs[0] is the tile (UV mirror/clamp flags), specs[1..4] mip levels (SW_RACER_RE
+        # src/types.h:1592-1624 swrModel_MaterialTexture). A texture with specs[1] set is stored
+        # in the N64's swizzled TMEM layout (dinput_hook/renderer_hook.cpp:820-835).
+        specs = unk_pointers[:5]
+        if specs[0]:
+            self.chunks.append(MaterialTextureChunk(self, self.model).read(buffer, specs[0]))
+        for i, pointer in enumerate(specs[1:]):
             if pointer:
-                chunk = MaterialTextureChunk(self, self.model)
-                chunk.read(buffer, pointer)
-                self.chunks.append(chunk)
+                self.lod_chunks[i] = MaterialTextureChunk(self, self.model).read(buffer, pointer)
+        if self.lod:
+            # num_children and the four u16s after height, written back with the chain
+            self.lod_fields = [self.unk4, unk5, unk6, self.unk7, self.unk8]
 
         self.model.textures[cursor] = self
 
@@ -1324,7 +1351,7 @@ class MaterialTexture(DataStruct):
         if self.id == MaterialTexture.NO_TEXTURE:
             return
         textureblock = self.model.modelblock.textureblock
-        self.texture = Texture(self.id, self.format, self.width, self.height)
+        self.texture = Texture(self.id, self.format, self.width, self.height, swizzled = self.lod and self.id not in MaterialTexture.STORED_UNSWIZZLED, name = self.image_name())
         pixel_buffer, palette_buffer = textureblock.fetch(self.id)
         self.texture.read(pixel_buffer, palette_buffer)
         image = self.texture.make()
@@ -1332,7 +1359,27 @@ class MaterialTexture(DataStruct):
             # the block entry's hash, as Block.read computes it, so an unchanged image re-exports
             # as this entry instead of being re-encoded and appended again
             image['external_hash'] = compute_hash(b''.join(b for b in (pixel_buffer, palette_buffer) if b))
+            if self.lod:
+                # Only the deswizzled base level is shown. While the image is unchanged it
+                # re-exports as the stock entry, which is still swizzled, so it keeps the mip chain
+                # that tells the renderer to deswizzle it (keep_lod).
+                image['lod_chain'] = {'fields': self.lod_fields,
+                                      **{str(i + 1): chunk.to_array() for i, chunk in enumerate(self.lod_chunks) if chunk}}
         return image
+
+    def keep_lod(self, image):
+        """Write the image's stock mip chain back: it re-exports as its swizzled stock entry."""
+        chain = image.get('lod_chain')
+        if chain is None:
+            return
+        self.lod_fields = [int(v) for v in chain['fields']]
+        for i in range(4):
+            values = chain.get(str(i + 1))
+            if values is None:
+                continue
+            chunk = MaterialTextureChunk(self, self.model)
+            chunk.unk0, chunk.unk1, chunk.unk2, chunk.unk3, chunk.unk4, chunk.unk5 = (int(v) for v in values)
+            self.lod_chunks[i] = chunk
 
     def unmake(self, image, untextured = None):
         if image is None:
@@ -1362,6 +1409,7 @@ class MaterialTexture(DataStruct):
         #check if we already wrote this image
         if image.name in self.model.image_map:
             self.id = self.model.image_map[image.name]
+            self.keep_lod(image)
             print(image.name,'already written as', self.id)
         elif self.model.texture_export:
             hash = compute_image_hash(image)
@@ -1369,6 +1417,7 @@ class MaterialTexture(DataStruct):
             #if user has made no changes
             if hash == image.get('internal_hash'):
                 if self.id < 1648: #do nothing for vanilla
+                    self.keep_lod(image)
                     return self
 
                 # prefer the image's already-assigned id if it still holds matching data,
@@ -1380,6 +1429,7 @@ class MaterialTexture(DataStruct):
                     stored_buffer = b''.join([item for item in tb_data[stored_id] if item])
                     if compute_hash(stored_buffer) == image.get('external_hash'):
                         self.model.image_map[image.name] = stored_id
+                        self.keep_lod(image)
                         print('found', image.name, 'already in modelblock as', stored_id)
                         return self
 
@@ -1389,9 +1439,15 @@ class MaterialTexture(DataStruct):
                     self.id = id
                     image['id'] = id
                     self.model.image_map[image.name] = id
+                    self.keep_lod(image)
                     print('found', image.name, 'already in modelblock as', id)
                     return self
             
+            # Edited: it is encoded as a new single-level texture in plain (unswizzled) row order,
+            # as stock single-tile textures are (num_children 0, specs[1..4] null), so the stock
+            # mip chain no longer applies and the mip levels are dropped.
+            if 'lod_chain' in image:
+                del image['lod_chain']
             image['internal_hash'] = hash
             id = len(self.model.textureblock.data)
             self.id = id
@@ -1445,11 +1501,20 @@ class MaterialTexture(DataStruct):
         # V offset. Only specs[0] (the tile written below) may be set: the replacement renderer
         # treats a non-null specs[1] as a mip chain and unswizzles the texture
         # (renderer_hook.cpp, deswizzle_lod_texture). Stock single-tile textures have
-        # num_children 0 and specs[1..4] and unk6 0.
-        struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 32767), min(self.height*4, 32767), self.format, 0, self.width, self.height, min(self.width*512, 65535), min(self.height*512, 65535), 683, 503, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
+        # num_children 0 and specs[1..4] and unk6 0. The exception is an unedited stock texture
+        # that had a mip chain: its entry is still swizzled, so the chain, num_children and the
+        # u16s after height are written back as read (keep_lod; renderer_hook.cpp:828).
+        if self.lod and self.lod_fields is not None:
+            num_children, *sizes = self.lod_fields
+        else:
+            num_children, sizes = 0, [min(self.width*512, 65535), min(self.height*512, 65535), 683, 503]
+        struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 32767), min(self.height*4, 32767), self.format, num_children, self.width, self.height, *sizes, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
         cursor += self.size
 
-        for i, chunk in enumerate(self.chunks):
+        specs = [(0, chunk) for chunk in self.chunks[:1]]
+        if self.lod:
+            specs += [(i + 1, chunk) for i, chunk in enumerate(self.lod_chunks) if chunk]
+        for i, chunk in specs:
             self.model.highlight(chunk_addr + i * 4)
             writeUInt32BE(buffer, cursor, chunk_addr + i*4)
             cursor = chunk.write(buffer, cursor)
@@ -1845,7 +1910,7 @@ class Material(DataStruct):
 
         image_node = None
         if not (self.texture is None and tex_name is None):
-            tex_name = tex_name or str(self.texture.id)
+            tex_name = tex_name or self.texture.image_name()
 
             material['scroll_x'] = self.scroll_x
             material['scroll_y'] = self.scroll_y
