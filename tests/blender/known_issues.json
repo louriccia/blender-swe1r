@@ -1,9 +1,5 @@
 {
   "_about": "Round-trip failures that exist on main today. Listed tests run as expected failures, so the suite gates on regressions; when a fix makes one pass, the run fails with 'unexpected success' until its entry is removed here. 'crash' marks a model whose run is known to crash Blender.",
-  "1": {
-    "test_animation_preserved": "animated geometry differs at sampled frames",
-    "test_geometry_preserved": "4 visual triangles lost: the stock model draws 4 triangles twice (exact duplicate faces); export loads each pair from the same vertices and the re-import's mesh.validate() merges them"
-  },
   "2": {
     "test_geometry_preserved": "Podd export only understands the authoring template (engine/cockpit/cable child collections); a stock pod exports as an empty skeleton",
     "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
@@ -99,54 +95,6 @@
   "64": {
     "test_round_trip_completes": "stock import fails: texture pixels index past the palette (textureblock.py Texture.make)"
   },
-  "98": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "110": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "128": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "129": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "133": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "134": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "135": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "136": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "137": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "138": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "140": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "141": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "156": {
     "test_header_slots_preserved": "slots 5, 19, 33, 47, 61, 75 point at nodes import doesn't create objects for, so export can't write them back"
   },
@@ -156,22 +104,6 @@
   "222": {
     "test_round_trip_completes": "stock import fails: texture pixels index past the palette (textureblock.py Texture.make)"
   },
-  "228": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "269": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "271": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "276": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "291": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
   "299": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
@@ -179,12 +111,5 @@
   "301": {
     "test_geometry_preserved": "recorded 2026-10-20, not yet triaged",
     "test_header_slots_preserved": "Podd export rebuilds the authoring template's slots, not the stock pod's"
-  },
-  "302": {
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
-  },
-  "315": {
-    "test_animation_preserved": "recorded 2026-10-20, not yet triaged",
-    "test_geometry_preserved": "recorded 2026-10-20, not yet triaged"
   }
 }
