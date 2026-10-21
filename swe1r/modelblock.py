@@ -2650,6 +2650,21 @@ class Mesh(DataStruct):
            
             edges = []
             faces = self.visuals_index_buffer.make()
+            # source[i]: the buffer vertex behind mesh vertex i. A face on the same three vertices
+            # as an earlier one (the back of a double-sided triangle: the game culls one side per
+            # material, SW_RACER_RE dinput_hook/renderer_hook.cpp:901-910, so both windings draw)
+            # gets its own copies of them: mesh.validate() deletes faces that repeat another's
+            # vertices. Stock models store such pairs on separate vertices; export shares equal ones.
+            source = list(range(len(verts)))
+            seen_faces = set()
+            for face in faces:
+                key = frozenset(face)
+                if len(key) == 3 and key in seen_faces and all(i < len(verts) for i in face):
+                    copies = list(range(len(source), len(source) + 3))
+                    source += face
+                    verts += [verts[i] for i in face]
+                    face[:] = copies
+                seen_faces.add(key)
             mesh_name = '{:07d}'.format(self.id) + "_" + "visuals"
             mesh = bpy.data.meshes.new(mesh_name)
             b_obj = bpy.data.objects.new(mesh_name, mesh)
@@ -2676,8 +2691,8 @@ class Mesh(DataStruct):
             loop_verts = [0] * len(mesh.loops)
             mesh.loops.foreach_get('vertex_index', loop_verts)
             vert_data = self.visuals_vert_buffer.data
-            uv_layer.foreach_set('uv', [u/4096 for i in loop_verts for u in vert_data[i].uv])
-            color_layer.foreach_set('color', [a/255 for i in loop_verts for a in vert_data[i].color.to_array()])
+            uv_layer.foreach_set('uv', [u/4096 for i in loop_verts for u in vert_data[source[i]].uv])
+            color_layer.foreach_set('color', [a/255 for i in loop_verts for a in vert_data[source[i]].color.to_array()])
             if uses_normals(self.material):
                 make_vertex_normals(mesh)
                     
@@ -2691,7 +2706,7 @@ class Mesh(DataStruct):
                 vg = b_obj.vertex_groups.get(f'{self.id}')
                 if vg is None:
                     vg = b_obj.vertex_groups.new(name=f'{self.id}')
-                vg.add(range(self.group_count), 1.0, 'REPLACE')
+                vg.add([i for i, s in enumerate(source) if s < self.group_count], 1.0, 'REPLACE')
 
                 hook = b_obj.modifiers.new(name=f"Hook_{self.id}", type='HOOK')
                 hook.vertex_group = vg.name
