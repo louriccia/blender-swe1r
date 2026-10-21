@@ -309,6 +309,143 @@ def snapshot(col):
 VERTEX_CACHE_SIZE = 32
 
 
+NODE_TYPES = (0x3064, 0x5064, 0x5065, 0x5066, 0xD064, 0xD065, 0xD066)
+
+
+def hidden_mesh_groups(model_buffer):
+    """Mesh groups reachable from a header slot whose flags_1 has none of the 24 layer bits (8-31).
+
+    The renderer skips a node whose flags_1 shares no bit with the viewport's mask
+    (SW_RACER_RE dinput_hook/renderer_hook.cpp debug_render_node), so such a group is never drawn.
+    Read straight from the file: import and re-import agree with each other when import itself
+    hides a mesh, so the triangle tests can't see it.
+    """
+    u32 = lambda o: struct.unpack_from(">I", model_buffer, o)[0]
+    slots, cursor = [], 4
+    while u32(cursor) != 0xFFFFFFFF:
+        slots.append(u32(cursor))
+        cursor += 4
+    stack = [s for s in slots if s and s < len(model_buffer) - 28 and u32(s) in NODE_TYPES]
+    seen, hidden = set(), 0
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        node_type, flags_1 = struct.unpack_from(">2I", model_buffer, node)
+        if node_type == 0x3064:
+            hidden += not flags_1 & 0xFFFFFF00
+            continue
+        count, children = u32(node + 20), u32(node + 24)
+        for i in range(count if children else 0):
+            child = u32(children + 4 * i)
+            if child and child < len(model_buffer) - 28:
+                stack.append(child)
+    return hidden
+
+
+def node_skeleton(model_buffer):
+    """The node tree under every header slot: node types, null child slots and header slots.
+
+    Mesh groups are left out, since export regroups meshes (by visuals/collision/transparency).Game code
+    reaches into models by child index from a header slot (SW_RACER_RE src/Swr/swrModel.c
+    swrModel_NodeGetChild), so a stock model has to keep this shape: merging away a plain group
+    moved the vehicle-select flag's texture swap and the spark's orientation onto other nodes.
+    """
+    u32 = lambda o: struct.unpack_from(">I", model_buffer, o)[0]
+    slots, cursor = [], 4
+    while u32(cursor) != 0xFFFFFFFF:
+        slots.append(u32(cursor))
+        cursor += 4
+    lines, seen = [], {}
+
+    def walk(node, depth):
+        if node in seen:
+            lines.append((depth, "shared", seen[node]))
+            return
+        seen[node] = len(seen)
+        node_type = u32(node)
+        count, children = u32(node + 20), u32(node + 24)
+        lines.append((depth, hex(node_type), tuple(i for i, s in enumerate(slots) if s == node)))
+        if node_type == 0x3064:
+            return
+        for i in range(count if children else 0):
+            child = u32(children + 4 * i)
+            if not child:
+                lines.append((depth + 1, "null"))
+            elif child < len(model_buffer) - 28 and u32(child) in NODE_TYPES and u32(child) != 0x3064:
+                walk(child, depth + 1)
+
+    for i, slot in enumerate(slots):
+        if slot and slot < len(model_buffer) - 28 and u32(slot) in NODE_TYPES and slot not in seen:
+            lines.append((0, "slot", i))
+            walk(slot, 1)
+    return lines
+
+
+def animation_types(model_buffer):
+    """How many animations of each type the model's header lists (type = low 4 bits of the flags).
+
+    Type 5 is left out: the game never updates it (SW_RACER_RE src/Swr/swrModel.c
+    swrModel_LoadAllAnimationsOfModel) and import doesn't read it.
+    """
+    u32 = lambda o: struct.unpack_from(">I", model_buffer, o)[0]
+    cursor = 4
+    while u32(cursor) != 0xFFFFFFFF:
+        cursor += 4
+    cursor += 4
+    types = Counter()
+    while model_buffer[cursor:cursor + 4] != b"HEnd":
+        tag = model_buffer[cursor:cursor + 4]
+        cursor += 4
+        if tag == b"Data":
+            cursor += 4 + 4 * u32(cursor)
+            continue
+        while u32(cursor):
+            if tag == b"Anim":
+                anim_type = u32(u32(cursor) + 256) & 0xF
+                if anim_type != 5:
+                    types[anim_type] += 1
+            cursor += 4
+        cursor += 4
+    return dict(types)
+
+
+def mesh_boxes(model_buffer):
+    """{vertex positions: (bounding box, vertex_base_offset)} for the meshes reachable from slot nodes.
+
+    The renderer culls by these boxes, and a mesh with a vertex_base_offset (a hooked prefix) is
+    drawn partly with its referenced node's matrix (SW_RACER_RE dinput_hook/renderer_hook.cpp).
+    """
+    u32 = lambda o: struct.unpack_from(">I", model_buffer, o)[0]
+    slots, cursor = [], 4
+    while u32(cursor) != 0xFFFFFFFF:
+        slots.append(u32(cursor))
+        cursor += 4
+    boxes, seen = {}, set()
+    stack = [s for s in slots if s and s < len(model_buffer) - 28 and u32(s) in NODE_TYPES]
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        count, children = u32(node + 20), u32(node + 24)
+        for i in range(count if children else 0):
+            child = u32(children + 4 * i)
+            if not child or child >= len(model_buffer) - 64:
+                continue
+            if u32(node) != 0x3064:
+                if u32(child) in NODE_TYPES:
+                    stack.append(child)
+                continue
+            vertices, n = u32(child + 52), struct.unpack_from(">H", model_buffer, child + 58)[0]
+            if not vertices:
+                continue
+            key = frozenset(struct.unpack_from(">3h", model_buffer, vertices + 16 * v) for v in range(n))
+            boxes[key] = (struct.unpack_from(">6f", model_buffer, child + 8), struct.unpack_from(">h", model_buffer, child + 62)[0])
+    return boxes
+
+
 def display_list_problems(buffer, mesh_start, mesh_format):
     """Checks one exported mesh's display list the way the game's renderer reads it.
 
@@ -492,6 +629,52 @@ class RoundTripTest(unittest.TestCase):
         moved = [slot for slot, m in transforms.items() if slot in transforms_after
                  and any(abs(a - b) > TOLERANCE for a, b in zip(m, transforms_after[slot]))]
         self.assertEqual(moved, [], "nodes behind these header slots moved")
+
+    def test_mesh_groups_stay_visible(self):
+        """Export doesn't hide mesh groups from every layer that the stock file draws."""
+        trip = self.trip
+        before = read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1]
+        after = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
+        self.assertLessEqual(hidden_mesh_groups(after), hidden_mesh_groups(before),
+                             "export hides mesh groups in every layer (flags_1 bits 8-31 all clear)")
+
+    def test_node_structure_preserved(self):
+        """Export keeps a stock model's node tree: node types and order, null child slots, header slots."""
+        trip = self.trip
+        before = read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1]
+        after = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
+        before, after = node_skeleton(before), node_skeleton(after)
+        first = next((i for i, (a, b) in enumerate(zip(before, after)) if a != b), min(len(before), len(after)))
+        self.assertEqual(before, after, f"node tree differs from stock at line {first}: "
+                                        f"{before[first:first + 2]} vs {after[first:first + 2]}")
+
+    def test_animations_kept(self):
+        """Export writes every animation type the stock model has, as often (UV scroll, flipbooks, transforms)."""
+        trip = self.trip
+        before = read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1]
+        after = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
+        self.assertEqual(animation_types(before), animation_types(after), "animations by type (stock vs export)")
+
+    def test_mesh_boxes_and_hooks_kept(self):
+        """Each stock mesh export writes back keeps its bounding box and hooked prefix.
+
+        Computed from the stored vertices, a hooked mesh's box came out smaller than stock and the
+        game culled racers' feet; reading a hooked mesh's referenced node as collision indices
+        dropped the hooks of the cutscene models.
+        """
+        trip = self.trip
+        before = mesh_boxes(read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1])
+        after = mesh_boxes(read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1])
+        problems = []
+        for key, (box, hooked) in before.items():
+            if key not in after or not any(box):
+                continue  # export may merge small meshes (the triangle tests cover the geometry); a
+                          # stock box of all zeros (one Boonta mesh) is no box to keep
+            new_box, new_hooked = after[key]
+            # the prefix may shrink where export merges identical hooked vertices
+            if bool(new_hooked) != bool(hooked) or any(abs(a - b) > 1.5 for a, b in zip(box, new_box)):
+                problems.append((hooked, new_hooked, tuple(round(v) for v in box), tuple(round(v) for v in new_box)))
+        self.assertEqual(problems[:3], [], f"{len(problems)} meshes changed box or hooked prefix (stock vs export)")
 
     def test_display_lists_valid(self):
         """Exported display lists are drawable by the game (see display_list_problems)."""

@@ -43,13 +43,20 @@ def effective_node_flags(obj, key):
 
     The renderer skips a node's whole subtree when its flags fail the viewport's masks
     (SW_RACER_RE dinput_hook/renderer_hook.cpp debug_render_node), so a mesh is drawn only where
-    every node above it allows. Export writes the flags back on the mesh groups only (other nodes
-    get all bits, or are merged into their parent), so the mesh takes the AND of them all.
+    every node it is reached through allows. Export writes the flags back on the mesh groups only
+    (other nodes get all bits, or are merged into their parent), so the mesh takes the AND of them.
+
+    The game starts drawing at header slot nodes (the track at slots 0/1, the skybox at slot 2, a
+    pod's parts), not at the file's top node, so the AND stops at the nearest node holding a slot.
+    Stock tracks park the skybox under a group with flags 0 so the track traversal skips it;
+    ANDing past slot 2 hid the skybox everywhere, and pod parts the same way.
     """
     flags = None
     while obj is not None:
         if key in obj:
             flags = int(obj[key]) if flags is None else flags & int(obj[key])
+        if obj.get('header'):
+            break
         obj = obj.parent
     return flags
 
@@ -102,6 +109,39 @@ def object_collections(obj, model = None):
                 index.setdefault(member.as_pointer(), []).append(collection)
         model.collections_index = index
     return index.get(obj.as_pointer(), [])
+
+def basis_values(matrix):
+    return [matrix[r][c] for r in range(3) for c in range(4)]
+
+def frame0_basis(obj):
+    """obj's basis at frame 0 from its fcurves (channels without one keep their current value)."""
+    bag = anim_utils.action_get_channelbag_for_slot(obj.animation_data.action, obj.animation_data.action_slot)
+    location, rotation, scale = (list(v) for v in obj.matrix_basis.decompose())
+    for fcurve in (bag.fcurves if bag else []):
+        target = {'location': location, 'rotation_quaternion': rotation, 'scale': scale}.get(fcurve.data_path)
+        if target is not None and fcurve.array_index < len(target):
+            target[fcurve.array_index] = fcurve.evaluate(0)
+    return mathutils.Matrix.LocRotScale(mathutils.Vector(location), mathutils.Quaternion(rotation), mathutils.Vector(scale))
+
+def set_material_prop(material, name, value):
+    """Set a registered Material property (props.py), dropping a custom property of the same name.
+
+    Since Blender 5.0, properties registered with bpy.props are stored apart from custom
+    properties: material['scroll_x'] and material.scroll_x are different values. Import wrote
+    the custom one and export read the registered one, which was always 0, so imported UV
+    scrolling never exported (and the panel showed 0).
+    """
+    if name in material.keys():
+        del material[name]
+    setattr(material, name, value)
+
+def get_material_prop(material, name):
+    """A registered Material property, or the custom property older imports wrote instead."""
+    value = getattr(material, name)
+    custom = material.get(name)
+    if not value and custom is not None and not hasattr(custom, 'keys'):
+        return type(value)(custom)
+    return value
 
 def get_model_type(name):
     for code, model_name, description in model_types:
@@ -1339,6 +1379,10 @@ class MaterialTexture(DataStruct):
         self.unk8 = 0
         self.chunks = []
         self.unk9 = 2560 #this is a required value
+        # unk0 and the four u16s after height (types.h swrModel_MaterialTexture unk2..unk5) as
+        # read, written back while the texture keeps its size and format (Material.unmake)
+        self.stock_unk0 = None
+        self.stock_sizes = None
         self.id = 0
         # specs[1..4] (mip levels) as read, None where null, and the fields that go with them.
         # Stock textures with specs[1] set are stored swizzled (see read, STORED_UNSWIZZLED).
@@ -1387,6 +1431,8 @@ class MaterialTexture(DataStruct):
         if self.lod:
             # num_children and the four u16s after height, written back with the chain
             self.lod_fields = [self.unk4, unk5, unk6, self.unk7, self.unk8]
+        self.stock_unk0 = self.unk0
+        self.stock_sizes = [unk5, unk6, self.unk7, self.unk8]
 
         self.model.textures[cursor] = self
 
@@ -1554,9 +1600,12 @@ class MaterialTexture(DataStruct):
         # u16s after height are written back as read (keep_lod; renderer_hook.cpp:828).
         if self.lod and self.lod_fields is not None:
             num_children, *sizes = self.lod_fields
+        elif self.stock_sizes is not None:
+            num_children, sizes = 0, self.stock_sizes
         else:
             num_children, sizes = 0, [min(self.width*512, 65535), min(self.height*512, 65535), 683, 503]
-        struct.pack_into(self.format_string, buffer, cursor, 0, min(self.width*4, 32767), min(self.height*4, 32767), self.format, num_children, self.width, self.height, *sizes, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
+        unk0 = self.stock_unk0 if self.stock_unk0 is not None else 0
+        struct.pack_into(self.format_string, buffer, cursor, unk0, min(self.width*4, 32767),min(self.height*4, 32767), self.format, num_children, self.width, self.height, *sizes, *[0, 0, 0, 0, 0, 0], self.unk9, self.id)
         cursor += self.size
 
         specs = [(0, chunk) for chunk in self.chunks[:1]]
@@ -1960,10 +2009,10 @@ class Material(DataStruct):
         if not (self.texture is None and tex_name is None):
             tex_name = tex_name or self.texture.image_name()
 
-            material['scroll_x'] = self.scroll_x
-            material['scroll_y'] = self.scroll_y
-            material['clip_x'] = self.clip_x
-            material['clip_y'] = self.clip_y
+            set_material_prop(material, 'scroll_x', float(self.scroll_x))
+            set_material_prop(material, 'scroll_y', float(self.scroll_y))
+            set_material_prop(material, 'clip_x', bool(self.clip_x))
+            set_material_prop(material, 'clip_y', bool(self.clip_y))
 
             image_node = tree.nodes.new("ShaderNodeTexImage")
             image_node.location = (-200, 300)
@@ -1978,6 +2027,19 @@ class Material(DataStruct):
             if self.texture and self.texture.id == MaterialTexture.NO_TEXTURE:
                 # a texture slot without a texture: keep its size and format so export writes it back
                 material['untextured_texture'] = [self.texture.width, self.texture.height, self.texture.format]
+            if self.texture is not None and self.texture.stock_sizes is not None and self.texture.chunks:
+                # The texture struct and tile fields the add-on can't derive (stock tiles hold e.g.
+                # log2 sizes and (size - 1) * 4; SW_RACER_RE src/types.h swrModel_MaterialTexture,
+                # swrModel_MaterialTextureChild). The game's texture converter isn't decompiled, so
+                # export writes them back as read rather than guessing (Material.unmake). They
+                # belong to this material's texture slot, not the image: one image is used with
+                # different tiles.
+                material['texture_fields'] = {
+                    'size': [self.texture.width, self.texture.height, self.texture.format],
+                    'unk0': self.texture.stock_unk0,
+                    'sizes': list(self.texture.stock_sizes),
+                    'tile': self.texture.chunks[0].to_array(),
+                }
             if b_tex is None:
                 image_node = None  # samples as white in game (renderer_hook.cpp default texture)
 
@@ -2108,8 +2170,8 @@ class Material(DataStruct):
 
         if material:
             # the shader's skybox handling depends on the scroll
-            self.scroll_x = material.get('scroll_x', 0.0)
-            self.scroll_y = material.get('scroll_y', 0.0)
+            self.scroll_x = get_material_prop(material, 'scroll_x')
+            self.scroll_y = get_material_prop(material, 'scroll_y')
         self.shader.unmake(material)
         if material:
             self.name = material.name
@@ -2119,10 +2181,10 @@ class Material(DataStruct):
             if self.model and material_name in self.model.materials:
                 return self.model.materials[material_name]
             
-            self.scroll_x = material.get('scroll_x', 0.0)
-            self.scroll_y = material.get('scroll_y', 0.0)
-            self.clip_x = material.get('clip_x', False)
-            self.clip_y = material.get('clip_y', False)
+            self.scroll_x = get_material_prop(material, 'scroll_x')
+            self.scroll_y = get_material_prop(material, 'scroll_y')
+            self.clip_x = get_material_prop(material, 'clip_x')
+            self.clip_y = get_material_prop(material, 'clip_y')
             self.texture_offset = list(material.get('texture_offset', [0, 0]))
             
             # if material.node_tree:
@@ -2143,16 +2205,35 @@ class Material(DataStruct):
             if material.clip_y:
                 self.texture.chunks[0].unk1 |= 0x20
 
+            # write the imported texture struct and tile fields back while the texture keeps its
+            # size and format; only the mirror/clamp bits (0x33) come from the material settings
+            fields = material.get('texture_fields')
+            if fields is not None and self.texture is not None and self.texture.chunks and \
+                    [self.texture.width, self.texture.height, self.texture.format] == [int(v) for v in fields['size']]:
+                self.texture.stock_unk0 = int(fields['unk0'])
+                self.texture.stock_sizes = [int(v) for v in fields['sizes']]
+                chunk = self.texture.chunks[0]
+                bits = chunk.unk1 & 0x33
+                chunk.unk0, chunk.unk1, chunk.unk2, chunk.unk3, chunk.unk4, chunk.unk5 = (int(v) for v in fields['tile'])
+                chunk.unk1 = (chunk.unk1 & ~0x33) | bits
+
             # get animations
             if self.model:
-                if material.scroll_x:
-                    poses = [0, 1] if material.scroll_x < 0 else [1, 0]
-                    times = [0, abs(material.scroll_x) * self.model.fps]
-                    self.model.animations.append(Anim(self, self.model).unmake(times, poses, 'uv_x', loop = True))
-                if material.scroll_y:
-                    poses = [0, 1] if material.scroll_y < 0 else [1, 0]
-                    times = [0, abs(material.scroll_y) * self.model.fps]
-                    self.model.animations.append(Anim(self, self.model).unmake(times, poses, 'uv_y', loop = True))
+                flipbook = material.get('flipbook')
+                if flipbook is not None and flipbook.get('frames'):
+                    self.model.animations.append(flipbook_anim(self, flipbook.to_dict(), self.model))
+                # self.scroll_x/y come from get_material_prop, which also reads older imports
+                for axis, scroll in (('uv_x', self.scroll_x), ('uv_y', self.scroll_y)):
+                    if not scroll:
+                        continue
+                    poses = [0, 1] if scroll < 0 else [1, 0]
+                    times = [0, abs(scroll) * self.model.fps]
+                    anim = Anim(self, self.model).unmake(times, poses, axis, loop = True)
+                    index = material.get(f'anim_index_{axis}')
+                    if index is not None and index >= 0:
+                        anim.index = int(index)
+                    self.model.animations.append(anim)
+                self.model.animations.extend(raw_anims(self, material, self.model))
         
             self.format = material.get('format')
             if self.format is None:
@@ -2198,6 +2279,41 @@ class Material(DataStruct):
         material = self.make(remake = True, tex_name = tex_name)
         return material
 
+def bounding_vertices(mesh):
+    """The vertices a mesh's bounding box is computed from: collision ones, else visual ones."""
+    if mesh.collision_vert_buffer:
+        verts = mesh.collision_vert_buffer.make()
+        if len(verts):
+            return verts
+    if mesh.visuals_vert_buffer:
+        return mesh.visuals_vert_buffer.make()
+    return []
+
+def identity_vertices(mesh):
+    """The vertices that say whether a mesh is still the one imported: its visual ones if it has any.
+
+    Collision vertices change on export even for an untouched mesh (they are re-stripped, and
+    import drops faces that index past them), so they only count for collision-only meshes.
+    """
+    if mesh.visuals_vert_buffer:
+        verts = mesh.visuals_vert_buffer.make()
+        if len(verts):
+            return verts
+    return bounding_vertices(mesh)
+
+def vertex_fingerprint(verts):
+    return compute_hash(repr(sorted({tuple(int(round(c)) for c in v) for v in verts if len(v) == 3})).encode())
+
+def deformed_vertices(obj, scale):
+    """obj's evaluated (modifier-deformed) vertex positions in game units, in the object's space."""
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = obj.evaluated_get(depsgraph)
+    mesh = evaluated.to_mesh()
+    try:
+        return [[c / scale for c in v.co] for v in mesh.vertices]
+    finally:
+        evaluated.to_mesh_clear()
+
 class MeshBoundingBox(DataStruct):
     """Defines the minimum and maximum bounds of a mesh"""
     
@@ -2214,20 +2330,19 @@ class MeshBoundingBox(DataStruct):
         self.max_y = 0
         self.max_z = 0
     def unmake(self, mesh):
-        verts = []
         if mesh is None:
             return self
-        
-        
-        if mesh.collision_vert_buffer:
-            verts.extend(mesh.collision_vert_buffer.make())
-            
-        # on meshes with both collision and visuals, collision takes precedence
-        if mesh.visuals_vert_buffer and len(verts) == 0:
-            verts.extend(mesh.visuals_vert_buffer.make())
-        
+        verts = bounding_vertices(mesh)
         if len(verts) == 0:
             return self
+        source = getattr(mesh, 'original_object', None)
+        if source is not None and source.get('stock_aabb') is not None and                 source.get('stock_aabb_key') == vertex_fingerprint(identity_vertices(mesh)):
+            # unchanged vertices: the stock box (see Mesh.keep_stock_aabb)
+            self.min_x, self.min_y, self.min_z, self.max_x, self.max_y, self.max_z = (float(v) for v in source['stock_aabb'])
+            return self
+        if getattr(mesh, 'group_count', 0) and source is not None and source.type == 'MESH':
+            # an edited hooked mesh: also cover the prefix where the HOOK modifier puts it
+            verts = list(verts) + deformed_vertices(source, self.model.scale)
         self.min_x = min([vert[0] for vert in verts])
         self.min_y = min([vert[1] for vert in verts])
         self.min_z = min([vert[2] for vert in verts])
@@ -2463,6 +2578,10 @@ class MeshGroupBoundingBox(MeshBoundingBox):
         bb = []
         for child in meshgroup.children:
             bb.append(child.bounding_box.to_array())
+        if not bb:
+            # stock empty mesh groups store -1 for every bound (e.g. track 145)
+            self.min_x = self.min_y = self.min_z = self.max_x = self.max_y = self.max_z = -1.0
+            return self
         self.min_x = min([b[0] for b in bb])
         self.min_y = min([b[1] for b in bb])
         self.min_z = min([b[2] for b in bb])
@@ -2554,9 +2673,23 @@ class Mesh(DataStruct):
         self.bounding_box = MeshBoundingBox(self, self.model).unmake(self)
         return self
     
+    def keep_stock_aabb(self, b_obj):
+        """Record the mesh's stored bounding box, written back while its vertices are unchanged.
+
+        A hooked mesh's box covers its shape with the hooked prefix where the game draws it,
+        which can't be rebuilt from the stored vertices (the prefix is in the referenced node's
+        space); computed from them it came out smaller than stock on most pilot meshes, so parts
+        of the racers (feet) got culled. See MeshBoundingBox.unmake.
+        """
+        if getattr(self, 'stock_aabb', None) is None:
+            return
+        b_obj['stock_aabb'] = list(self.stock_aabb)
+        b_obj['stock_aabb_key'] = vertex_fingerprint(identity_vertices(self))
+
     def read(self, buffer, cursor):
         self.id = cursor
-        mat_addr, collision_tags_addr, min_x, min_y, min_z, max_x, max_y, max_z, self.strip_count, self.strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count = struct.unpack_from(self.format_string, buffer, cursor)
+        mat_addr, collision_tags_addr,min_x, min_y, min_z, max_x, max_y, max_z, self.strip_count, self.strip_size, vert_strips_addr, self.group_parent_id, collision_vert_buffer_addr, visuals_index_buffer_addr, visuals_vert_buffer_addr, collision_vert_count, visuals_vert_count, self.group_count = struct.unpack_from(self.format_string, buffer, cursor)
+        self.stock_aabb = [min_x, min_y, min_z, max_x, max_y, max_z]
         
         
         if mat_addr:
@@ -2580,10 +2713,13 @@ class Mesh(DataStruct):
             
         if collision_vert_buffer_addr:
             self.collision_vert_buffer = CollisionVertBuffer(self, self.model, collision_vert_count).read(buffer, collision_vert_buffer_addr)
-            if self.group_parent_id:
-                # With collision vertices, the word at +40 is a list of u16 indices into them, not a
-                # bone node (SW_RACER_RE src/types.h swrModel_Mesh, src/Swr/swrModel.c byte swap
-                # and swrModel_MeshIterateOverCollisionFaces). A stock mesh never has both.
+            if self.group_parent_id and not self.group_count:
+                # With collision vertices, the word at +40 can be a list of u16 indices into them
+                # (SW_RACER_RE src/types.h swrModel_Mesh, src/Swr/swrModel.c byte swap and
+                # swrModel_MeshIterateOverCollisionFaces). A mesh with a hooked prefix
+                # (vertex_base_offset) uses it for its referenced node instead: all 143 stock meshes
+                # with both (cutscenes 149, 152, 289) point it at a mesh group node, and reading it
+                # as indices dropped their hooks. No stock mesh has true indexed collision.
                 if self.strip_size in (5, 7) and self.vert_strips is not None:
                     count = sum(self.vert_strips.data)
                 else:
@@ -2640,6 +2776,7 @@ class Mesh(DataStruct):
             
             b_obj.collidable = True   
             b_obj.id = self.model.obj_key(self.id)
+            self.keep_stock_aabb(b_obj)
             b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
             collection.objects.link(b_obj)
@@ -2681,6 +2818,7 @@ class Mesh(DataStruct):
             b_obj = bpy.data.objects.new(mesh_name, mesh)
             b_obj.visible = True
             b_obj.id = self.model.obj_key(self.id)
+            self.keep_stock_aabb(b_obj)
             b_obj.scale = [self.model.scale, self.model.scale, self.model.scale]
 
             collection.objects.link(b_obj)
@@ -3301,6 +3439,11 @@ class Node(DataStruct):
             b_node.parent = parent
             b_node.matrix_parent_inverse.identity()
 
+        # before the children: their meshes look up which nodes above them hold a slot
+        # (effective_node_flags)
+        if self.id in self.model.header.offsets:
+            b_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
+
         for node in self.children:
             if not isinstance(node, dict):
                 node.make(b_node, collection)
@@ -3324,9 +3467,6 @@ class Node(DataStruct):
             if alt_children:
                 b_node['alt_children'] = alt_children
 
-        if self.id in self.model.header.offsets:
-            b_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
-            
         for i in range(24):
             view_layer = bpy.context.scene.view_layers.get(f"VisLayer_{i}")
             set_hidden(self.model, b_node, not bool(self.vis_flags & (1 << (i + 8))), view_layer)
@@ -3468,6 +3608,8 @@ class MeshGroup(Node):
         super().__init__( parent,model, type, header)
         self.parent = parent
         self.bounding_box = None
+        # stock mesh groups have flags_3 0 (32 on a few), never the 0x3 Node starts with
+        self.transform_flags = 0
         
     def read(self, buffer, cursor):
         super().read(buffer, cursor)
@@ -3554,6 +3696,9 @@ class NodeTransformedWithPivot(Node):
         # make() gives the file's row-vector layout (translation in the last row); Blender is column-vector
         empty.matrix_basis = mathutils.Matrix(self.matrix.make(self.model.scale)).transposed()
         empty['bonus'] = self.bonus.to_array()
+        # the matrix as stored; an animated node's frame 0 pose replaces it in Blender, and the
+        # stock rest pose often differs a little from the first key (see Model.record_rest_poses)
+        empty['file_matrix'] = self.matrix.to_array()
 
         # Pivot semantic: with flags_3 & 0x10 the game rotates about the pivot, composing the
         # local transform as T(pivot) · M · T(-pivot), i.e. t += pivot - R·pivot (SW_RACER_RE
@@ -3602,6 +3747,10 @@ class NodeTransformedWithPivot(Node):
         #need to transpose the matrix
         matrix = list(map(list, zip(*matrix)))
         self.matrix.unmake(matrix, self.model.scale)
+        rest_pose = node.get('frame0_basis')
+        if rest_pose is not None and 'file_matrix' in node and                 all(abs(a - b) < 1e-5 for a, b in zip(rest_pose, basis_values(node.matrix_basis))):
+            # untouched animated node: write the stored rest matrix, not its frame 0 pose
+            self.matrix.from_array([float(v) for v in node['file_matrix']])
         if 'bonus' in node:
             self.bonus.from_array(node['bonus'])
         return self
@@ -3917,14 +4066,24 @@ class UVPose(DataStruct):
 
     
 class TexturePose(DataStruct):
+    """A texture flipbook (type 0x2) key: a pointer to a whole swrModel_MaterialTexture (tile included).
+
+    The game switches the target mesh material's texture to the frame's struct; that update is
+    undecompiled (SW_RACER_RE src/Swr/swrModel.c swrModel_UpdateTextureFlipbookAnimation is a
+    stub), but the stock data is unambiguous: the vehicle select flag (Part 48) keys one frame per
+    racer, the spark (Part 49) its 11 frames.
+    """
     def __init__(self, parent, model):
         super().__init__('>I')
-        
+
         self.parent = parent
         self.model = model
-        
+        self.texture = None
+
     def read(self, buffer, cursor):
-        #self.data = MaterialTexture(self, self.model).read(buffer, cursor)
+        pointer = readUInt32BE(buffer, cursor)
+        if pointer:
+            self.texture = MaterialTexture(self, self.model).read(buffer, pointer)
         return self
     
     def make(self, target):
@@ -4064,6 +4223,75 @@ def _anim_bake(kind, knots, evaluate, tolerance=None):
     return [times[i] for i in indices], [values[i] for i in indices]
 
 
+def texture_fields(texture):
+    """A material texture struct as plain data (see material_texture_from_fields)."""
+    if texture is None:
+        return {}
+    return {
+        'id': texture.id, 'format': texture.format, 'size': [texture.width, texture.height],
+        'unk0': texture.stock_unk0 if texture.stock_unk0 is not None else 0,
+        'sizes': list(texture.stock_sizes or []), 'unk9': texture.unk9,
+        'tile': texture.chunks[0].to_array() if texture.chunks else [],
+    }
+
+def material_texture_from_fields(parent, model, fields):
+    texture = MaterialTexture(parent, model)
+    texture.id = int(fields['id'])
+    texture.format = int(fields['format'])
+    texture.width, texture.height = (int(v) for v in fields['size'])
+    texture.unk9 = int(fields['unk9'])
+    texture.stock_unk0 = int(fields['unk0'])
+    if len(fields['sizes']) == 4:
+        texture.stock_sizes = [int(v) for v in fields['sizes']]
+    if len(fields['tile']) == 6:
+        chunk = MaterialTextureChunk(texture, model)
+        chunk.unk0, chunk.unk1, chunk.unk2, chunk.unk3, chunk.unk4, chunk.unk5 = (int(v) for v in fields['tile'])
+        texture.chunks = [chunk]
+    return texture
+
+class RawPose(DataStruct):
+    """A key's values as read, for an animation written back unchanged (raw_anim)."""
+    def __init__(self, values):
+        super().__init__(f'>{len(values)}f')
+        self.data = list(values)
+
+def raw_anim(parent, raw, model):
+    """The animation Anim.raw_fields kept, targeting parent (a node, a material or None)."""
+    anim = Anim(parent, model)
+    anim.target = parent
+    (anim.float1, anim.float2, anim.float3, anim.float4, anim.float5,
+     anim.float6, anim.float7, anim.float8) = (float(v) for v in raw['floats'])
+    anim.flag1, anim.flag2 = (int(v) for v in raw['flags'])
+    anim.unk32 = int(raw['unk11'])
+    anim.index = int(raw['index']) if int(raw['index']) >= 0 else None
+    anim.keyframe_times = [float(t) for t in raw['times']]
+    values = [float(v) for v in raw['values']]
+    width = len(values) // len(anim.keyframe_times) if anim.keyframe_times else 0
+    anim.keyframe_poses = [RawPose(values[i * width:(i + 1) * width]) for i in range(len(anim.keyframe_times))]
+    return anim
+
+def raw_anims(parent, holder, model):
+    return [raw_anim(parent, raw.to_dict() if hasattr(raw, 'to_dict') else raw, model)
+            for raw in holder.get('raw_animations', [])]
+
+def flipbook_anim(material, flipbook, model):
+    """The type 0x2 animation a material's imported flipbook writes back as (see TexturePose)."""
+    anim = Anim(material, model)
+    anim.target = material
+    (anim.float1, anim.float2, anim.float3, anim.float4, anim.float5,
+     anim.float6, anim.float7, anim.float8) = (float(v) for v in flipbook['floats'])
+    anim.flag1, anim.flag2 = (int(v) for v in flipbook['flags'])
+    anim.unk32 = int(flipbook['unk11'])
+    anim.target_word = int(flipbook.get('target_word', 0))
+    anim.index = int(flipbook.get('index', -1)) if int(flipbook.get('index', -1)) >= 0 else None
+    anim.keyframe_times = [float(t) for t in flipbook['times']]
+    anim.keyframe_poses = []
+    for fields in flipbook['frames']:
+        pose = TexturePose(anim, model)
+        pose.texture = material_texture_from_fields(pose, model, fields) if fields else None
+        anim.keyframe_poses.append(pose)
+    return anim
+
 def get_animations(obj, model, entity):
     """Turns the object's location, rotation and scale fcurves into the game's key frame animations.
 
@@ -4073,6 +4301,8 @@ def get_animations(obj, model, entity):
     modifiers, Euler or axis-angle rotation) is baked into as many keys as the game needs to follow
     Blender's motion. The object's rotation mode is left as the user set it.
     """
+    # stock animations import couldn't put on the object (Anim.make), written back unchanged
+    model.animations.extend(raw_anims(entity, obj, model))
     if not obj.animation_data:
         return None
 
@@ -4146,9 +4376,13 @@ def get_animations(obj, model, entity):
 
         stored = 'rotation_quaternion' if kind == 'rotation' else path
         durations = obj.get(f'anim_durations_{stored}')
-        model.animations.append(Anim(entity, model).unmake(times, poses, stored, loop = loop,
-                                                            flags = obj.get(f'anim_flags_{stored}'),
-                                                            durations = list(durations) if durations is not None else None))
+        anim = Anim(entity, model).unmake(times, poses, stored, loop = loop,
+                                          flags = obj.get(f'anim_flags_{stored}'),
+                                          durations = list(durations) if durations is not None else None)
+        index = obj.get(f'anim_index_{stored}')
+        if anim is not None and index is not None and index >= 0:
+            anim.index = int(index)
+        model.animations.append(anim)
 
 class Anim(DataStruct):
     def __init__(self, parent, model):
@@ -4172,13 +4406,19 @@ class Anim(DataStruct):
         self.keyframe_poses = []
         self.target = 0
         self.unk32 = 1 #1, 4, 5, 6, 34, 52, 58
+        # position in the model's animation list, kept on export (Model.sort_animations)
+        self.index = None
         
     def to_array(self):
         return [self.float1,self.float2,self.float3,self.flag1,self.flag2,self.num_keyframes,self.float4,self.float5,self.float6,self.float7,self.float8,self.keyframes,self.keyframe_times,self.keyframe_poses,self.target,self.unk32]
     
     def read(self, buffer, cursor):
         self.float1, self.float2, self.float3, self.flag1, self.flag2, self.num_keyframes, self.float4, self.float5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target, self.unk2 = struct.unpack_from(self.format_string, buffer, cursor)
-        if self.flag2 in [2, 18]:
+
+        if self.flag2 & 0xF == 0x2 and self.target:
+            # a flipbook targets an 8-byte block (mesh material pointer, then a word that is 0 in
+            # stock files) that the file stores between the key times and the frame pointers
+            self.target_word = readUInt32BE(buffer, self.target + 4)
             self.target = readUInt32BE(buffer, self.target)
 
         if not keyframe_poses_addr or not keyframe_times_addr:
@@ -4212,11 +4452,53 @@ class Anim(DataStruct):
 
         return self
                     
+    def raw_fields(self):
+        """This animation as plain data, written back unchanged by raw_anim."""
+        values = []
+        for pose in self.keyframe_poses:
+            data = pose.data.to_array() if hasattr(pose.data, 'to_array') else pose.data
+            values.extend(float(v) for v in (data if isinstance(data, (list, tuple)) else [data]))
+        return {
+            'index': self.index if self.index is not None else -1,
+            'floats': [self.float1, self.float2, self.float3, self.float4, self.float5,
+                       self.float6, self.float7, self.float8],
+            'flags': [self.flag1, self.flag2], 'unk11': self.unk2,
+            'times': list(self.keyframe_times), 'values': values,
+        }
+
+    def keep_raw(self, holder):
+        """Keep this animation as data on holder (an object, material or the model's collection)."""
+        kept = [dict(raw) for raw in holder.get('raw_animations', [])]
+        kept.append(self.raw_fields())
+        holder['raw_animations'] = kept
+
     def make(self):
         #assume we have an object or material to apply animations to
-        
+
         self.loop = self.flag2 & 0x10 > 0
         target = None
+        # Some stock animations can't be shown on a Blender object or material, and are kept as
+        # data for export instead (raw_anim): one with no target (a null pointer; cutscene models
+        # and some Parts have them), a second animation of the same type on the same node or
+        # material (cutscene models), and UV scrolls that aren't a plain looping 0..1 ramp.
+        anim_type = self.flag2 & 0xF
+        path = {0x8: 'rotation_quaternion', 0x9: 'location', 0xA: 'scale', 0xB: 'uv_x', 0xC: 'uv_y'}.get(anim_type)
+        if path in ('uv_x', 'uv_y'):
+            holder = get_mat_by_id(f"{self.model.id}_{self.target}")
+            values = [pose.data[0] if isinstance(pose.data, (list, tuple)) else pose.data for pose in self.keyframe_poses]
+            simple = self.flag2 in (27, 28) and len(self.keyframe_times) == 2 and self.keyframe_times[0] == 0 and \
+                sorted(values) == [0.0, 1.0]
+            if holder is None or not simple or f'anim_index_{path}' in holder:
+                self.keep_raw(holder if holder is not None else self.model.collection)
+                return
+            holder[f'anim_index_{path}'] = self.index if self.index is not None else -1
+        elif path is not None:
+            holder = get_obj_by_id(self.model.obj_key(self.target), self.model.collection) if self.target else None
+            if holder is None or f'anim_flags_{path}' in holder:
+                self.keep_raw(holder if holder is not None else self.model.collection)
+                return
+            holder[f'anim_index_{path}'] = self.index if self.index is not None else -1
+
         if self.flag2 in [27, 28]: #uv
             target = get_mat_by_id(f"{self.model.id}_{self.target}")
             if target is None:
@@ -4228,19 +4510,31 @@ class Anim(DataStruct):
                 scroll = scroll * -1
             
             if self.flag2 == 27:
-                target['scroll_x'] = scroll
+                set_material_prop(target, 'scroll_x', scroll)
             if self.flag2 == 28:
-                target['scroll_y'] = scroll
+                set_material_prop(target, 'scroll_y', scroll)
             
             #remake material
             material = Material(None, None).unmake(target)
             material.make(remake = True)
 
-        elif self.flag2 in [2, 18]: #texture
+        elif self.flag2 & 0xF == 0x2: # texture flipbook
             target = get_mat_by_id(f"{self.model.id}_{self.target}")
             if target is None:
                 return
-            
+            # kept as data for export (Material.unmake); Blender shows the material's own texture
+            target['flipbook'] = {
+                'floats': [self.float1, self.float2, self.float3, self.float4, self.float5,
+                           self.float6, self.float7, self.float8],
+                'flags': [self.flag1, self.flag2],
+                'unk11': self.unk2,
+                'target_word': getattr(self, 'target_word', 0),
+                'index': self.index if self.index is not None else -1,
+                'times': list(self.keyframe_times),
+                'frames': [texture_fields(pose.texture) for pose in self.keyframe_poses],
+            }
+            return
+
             
         # The low 4 bits are the animation type (8 rotation, 9 translation); the rest are
         # behaviour flags such as 0x10 loop, so match on the type rather than whole values.
@@ -4326,7 +4620,10 @@ class Anim(DataStruct):
         # longer than their last key (one length shared by a puppet's limbs), so keep the
         # imported lengths unless the keys now run past them.
         if durations is not None and len(durations) == 2:
-            self.float4, self.float5 = (max(float(d), anim_length) for d in durations)
+            # stock lengths measure from the first key, which isn't always at 0 (Scen 283's
+            # keys start at 1.41 s with duration4 9.6)
+            span = self.keyframe_times[-1] - self.keyframe_times[0]
+            self.float4, self.float5 = (max(float(d), span) for d in durations)
 
         if path == 'location':
             self.flag2 |= 0b1001
@@ -4346,6 +4643,12 @@ class Anim(DataStruct):
         if loop:
             self.flag2 |= 0x10
 
+        # end time, duration and duration3 hold the loop length the game picks on load (duration5
+        # with flag 0x20, else duration4; SW_RACER_RE src/Swr/swrModel.c swrModel_LoadAnimation),
+        # as in every stock file; the last key time made a puppet's limbs loop out of step wherever
+        # the game runs animations without that reset (the racer select pilots)
+        self.float1 = self.float2 = self.float3 = self.float5 if self.flag2 & 0x20 else self.float4
+
         return self
     
     def write(self, buffer, cursor):
@@ -4360,10 +4663,29 @@ class Anim(DataStruct):
         for time in self.keyframe_times:
             cursor = writeFloatBE(buffer, time, cursor)
         
+        target_addr = self.target.write_location if self.target is not None else 0
+        if self.flag2 & 0xF == 0x2 and self.target is not None:
+            # the target block (mesh material pointer, word), as stock files lay it out
+            target_addr = cursor
+            self.model.highlight(cursor)
+            writeUInt32BE(buffer, self.target.write_location, cursor)
+            writeUInt32BE(buffer, getattr(self, 'target_word', 0), cursor + 4)
+            cursor += 8
         keyframe_poses_addr = cursor
-        for pose in self.keyframe_poses:
-            cursor = pose.write(buffer, cursor)
-        struct.pack_into(self.format_string, buffer, anim_addr, self.float1, self.float2, self.float3, self.flag1, self.flag2, len(self.keyframe_times), self.float4, self.float5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, self.target.write_location, self.unk32)
+        if self.flag2 & 0xF == 0x2:
+            # a pointer per key, then the frames' texture structs (TexturePose)
+            cursor += 4 * len(self.keyframe_poses)
+            for i, pose in enumerate(self.keyframe_poses):
+                slot = keyframe_poses_addr + 4 * i
+                if pose.texture is None:
+                    continue
+                self.model.highlight(slot)
+                writeUInt32BE(buffer, cursor, slot)
+                cursor = pose.texture.write(buffer, cursor)
+        else:
+            for pose in self.keyframe_poses:
+                cursor = pose.write(buffer, cursor)
+        struct.pack_into(self.format_string, buffer, anim_addr,self.float1, self.float2, self.float3, self.flag1, self.flag2, len(self.keyframe_times), self.float4, self.float5, self.float6, self.float7, self.float8, keyframe_times_addr, keyframe_poses_addr, target_addr, self.unk32)
         return cursor
     
     def to_array(self):
@@ -4378,7 +4700,9 @@ class AnimList():
         cursor += 4
         anim = readUInt32BE(buffer, cursor)
         while anim:
-            self.data.append(Anim(self, self.model).read(buffer, anim))
+            read = Anim(self, self.model).read(buffer, anim)
+            read.index = len(self.data)
+            self.data.append(read)
             cursor += 4
             anim = readUInt32BE(buffer, cursor)
         return cursor + 4
@@ -4673,6 +4997,21 @@ def get_imported_part_root(immediate_children):
         return obj
     return None
 
+def get_imported_slot0_root(immediate_children):
+    """The imported node at the top of the collection, if it is the only top-level node or mesh.
+
+    Usually it held slot 0; a header-less basic node is the wrapper older exports put above it,
+    which is reused rather than wrapped again. Lights (e.g. the 'pod_lighting' import makes for
+    a mesh's lighting tag) are not nodes and don't count.
+    """
+    candidates = [obj for obj in through_pivot_helpers(immediate_children) if obj.type in ('EMPTY', 'MESH')]
+    if len(candidates) != 1:
+        return None
+    obj = candidates[0]
+    if obj.type == 'EMPTY' and obj.get('node_type') is not None and             (0 in obj.get('header', []) or obj.get('node_type') == 20580):
+        return obj
+    return None
+
 def children_through_pivot_helpers(obj):
     """obj's children, looking through the pivot helpers import inserts (they are not file nodes)."""
     children = []
@@ -4731,6 +5070,34 @@ def get_immediate_children(collection):
         if obj.parent is None or obj.parent.name not in collection.objects:
             immediate_children.append(obj)
     return immediate_children
+
+def imported_mesh_group(mesh):
+    """The imported mesh group empty a mesh object sits under, if any."""
+    obj = getattr(mesh, 'original_object', None)
+    parent = obj.parent if obj is not None else None
+    while parent is not None and parent.get('pivot_helper'):
+        parent = parent.parent
+    if parent is not None and parent.get('node_type') == 12388:
+        return parent
+    return None
+
+def restore_mesh_group_flags(group):
+    """See Model.restore_node_flags."""
+    sources = {imported_mesh_group(mesh) for mesh in group.children if mesh is not None}
+    if len(sources) != 1 or None in sources:
+        return
+    source = sources.pop()
+    if 'vis_flags' not in source or 'col_flags' not in source:
+        return
+    vis, col = int(source['vis_flags']), int(source['col_flags'])
+    has_col = any(mesh.has_collision() for mesh in group.children if mesh is not None)
+    has_vis = any(mesh.has_visuals() for mesh in group.children if mesh is not None)
+    if bool(col & 0x2) != has_col or bool(vis & 0x4) != has_vis:
+        return
+    group.vis_flags = (group.vis_flags & 0xFFFFFF00) | (vis & 0xFF)
+    group.col_flags = (group.col_flags & 0xFFFFFF00) | (col & 0xFF)
+    if 'transform_flags' in source:
+        group.transform_flags = int(source['transform_flags'])
 
 def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
     """The exported nodes and meshes for obj and its descendants, to be added under parent.
@@ -4805,6 +5172,10 @@ def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
         if len(group.children) == 1 and isinstance(group.children[0], MeshGroup):
             node = group.children[0]
             node.parent = parent
+        elif not group.children:
+            # an imported mesh group with no meshes stays an (empty) mesh group, not a basic node
+            node = MeshGroup(parent, model, 12388)
+            node.calc_bounding()
         if holds_header_slot:
             node.imported_header = [int(slot) for slot in obj['header']]
         model.register_node(obj, node)
@@ -5067,6 +5438,7 @@ class Model():
                 
         #header should be made last for the animations
         self.header.make()
+        self.record_rest_poses(collection)
 
         return collection
 
@@ -5083,8 +5455,15 @@ class Model():
         self.id = collection.export_model
         self.nodes = []
         self.texture_export = texture_export
+        # Nodes that came from an imported file keep their place (deep_unmake keep_node) and their
+        # flags (restore_node_flags): game code reaches into models by child index from a header
+        # slot (SW_RACER_RE src/Swr/swrModel.c swrModel_NodeGetChild), e.g. to orient the spark
+        # (Part 49) or swap the vehicle-select flag's texture (Part 48), and merging a plain group
+        # away moved those targets one node down. Nodes made in Blender have no node_type and
+        # are still merged into their parent. Podd also turns this on (begin_alt_export).
+        self.keep_imported_nodes = str(self.type) in ('2', '3', '5', '6', '7')
 
-        # Guard unsupported model types up front. Previously types 1/2/6 fell
+        # Guard unsupported model types up front.Previously types 1/2/6 fell
         # through every branch below and silently wrote an EMPTY model over the
         # game file (data loss). Types 2 (Modl) and 6 (Scen) are now handled by
         # the generic branch; type 1 (MAlt) is exported automatically alongside
@@ -5217,7 +5596,15 @@ class Model():
             unmade = []
             immediate_children = get_immediate_children(collection)
             imported_root = get_imported_part_root(immediate_children) if self.type in ('2', '3') else None
-            if imported_root is not None:
+            slot0_root = get_imported_slot0_root(immediate_children) if imported_root is None else None
+            if slot0_root is not None:
+                # Stock Modl/Pupp/Scen models start at their slot-0 node, whatever its type
+                # (a pivot node, a selector, a basic node), with no group above it. Wrapping it
+                # in a new basic node each export made re-imports grow by one node per export,
+                # now that imported nodes are kept (keep_imported_nodes).
+                root = deep_unmake(slot0_root, None, self, target_map, keep = True)[0]
+                immediate_children = []
+            elif imported_root is not None:
                 # Re-exporting an imported Part: its root already is the slot-0 pivot node the
                 # template would create, so use it rather than wrapping it in another one each export.
                 # A Modl whose slot 0 is a pivot node (e.g. 176) likewise has it as its first node,
@@ -5423,9 +5810,34 @@ class Model():
             if trigger.target:
                 trigger.target = target_map[trigger.target.name]
 
+        # stock animations with no target (Anim.make keeps them on the collection)
+        self.animations.extend(raw_anims(None, collection, self))
+        self.sort_animations()
         self.header.unmake(collection)
 
         return self
+
+    def sort_animations(self):
+        """Imported animations back in their stock list order, new ones after them.
+
+        Game code may pick a model's animations by their position in the header's list (cutscene
+        models carry several per node), so the order is kept rather than rebuilt from the scene.
+        """
+        self.animations = [anim for anim in self.animations if anim is not None]
+        self.animations.sort(key = lambda anim: (anim.index is None, anim.index if anim.index is not None else 0))
+
+    def record_rest_poses(self, collection):
+        """Remember each animated node's frame 0 basis, so export can tell it was left as imported.
+
+        The game overwrites an animated node's matrix every frame, but the stored rest matrix is
+        what the node holds before its animation runs (and what a transition blends from); stock
+        rest poses often differ slightly from the first key. NodeTransformedWithPivot.unmake writes
+        the stored matrix back while the frame 0 pose is still the one import made.
+        """
+        for obj in collection.all_objects:
+            if 'file_matrix' not in obj or not obj.animation_data or not obj.animation_data.action:
+                continue
+            obj['frame0_basis'] = basis_values(frame0_basis(obj))
 
     def begin_alt_export(self, objects):
         """Export the nodes import merged in from this Podd's MAlt into a MAlt model of their own.
@@ -5487,7 +5899,9 @@ class Model():
         The game switches pod parts (shadows, sparks, ...) on and off by setting the low flag bits
         of the node it looks up (SW_RACER_RE src/Swr/swrModel.c:1761 swrModel_NodeModifyFlags), so a
         node the stock pod keeps hidden must stay hidden, rather than get set_flags' all-visible
-        flags. Mesh groups keep the flags export gave them from their meshes.
+        flags. A mesh group whose meshes all come from one imported mesh group gets that group's
+        flags_3 and low flag bytes back (its layer bits come from the meshes), unless its
+        collision/visuals bits (0x2 of col_flags, 0x4 of vis_flags) no longer match its meshes.
         """
         seen = set()
         stack = list(self.nodes)
@@ -5502,6 +5916,9 @@ class Model():
                     node.vis_flags = int(source['vis_flags'])
                 if 'col_flags' in source:
                     node.col_flags = int(source['col_flags'])
+            if isinstance(node, MeshGroup):
+                restore_mesh_group_flags(node)
+                continue
             stack.extend(child for child in node.children if child is not None)
 
     def write_altn_slot(self, buffer, node, index, child_ptr):

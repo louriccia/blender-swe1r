@@ -275,12 +275,12 @@ def get_setting(key, default=None):
 
 def SelVis(self, context = None):
     for obj in bpy.context.scene.objects:
-        if 'visible' in obj and obj['visible']:
+        if obj.visible:  # registered property; obj['visible'] is a separate custom one since Blender 5.0
             obj.hide_select = not context.scene.visuals_selectable
 
 def SelCol(self, context = None):
     for obj in bpy.context.scene.objects:
-        if 'collidable' in obj and obj['collidable']:
+        if obj.collidable:
             obj.hide_select = not context.scene.collision_selectable
             
 def open_url(url: str) -> None:
@@ -403,7 +403,7 @@ name_attr_colors = data_name_format_short.format(label='colors')
 name_attr_baked = data_name_format_short.format(label='colors_baked')
 
 def init_vertex_colors(b_obj):
-    if b_obj.type != 'MESH' or not b_obj.get('visible', False):
+    if b_obj.type != 'MESH' or not b_obj.visible:
         return
 
     if not hasattr(b_obj.data, 'color_attributes') or len(b_obj.data.color_attributes) == 0:
@@ -414,7 +414,7 @@ def init_vertex_colors(b_obj):
             color.color = [1.0, 1.0, 1.0, 1.0]
 
 def reset_vertex_colors(b_obj):
-    if b_obj.type != 'MESH' or not b_obj.get('visible', False):
+    if b_obj.type != 'MESH' or not b_obj.visible:
         return
 
     if not hasattr(b_obj.data, 'color_attributes') or len(b_obj.data.color_attributes) == 0:
