@@ -65,12 +65,14 @@ class SplinePoint(DataStruct):
         self.handle1.write(buffer, cursor + 40)
         self.handle2.write(buffer, cursor + 52)
     
-    def make(self, polyline):
-        polyline.bezier_points[-1].handle_left_type = 'FREE'
-        polyline.bezier_points[-1].handle_right_type = 'FREE'
-        polyline.bezier_points[-1].co = tuple([p for p in self.position.to_array()])
-        polyline.bezier_points[-1].handle_left =  tuple([p for p in self.handle1.to_array()])
-        polyline.bezier_points[-1].handle_right =  tuple([p for p in self.handle2.to_array()])
+    def make(self, bezier_point):
+        bezier_point.handle_left_type = 'FREE'
+        bezier_point.handle_right_type = 'FREE'
+        bezier_point.co = tuple([p for p in self.position.to_array()])
+        # handle1 is the incoming handle, handle2 the outgoing one: a segment a -> b is drawn
+        # from a.position, a.handle2, b.handle1, b.position (swrSpline.c:136-139)
+        bezier_point.handle_left =  tuple([p for p in self.handle1.to_array()])
+        bezier_point.handle_right =  tuple([p for p in self.handle2.to_array()])
     
     def unmake(self, point, object, scale = 0.01):
         co = object.matrix_world @ point.co
@@ -132,41 +134,75 @@ class Spline(DataStruct):
         curveData.dimensions = '3D'
         curveData.resolution_u = 10
         
-        polyline = curveData.splines.new('BEZIER')
-        already = []
-        new = False
-        
-        for i, point in enumerate(self.points):
-            previous = None if len(point.previous) == 0 else point.previous[0]
-            next = None if len(point.next) == 0 else point.next[0]
-            
-            if previous in already and new:
-                #the point that is included with the new polyline is made
-                # a dup of the point where this path branches off of main spline
-                self.points[previous].make(polyline) 
-                new = False
-                polyline.bezier_points.add(1) #add a new slot for the unique point
-                
-            point.make(polyline)
-            already.append(i)
-            
-            if next in already or len(point.next) == 0: #we have reached the end of a path
-                if 0 in point.next:
-                    polyline.use_cyclic_u = True #close main spline
-                else: #dup the point where the path rejoins main spline
-                    polyline.bezier_points.add(1)
-                    self.points[next].make(polyline)
-                if i < len(self.points) - 1:
-                    polyline = curveData.splines.new('BEZIER') #start a new path
-                    new = True
-                continue #skip adding a new point since a new polyline comes with a point already
-                    
-            polyline.bezier_points.add(1)
-        
+        for indices, cyclic in self.decompose():
+            polyline = curveData.splines.new('BEZIER') # comes with one point
+            polyline.bezier_points.add(len(indices) - 1)
+            for bezier_point, index in zip(polyline.bezier_points, indices):
+                self.points[index].make(bezier_point)
+            polyline.use_cyclic_u = cyclic
+
         curveOB = bpy.data.objects.new("spline", curveData)
         curveOB.scale = (scale, scale, scale)
         curveOB['id'] = self.id
         return curveOB
+
+    def decompose(self):
+        """Split the control point graph into Blender polylines: [(point indices, cyclic)].
+
+        The first polyline is the main path, followed from point 0 along next1 (the main
+        continuation at a split, swrSpline.c:335-342). Every other polyline starts and ends with
+        a duplicate of the existing point it branches from / rejoins, so a branch can leave or
+        join any point, including one on another alternate path. A direct link between two
+        existing points (a shortcut with no points of its own) becomes a two-point polyline."""
+        count = len(self.points)
+        if count == 0:
+            return []
+        polylines = []
+        placed = set()
+
+        # main path
+        chain = [0]
+        placed.add(0)
+        while self.points[chain[-1]].next and self.points[chain[-1]].next[0] not in placed:
+            chain.append(self.points[chain[-1]].next[0])
+            placed.add(chain[-1])
+        last_next = self.points[chain[-1]].next
+        cyclic = bool(last_next) and last_next[0] == chain[0]
+        if last_next and not cyclic:
+            chain.append(last_next[0])
+        polylines.append((chain, cyclic))
+
+        # alternate paths, in point order
+        while len(placed) < count:
+            start = next((i for i in range(count) if i not in placed and any(p in placed for p in self.points[i].previous)), None)
+            if start is None: # not reachable from the main path
+                start = next(i for i in range(count) if i not in placed)
+            chain = []
+            branch_from = [p for p in self.points[start].previous if p in placed]
+            if branch_from:
+                chain.append(branch_from[0])
+            chain.append(start)
+            placed.add(start)
+            while self.points[chain[-1]].next:
+                following = self.points[chain[-1]].next[0]
+                chain.append(following)
+                if following in placed:
+                    break
+                placed.add(following)
+            polylines.append((chain, False))
+
+        # links not drawn by any polyline yet
+        drawn = set()
+        for chain, cyclic in polylines:
+            drawn.update(zip(chain, chain[1:]))
+            if cyclic:
+                drawn.add((chain[-1], chain[0]))
+        for i, point in enumerate(self.points):
+            for j in point.next:
+                if (i, j) not in drawn:
+                    polylines.append(([i, j], False))
+                    drawn.add((i, j))
+        return polylines
     
     def calculate_progress(self, loop):
         # calculate progress/indexing
@@ -234,90 +270,106 @@ class Spline(DataStruct):
         
         #find main path
         if looped_paths[0].use_cyclic_u:
-            main_path = looped_paths[0]  
-            if len(looped_paths) > 1:
-                alt_paths = [spline for spline in longest_paths[1:] if spline.use_cyclic_u is False]
+            main_path = looped_paths[0]
             loop = True
         else:
             main_path = longest_paths[0]
-            if len(longest_paths) > 1:
-                alt_paths = longest_paths[1:]
+        # every other open path is an alternate path, longest first (by identity: the main
+        # path is not necessarily the longest one)
+        alt_paths = [spline for spline in longest_paths if spline is not main_path and not spline.use_cyclic_u]
 
-        #begin deconstruction        
-        segment_count = 0
+        #begin deconstruction
         point_count = 0
-        
+
         main_len = len(main_path.bezier_points)
         count = main_len + sum([len(path.bezier_points) - 2 for path in alt_paths])
         assert count <= 255, f"Too many spline points. Splines that contain more than 255 points are not supported. This scene contains {count} points."
-        
+
         #add all points from main_path
         for i, point in enumerate(main_path.bezier_points):
             p = SplinePoint().unmake(point, spline_object, scale)
             p.id = point_count
-            
+
             if i == 0 and loop:
                 p.previous.append(main_len - 1)
-            elif i != 0: 
+            elif i != 0:
                 p.previous.append(point_count - 1)
-                
+
             if i == main_len - 1 and loop:
                 p.next.append(0)
             elif i != main_len - 1:
                 p.next.append(point_count + 1)
-            
-            assert len(p.next) <= 2, "What the heck"
-                
+
             self.points.append(p)
             point_count += 1
-            segment_count += 1
-        
+
         self.calculate_progress(loop)
-        
-        for k, path in enumerate(alt_paths):
-            # first and last points will be dups of main spline or existing path
-            first = path.bezier_points[0]
-            last = path.bezier_points[-1]
-            
-            # find index of existing points
-            start = self.find_closest(first.co , 'start')
-            end = self.find_closest(last.co, 'end', ban = start)
-            points = path.bezier_points[1:-1]
-            assert start != end, "Something went wrong during Spline export"
-            
+
+        def game_position(co):
+            return [c/scale for c in spline_object.matrix_world @ co]
+
+        # An alternate path's first and last points are duplicates of the points it branches
+        # from and rejoins, which may lie on another alternate path, so add a path only once
+        # both of those exist (ties keep the longest first).
+        remaining = list(alt_paths)
+        while remaining:
+            best = None
+            for path in remaining:
+                start, start_distance = self.find_closest(game_position(path.bezier_points[0].co))
+                end, end_distance = self.find_closest(game_position(path.bezier_points[-1].co), ban = start)
+                distance = max(start_distance, end_distance)
+                if distance <= 1.0: # game units
+                    distance = 0
+                if best is None or distance < best[0]:
+                    best = (distance, path, start, end)
+            _, path, start, end = best
+            remaining.remove(path)
+
+            points = [SplinePoint().unmake(point, spline_object, scale) for point in path.bezier_points[1:-1]]
+            assert start is not None and end is not None and start != end, "Something went wrong during Spline export"
+
             # check if path needs to be inverted
             # this prevents a path from ending on an earlier point than where it started
             if self.points[start].progress > self.points[end].progress:
                 print('reversed spline')
-                tmp = start
-                start = end
-                end = tmp
+                start, end = end, start
                 points.reverse()
-            
+                # walked the other way, each point's incoming and outgoing handles trade places
+                # (a segment a -> b uses a.handle2 and b.handle1, swrSpline.c:136-139)
+                for p in points:
+                    p.handle1, p.handle2 = p.handle2, p.handle1
+
+            # a control point holds at most 2 next and 4 previous links (types.h swrSplineControlPoint)
+            assert len(self.points[start].next) < 2, f"Spline point {start} already splits into 2 paths; a point can't split into more."
+            assert len(self.points[end].previous) < 4, f"Spline point {end} already joins 4 paths; a point can't join more."
+
+            if not points: # direct shortcut between two existing points
+                self.points[start].next.append(end)
+                self.points[end].previous.append(start)
+
             # loop through and add points of path
-            for i, point in enumerate(points):
-                p = SplinePoint().unmake(point, spline_object, scale)
+            for i, p in enumerate(points):
                 p.id = point_count
-                
+
                 if i == 0: # start of path connects to existing point
                     p.previous.append(start)
                     self.points[start].next.append(point_count)
                 if i == len(points) - 1: # end of path connects to existing point
                     p.next.append(end)
                     self.points[end].previous.append(point_count)
-                    
+
                 if not len(p.previous):
                     p.previous.append(point_count - 1)
                 if not len(p.next):
                     p.next.append(point_count + 1)
-                    
+
                 self.points.append(p)
                 point_count += 1
-                segment_count += 1
-            
-            segment_count += 1
+
             self.calculate_progress(loop)
-            
+
+        # unk_set[slot] is the segment id of the segment that leaves through next<slot+1>
+        # (swrSpline.c:394-401): next1 segments are numbered by point, next2 segments follow
         splits = 0
         for i, point in enumerate(self.points):
             point.unk_set[0] = i
@@ -326,34 +378,31 @@ class Spline(DataStruct):
                 splits += 1
             if i == len(self.points) - 1 and not loop:
                 point.unk_set[0] = 0
-            
+
         # LIMITATIONS:
-        # cannot split or join more than 2 times on any point
+        # a point can split into at most 2 paths and join at most 4
         # cannot have alt paths that start before and end after the finish line on main spline
 
         self.point_count = len(self.points)
-        self.segment_count = segment_count
-        
+        # one segment id per point plus one per split, matching every stock spline
+        self.segment_count = len(self.points) + splits
+
         return self
-        
-    def find_closest(self, co, cap = 'start', scale = 0.01, ban = None):
+
+    def find_closest(self, co, ban = None):
+        """Index of and distance to the existing point nearest to co (game units)."""
         closest_index = None
         closest_distance = float('inf')
-        
+
         for i, point in enumerate(self.points):
             if ban is not None and i == ban:
                 continue
-            if cap == "start" and (len(point.next) >= 2 or len(point.previous) >=2):
-                continue
-            if cap == "end" and (len(point.previous) >= 2 or len(point.next) >= 2): #changed this from 4 because it might be reversed
-                continue
-            distance_vec = (d - co[j] for j, d in enumerate(point.position.to_array()))
-            distance = math.sqrt(sum([d**2 for d in distance_vec]))
-            
+            distance = math.dist(point.position.to_array(), co)
+
             if distance < closest_distance:
                 closest_index = i
                 closest_distance = distance
-        return closest_index
+        return closest_index, closest_distance
     
     def write(self):
         buffer = bytearray(8000000)
