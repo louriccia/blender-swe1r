@@ -3059,6 +3059,10 @@ class Node(DataStruct):
         self.child_start = None
         self.original_object = None
         self.write_location = None
+        # child slots import kept on the object (see Node.make): null slot indices, and
+        # {slot index: id of a node made under another parent}
+        self.null_slots = []
+        self.shared_slots = {}
         
     def read(self, buffer, cursor):
         self.id = cursor
@@ -3093,7 +3097,9 @@ class Node(DataStruct):
             #     print('reference to previous node', child_address, 'on child', i, 'for node', self.id)
 
             if self.model.ref_map.get(child_address):
-                self.children.append({'id': child_address})
+                # a node already read under another parent: the file's node graph is a DAG
+                # (e.g. Part 251's seven pivots share one child), keep the extra link for export
+                self.children.append({'id': child_address, 'shared': self.model.obj_key(child_address)})
                 continue
 
             if isinstance(self, MeshGroup):
@@ -3174,7 +3180,19 @@ class Node(DataStruct):
         for node in self.children:
             if not isinstance(node, dict):
                 node.make(b_node, collection)
-            
+
+        if self.node_type != 12388:
+            # Child slots that are not objects of their own: null pointers, which selectors and LOD
+            # selectors count when they pick a child by index (SW_RACER_RE dinput_hook/renderer_hook.cpp
+            # debug_render_node), and links to a node already made under another parent. Export
+            # writes both back at the same index (Model.resolve_child_slots).
+            null_slots = [i for i, c in enumerate(self.children) if isinstance(c, dict) and not c.get('shared')]
+            shared = {str(i): c['shared'] for i, c in enumerate(self.children) if isinstance(c, dict) and c.get('shared')}
+            if null_slots:
+                b_node['null_slots'] = null_slots
+            if shared:
+                b_node['shared_children'] = shared
+
         if self.id in self.model.header.offsets:
             b_node['header'] = [i for i, e in enumerate(self.model.header.offsets) if e == self.id]
             
@@ -3208,6 +3226,10 @@ class Node(DataStruct):
             self.mirror_flags = int(node['unk2'])
         if 'header' in node:
             self.imported_header = [int(slot) for slot in node['header']]
+        if 'null_slots' in node:
+            self.null_slots = [int(slot) for slot in node['null_slots']]
+        if 'shared_children' in node:
+            self.shared_slots = {int(slot): str(key) for slot, key in node['shared_children'].items()}
         
         if self.model.type == '7' and 2 in self.header:
             self.skybox = True
@@ -3294,6 +3316,8 @@ class Node(DataStruct):
             self.vis_flags = 0xFFFFFFFF
             self.col_flags = 0xFFFFFFFF
             for child in self.children:
+                if child is None:
+                    continue
                 child.set_flags()
                 if self.node_type == [12388]:
                     self.col_flags &= (child.col_flags & 0x000000FF)
@@ -3393,26 +3417,37 @@ class NodeTransformedWithPivot(Node):
         empty.matrix_basis = mathutils.Matrix(self.matrix.make(self.model.scale)).transposed()
         empty['bonus'] = self.bonus.to_array()
 
-        # Pivot semantic: worldMat[N] = worldMat[parent] · M_node · T(-pivot).
-        # In Blender we model T(-pivot) with a translation-only helper empty inserted
-        # between this node and its file-children so that rotating this node pivots
-        # around the file's pivot point (not around the empty's origin).
+        # Pivot semantic: with flags_3 & 0x10 the game rotates about the pivot, composing the
+        # local transform as T(pivot) · M · T(-pivot), i.e. t += pivot - R·pivot (SW_RACER_RE
+        # src/Swr/swrModel.c:1486-1491, dinput_hook/node_utils.cpp:211-221; flag documented in
+        # src/types.h:1433). Without the flag the pivot is ignored.
+        # The node object keeps basis M, so its location/rotation (and their keyframes) stay the
+        # file's translation/rotation; two translation-only helper empties supply the rest:
+        # T(+pivot) between the node and its parent, T(-pivot) between the node and its children.
         pivot = self.bonus.to_array()[:3]
-        if any(abs(p) > 1e-7 for p in pivot):
+        if self.transform_flags & 0x10 and any(abs(p) > 1e-7 for p in pivot):
             scale = self.model.scale
             file_children = [c for c in empty.children]
-            helper = bpy.data.objects.new(empty.name + "_pivot", None)
-            helper.empty_display_type = 'PLAIN_AXES'
-            helper.empty_display_size = 0.25
             # link next to the node, not into `collection`: Node.make may have moved the node into
             # a Track/Skybox sub-collection, and export walks each sub-collection's own objects
-            for node_collection in empty.users_collection:
-                node_collection.objects.link(helper)
-            helper.parent = empty
-            helper.matrix_parent_inverse.identity()
-            helper.location = (-pivot[0] * scale, -pivot[1] * scale, -pivot[2] * scale)
-            helper['pivot_helper'] = True
+            node_collections = list(empty.users_collection)
 
+            def make_helper(name, location, parent):
+                helper = bpy.data.objects.new(name, None)
+                helper.empty_display_type = 'PLAIN_AXES'
+                helper.empty_display_size = 0.25
+                for node_collection in node_collections:
+                    node_collection.objects.link(helper)
+                helper.parent = parent
+                helper.matrix_parent_inverse.identity()
+                helper.location = [p * scale for p in location]
+                helper['pivot_helper'] = True
+                return helper
+
+            origin = make_helper(empty.name + "_pivot_origin", pivot, empty.parent)
+            empty.parent = origin
+            empty.matrix_parent_inverse.identity()
+            helper = make_helper(empty.name + "_pivot", [-p for p in pivot], empty)
             for child in file_children:
                 child.parent = helper
                 child.matrix_parent_inverse.identity()
@@ -3420,7 +3455,12 @@ class NodeTransformedWithPivot(Node):
         return empty
     def unmake(self, node, make_children = False):
         super().unmake(node, False)
-        matrix = node.matrix_local
+        if node.parent is not None and node.parent.get('pivot_helper'):
+            # below the T(+pivot) helper import adds, the node's own channels are M; matrix_local
+            # would be rebuilt from world matrices and pick up float noise
+            matrix = node.matrix_parent_inverse @ node.matrix_basis
+        else:
+            matrix = node.matrix_local
         #need to transpose the matrix
         matrix = list(map(list, zip(*matrix)))
         self.matrix.unmake(matrix, self.model.scale)
@@ -4275,12 +4315,34 @@ def deep_select_objects(collection):
     for sub_collection in collection.children:
         deep_select_objects(sub_collection)
 
+def check_pivot_helper(obj):
+    """Export skips pivot helpers, so refuse one carrying an animation rather than drop it silently.
+
+    The file has nowhere to keep it: the pivot is a fixed vector on the node (SW_RACER_RE
+    src/types.h:1468-1474), and animations target nodes.
+    """
+    if obj.animation_data and obj.animation_data.action:
+        raise ValueError(f"{obj.name} is a pivot helper and cannot be animated; "
+                         f"animate the node it belongs to instead")
+
+def through_pivot_helpers(objects):
+    """objects, with each pivot helper import inserted replaced by the objects below it (helpers are not file nodes)."""
+    found = []
+    for obj in objects:
+        if obj.get('pivot_helper'):
+            check_pivot_helper(obj)
+            found.extend(children_through_pivot_helpers(obj))
+        else:
+            found.append(obj)
+    return found
+
 def get_imported_part_root(immediate_children):
     """The empty that held a Part's slot 0 on import, if it is the collection's only top-level object.
 
     A Part's slot 0 must be a pivot node (0xD065): the game finds environment models by it
     (SW_RACER_RE dinput_hook/renderer_hook.cpp, try_replace_env).
     """
+    immediate_children = through_pivot_helpers(immediate_children)
     if len(immediate_children) != 1:
         return None
     obj = immediate_children[0]
@@ -4292,11 +4354,16 @@ def children_through_pivot_helpers(obj):
     """obj's children, looking through the pivot helpers import inserts (they are not file nodes)."""
     children = []
     for child in object_children(obj):
-        children.extend(children_through_pivot_helpers(child) if child.get('pivot_helper') else [child])
+        if child.get('pivot_helper'):
+            check_pivot_helper(child)
+            children.extend(children_through_pivot_helpers(child))
+        else:
+            children.append(child)
     return children
 
 def get_imported_skybox_root(immediate_children):
     """(slot-2 pivot, camera-follow node) of an imported skybox, if it is the collection's only top-level object."""
+    immediate_children = through_pivot_helpers(immediate_children)
     if len(immediate_children) != 1:
         return None
     sky_obj = immediate_children[0]
@@ -4307,6 +4374,16 @@ def get_imported_skybox_root(immediate_children):
         return None
     return sky_obj, children[0]
 
+def get_imported_track_root(immediate_children):
+    """The basic node that held a track's slot 0 on import, if it is the Track collection's only top-level object."""
+    immediate_children = through_pivot_helpers(immediate_children)
+    if len(immediate_children) != 1:
+        return None
+    obj = immediate_children[0]
+    if obj.type == 'EMPTY' and obj.get('node_type') == 20580 and 0 in obj.get('header', []):
+        return obj
+    return None
+
 def get_immediate_children(collection):
     immediate_children = []
     for obj in collection.objects:
@@ -4315,7 +4392,12 @@ def get_immediate_children(collection):
             immediate_children.append(obj)
     return immediate_children
 
-def deep_unmake(obj, parent, model, target_map, skybox = False):
+def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
+    """The exported nodes and meshes for obj and its descendants, to be added under parent.
+
+    keep: obj must come out as exactly one node, as a selector's child does: selectors pick
+    children by index (SW_RACER_RE dinput_hook/renderer_hook.cpp:1375-1404).
+    """
     if obj is None:
         return []
 
@@ -4323,9 +4405,10 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
     # NodeTransformedWithPivot nodes. They do not correspond to a file node — descend
     # through them transparently so the helper's children attach to the file parent.
     if obj.get('pivot_helper'):
+        check_pivot_helper(obj)
         children = []
         for child in object_children(obj):
-            children.extend(deep_unmake(child, parent, model, target_map, skybox))
+            children.extend(deep_unmake(child, parent, model, target_map, skybox, keep))
         return children
 
     children = []
@@ -4336,7 +4419,26 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
     # Selectors draw only their selected child and LOD selectors one child by distance
     # (SW_RACER_RE src/types.h); flattening them would draw every child.
     is_selector = obj.type == 'EMPTY' and obj.get('node_type') in (20581, 20582)
-    if (obj.get('node_type') == 53349) or (obj.get('node_type') == 53350 and not skybox)  or obj.animation_data or obj.name in target_map.keys() or holds_header_slot or is_selector: # cases in which we need to retain hierarchy
+    # null slots and links to a node shared with another parent are written back by index
+    # (Model.resolve_child_slots), so the node holding them, and the shared node, must stay nodes
+    has_child_slots = obj.type == 'EMPTY' and bool(obj.get('null_slots') or obj.get('shared_children'))
+    is_shared = obj.id in model.shared_target_ids
+    retained = (obj.get('node_type') == 53349) or (obj.get('node_type') == 53350 and not skybox) or obj.animation_data or obj.name in target_map.keys() or holds_header_slot or is_selector or has_child_slots
+    if (keep or is_shared) and not retained and obj.type == 'EMPTY' and obj.get('node_type') == 12388:
+        # a mesh group kept as one node: regroup its meshes and keep the single mesh group that
+        # gives, rather than wrapping it in a transform
+        meshes = []
+        for child in object_children(obj):
+            meshes.extend(deep_unmake(child, parent, model, target_map))
+        group = Group20580(parent, model, 20580)
+        assign_objs_to_node_by_type(meshes, group, model)
+        node = group
+        if len(group.children) == 1 and isinstance(group.children[0], MeshGroup):
+            node = group.children[0]
+            node.parent = parent
+        model.register_node(obj, node)
+        return [node]
+    if retained or keep or is_shared: # cases in which we need to retain hierarchy
         if obj.get('node_type') == 53350 and not skybox:
             empty = Group53350(parent, model, 53350).unmake(obj)
         elif obj.get('node_type') in (20580, 20581, 20582):
@@ -4350,6 +4452,7 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
 
         if obj.name in target_map.keys():
             target_map[obj.name] = empty
+        model.register_node(obj, empty)
 
         if obj.type == 'MESH':
             # the node made above already carries the object's animations; animating the mesh
@@ -4358,8 +4461,13 @@ def deep_unmake(obj, parent, model, target_map, skybox = False):
             mesh = Mesh(empty, model).unmake(obj, unmake_anim = False)
             empty_children.append(mesh)
 
-        for child in object_children(obj):
-            empty_children = empty_children + deep_unmake(child, empty, model, target_map)
+        if is_selector:
+            # one node per child, in file order (import names nodes by file offset)
+            for child in children_through_pivot_helpers(obj):
+                empty_children = empty_children + deep_unmake(child, empty, model, target_map, keep = True)
+        else:
+            for child in object_children(obj):
+                empty_children = empty_children + deep_unmake(child, empty, model, target_map)
         assign_objs_to_node_by_type(empty_children, empty, model)
         children.append(empty)
 
@@ -4474,6 +4582,9 @@ class Model():
         self.textures = {}
         self.nodes = []
         self.triggers = []
+        # export: ids of objects another node links to as a shared child, and the node each became
+        self.shared_target_ids = set()
+        self.shared_nodes = {}
 
     def read(self, buffer):
         if self.id is None:
@@ -4528,7 +4639,7 @@ class Model():
             return None
         addr = self.alt_model.AltN[index]
         if self.alt_model.ref_map.get(addr):
-            return {'id': addr}
+            return {'id': addr, 'shared': self.alt_model.obj_key(addr)}
         node = create_node(readUInt32BE(self.alt_buffer, addr), parent, self.alt_model)
         return node.read(self.alt_buffer, addr)
     
@@ -4662,13 +4773,24 @@ class Model():
         
         # get all target objects
         target_map = {b_obj.target.name: None for b_obj in objects if b_obj.trigger_id and b_obj.target}
+        self.shared_target_ids = {str(key) for b_obj in objects for key in b_obj.get('shared_children', {}).values()}
+        self.shared_nodes = {}
         
         if self.type == '7': #TRAK
             for child_collection in collection.children:
                 r_root_node = Group20580(root, self, 20580)
                 imported_sky = None
+                imported_track = None
                 
                 if child_collection.collection_type == '0': #Track
+                    imported_track = get_imported_track_root(get_immediate_children(child_collection))
+                    if imported_track is not None:
+                        # Re-exporting an imported track: its root already is the slot 0/1 node, so use
+                        # it (and the null child slots the game leaves in it) rather than wrapping it
+                        r_root_node = Group20580(root, self, 20580).unmake(imported_track)
+                        if imported_track.name in target_map.keys():
+                            target_map[imported_track.name] = r_root_node
+                        self.register_node(imported_track, r_root_node)
                     r_root_node.header = [0, 1]
                     append_root = r_root_node
                     root.children.append(r_root_node)
@@ -4681,6 +4803,8 @@ class Model():
                         sky_obj, camera_obj = imported_sky
                         sky_empty = NodeTransformedWithPivot(r_root_node, self, 53349).unmake(sky_obj)
                         sky_to_camera = Group53350(sky_empty, self, 53350).unmake(camera_obj)
+                        self.register_node(sky_obj, sky_empty)
+                        self.register_node(camera_obj, sky_to_camera)
                     else:
                         sky_empty = NodeTransformedWithPivot(r_root_node, self, 53349)
                         sky_to_camera = Group53350(sky_empty, self, 53350)
@@ -4699,6 +4823,8 @@ class Model():
                 immediate_children = get_immediate_children(child_collection)
                 if child_collection.collection_type == '1' and imported_sky is not None:
                     immediate_children = children_through_pivot_helpers(imported_sky[1])
+                elif child_collection.collection_type == '0' and imported_track is not None:
+                    immediate_children = list(object_children(imported_track))
                 unmade = []
                 for obj in immediate_children:
                     unmade.extend(deep_unmake(obj, append_root, self, target_map, skybox = (child_collection.collection_type == '1')))
@@ -4718,6 +4844,7 @@ class Model():
                 root.header = [0]
                 if imported_root.name in target_map.keys():
                     target_map[imported_root.name] = root
+                self.register_node(imported_root, root)
                 immediate_children = list(object_children(imported_root))
             for obj in immediate_children:
                 unmade.extend(deep_unmake(obj, root, self, target_map))
@@ -4894,6 +5021,7 @@ class Model():
         root.vis_flags = 0xFFFFFFFF
         root.col_flags = 0xFFFFFFFF
         self.nodes.append(root)
+        self.resolve_child_slots()
         self.resolve_header_slots()
                 
         #update trigger targets
@@ -4919,6 +5047,35 @@ class Model():
                         return node
             stack.extend(child for child in node.children if child is not None)
         return None
+
+    def register_node(self, obj, node):
+        """Remember the node obj was exported as, if another node links to it as a shared child."""
+        if obj.id in self.shared_target_ids:
+            self.shared_nodes.setdefault(obj.id, node)
+
+    def resolve_child_slots(self):
+        """Put the null child slots and shared-child links import recorded back at their indices.
+
+        The file's child lists can hold null pointers and point at a node another parent also
+        lists; selectors and LOD selectors pick children by index (SW_RACER_RE
+        dinput_hook/renderer_hook.cpp:1375-1404), so these keep their slot. write_children writes
+        a shared node once and points every later slot at that copy.
+        """
+        seen = set()
+        stack = list(self.nodes)
+        while stack:
+            node = stack.pop()
+            if not isinstance(node, Node) or id(node) in seen:
+                continue
+            seen.add(id(node))
+            fills = [(slot, None) for slot in node.null_slots]
+            for slot, key in node.shared_slots.items():
+                target = self.shared_nodes.get(key)
+                if target is not None and target is not node:
+                    fills.append((slot, target))
+            for slot, child in sorted(fills, key=lambda fill: fill[0]):
+                node.children.insert(min(slot, len(node.children)), child)
+            stack.extend(child for child in node.children if child is not None)
 
     def resolve_header_slots(self):
         """Give imported nodes back the header slots they held, where no export template claims the slot."""
