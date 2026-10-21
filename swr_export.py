@@ -73,10 +73,14 @@ def export_model(col, file_path, exports, update_progress):
         modelblock.inject([offset_buffer, model_buffer], id)
         
         if model.id in Podd_MAlt:
-            # If we're exporting a Podd, write a blank MAlt model
+            # A Podd is loaded together with its MAlt (high detail parts). Re-exporting an imported
+            # pod writes its MAlt nodes back (Model.begin_alt_export); the authoring template has
+            # none, so it gets a blank MAlt.
             MAlt_id = Podd_MAlt[model.id]
-            MAlt = Model(MAlt_id)
-            MAlt.type = '1'
+            MAlt = model.alt_model
+            if MAlt is None:
+                MAlt = Model(MAlt_id)
+                MAlt.type = '1'
             MAlt_offset_buffer, MAlt_model_buffer = MAlt.write()
             modelblock.inject([MAlt_offset_buffer, MAlt_model_buffer], MAlt_id)
         

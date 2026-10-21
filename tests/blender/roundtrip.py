@@ -144,15 +144,20 @@ def drawn(obj):
     distance (SW_RACER_RE src/types.h swrModel_NodeSelector / swrModel_NodeLODSelector); for LODs
     this counts the highest detail child, the first that is not a null slot. Import names nodes by
     file offset, so sorting children by name gives their file order, and records the null and
-    shared-node slots that have no child object of their own ('null_slots', 'shared_children').
+    shared-node slots that have no child object of their own ('null_slots', 'shared_children'),
+    and the index of each Podd child slot filled from the MAlt, whose offset is in another file
+    ('alt_children').
     """
     child, parent = obj, obj.parent
     while parent is not None:
         node_type = parent.get('node_type')
         if node_type in (SELECTOR, LOD_SELECTOR):
-            slots = sorted(parent.children, key=lambda c: c.name)
+            alt = {int(s): key for s, key in parent.get('alt_children', {}).items()}
+            alt_objects = {c.id: c for c in parent.children if c.id in alt.values()}
+            slots = sorted((c for c in parent.children if c.id not in alt.values()), key=lambda c: c.name)
             fills = sorted([*((int(s), None) for s in parent.get('null_slots', [])),
-                            *((int(s), 'shared') for s in parent.get('shared_children', {}).keys())])
+                            *((int(s), 'shared') for s in parent.get('shared_children', {}).keys()),
+                            *((s, alt_objects.get(key)) for s, key in alt.items())], key=lambda fill: fill[0])
             for slot, fill in fills:
                 slots.insert(min(slot, len(slots)), fill)
             index = slots.index(child)
