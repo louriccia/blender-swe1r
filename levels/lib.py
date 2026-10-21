@@ -87,14 +87,20 @@ def material(addon, name, image):
 # MARK: meshes
 
 def mesh_object(name, verts, faces, uvs=None, collection=None, mat=None,
-                visible=True, collidable=True):
-    """A mesh from game-unit vertices. uvs: one (u, v) per face corner, in face order."""
+                visible=True, collidable=True, colors=None):
+    """A mesh from game-unit vertices. uvs and colors (rgb 0..1): one per face corner, in face
+    order. Vertex colors tint the texture (the default combiner is TEXEL0 x SHADE)."""
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata([g(*v) for v in verts], [], faces)
     if uvs is not None:
         layer = mesh.uv_layers.new(name="UVMap")
         for i, uv in enumerate(uvs):
             layer.data[i].uv = uv
+    if colors is not None:
+        # the exporter reads the active legacy (byte, face corner) color layer
+        layer = mesh.vertex_colors.new(name="Col")
+        for i, rgb in enumerate(colors):
+            layer.data[i].color = (*rgb, 1.0)
     mesh.update()
     obj = bpy.data.objects.new(name, mesh)
     (collection or bpy.context.scene.collection).objects.link(obj)
@@ -102,6 +108,26 @@ def mesh_object(name, verts, faces, uvs=None, collection=None, mat=None,
         mesh.materials.append(mat)
     obj.visible = visible
     obj.collidable = collidable
+    return obj
+
+
+SUN = Vector((0.45, -0.35, 0.82)).normalized()
+
+
+def shade(obj, ambient=0.5, sun=0.5, tint=(1.0, 1.0, 1.0)):
+    """Bake a fixed sun into the vertex colors (multiplying any already there), so untextured or
+    flat geometry reads in 3D in game: tracks have no runtime lighting by default."""
+    mesh = obj.data
+    layer = mesh.vertex_colors.active or mesh.vertex_colors.new(name="Col")
+    bpy.context.view_layer.update()     # matrix_world after a location/rotation set
+    rot = obj.matrix_world.to_3x3()
+    for poly in mesh.polygons:
+        n = (rot @ poly.normal).normalized()
+        k = ambient + sun * max(0.0, n.dot(SUN))
+        for li in poly.loop_indices:
+            c = layer.data[li].color
+            layer.data[li].color = (min(1.0, c[0] * k * tint[0]), min(1.0, c[1] * k * tint[1]),
+                                    min(1.0, c[2] * k * tint[2]), 1.0)
     return obj
 
 

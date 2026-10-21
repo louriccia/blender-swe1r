@@ -5108,11 +5108,33 @@ def restore_mesh_group_flags(group):
     if 'transform_flags' in source:
         group.transform_flags = int(source['transform_flags'])
 
-def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
+def is_identity(matrix, tolerance = 1e-6):
+    return all(abs(matrix[i][j] - (1.0 if i == j else 0.0)) <= tolerance for i in range(4) for j in range(4))
+
+def unmake_mesh_in_frame(obj, parent, model, matrix):
+    """Mesh(parent).unmake(obj) with obj's vertices moved by matrix first.
+
+    A mesh that does not become a node of its own is written in its parent node's space, which
+    the game draws with that node's matrix (SW_RACER_RE swrModel_Mesh has no transform). Its own
+    location/rotation/scale, and those of plain empties above it that are flattened away, would
+    otherwise be lost, so they go into the vertices. The data is restored afterwards.
+    """
+    if is_identity(matrix):
+        return Mesh(parent, model).unmake(obj)
+    data = obj.data
+    data.transform(matrix)
+    try:
+        return Mesh(parent, model).unmake(obj)
+    finally:
+        data.transform(matrix.inverted())
+
+def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False, carry = None):
     """The exported nodes and meshes for obj and its descendants, to be added under parent.
 
     keep: obj must come out as exactly one node, as a selector's child does: selectors pick
     children by index (SW_RACER_RE dinput_hook/renderer_hook.cpp:1375-1404).
+    carry: the transform of the flattened (not exported) objects between parent's object and
+    obj's parent; None when obj's parent is parent's own object.
     """
     if obj is None:
         return []
@@ -5227,12 +5249,14 @@ def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False):
 
         return children # early return since we've already dealt with descendants
     
-    elif obj.type == 'MESH':
-        children.append(Mesh(parent, model).unmake(obj))
-    
+    # obj is flattened: its children and its own mesh are written in parent's space
+    frame = obj.matrix_local if carry is None else carry @ obj.matrix_local
+    if obj.type == 'MESH':
+        children.append(unmake_mesh_in_frame(obj, parent, model, frame))
+
     for child in object_children(obj):
-        children.extend(deep_unmake(child, parent, model, target_map))
-            
+        children.extend(deep_unmake(child, parent, model, target_map, carry = frame))
+
     return children
 
 def get_all_objects_in_collection(collection):
@@ -5540,11 +5564,18 @@ class Model():
                     raise ValueError(f"Max faces reached in {obj.name} {len(faces)}/2048")
         
         # get all target objects
-        target_map = {b_obj.target.name: None for b_obj in objects if b_obj.trigger_id and b_obj.target}
+        # every trigger target, whatever the trigger's id (0 included): Model.unmake resolves each
+        # trigger's target through this map
+        target_map = {b_obj.target.name: None for b_obj in objects if b_obj.target}
         self.shared_target_ids = {str(key) for b_obj in objects for key in b_obj.get('shared_children', {}).values()}
         self.shared_nodes = {}
         
         if self.type == '7': #TRAK
+            # meshes and empties placed in the model collection itself are track scenery, exported
+            # with the Track collection's slot 0/1 root. Import keeps the model's root node there
+            # (its descendants are in Track/Skybox) and the lights: those are not scenery.
+            loose = [obj for obj in get_immediate_children(collection)
+                     if obj.type in ('MESH', 'EMPTY') and obj.get('node_type') is None]
             for child_collection in collection.children:
                 r_root_node = Group20580(root, self, 20580)
                 imported_sky = None
@@ -5593,12 +5624,24 @@ class Model():
                     immediate_children = children_through_pivot_helpers(imported_sky[1])
                 elif child_collection.collection_type == '0' and imported_track is not None:
                     immediate_children = list(object_children(imported_track))
+                if child_collection.collection_type == '0':
+                    immediate_children = list(immediate_children) + loose
+                    loose = []
                 unmade = []
                 for obj in immediate_children:
                     unmade.extend(deep_unmake(obj, append_root, self, target_map, skybox = (child_collection.collection_type == '1')))
                 assign_objs_to_node_by_type(unmade, append_root, self)
                 #r_root_node.set_flags()
-            
+            if loose:
+                # no Track collection: the loose objects make the slot 0/1 root the game needs
+                r_root_node = Group20580(root, self, 20580)
+                r_root_node.header = [0, 1]
+                root.children.append(r_root_node)
+                unmade = []
+                for obj in loose:
+                    unmade.extend(deep_unmake(obj, r_root_node, self, target_map))
+                assign_objs_to_node_by_type(unmade, r_root_node, self)
+
         elif self.type in ('2', '3', '5', '6'): #Modl / Part / Pupp / Scen
             # All four are plain node/mesh hierarchies rooted at a basic (20580)
             # node, so they share the generic traversal.
