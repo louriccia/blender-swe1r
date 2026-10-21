@@ -344,6 +344,73 @@ def hidden_mesh_groups(model_buffer):
     return hidden
 
 
+def node_skeleton(model_buffer):
+    """The node tree under every header slot: node types, null child slots and header slots.
+
+    Mesh groups are left out, since export regroups meshes (by visuals/collision/transparency).Game code
+    reaches into models by child index from a header slot (SW_RACER_RE src/Swr/swrModel.c
+    swrModel_NodeGetChild), so a stock model has to keep this shape: merging away a plain group
+    moved the vehicle-select flag's texture swap and the spark's orientation onto other nodes.
+    """
+    u32 = lambda o: struct.unpack_from(">I", model_buffer, o)[0]
+    slots, cursor = [], 4
+    while u32(cursor) != 0xFFFFFFFF:
+        slots.append(u32(cursor))
+        cursor += 4
+    lines, seen = [], {}
+
+    def walk(node, depth):
+        if node in seen:
+            lines.append((depth, "shared", seen[node]))
+            return
+        seen[node] = len(seen)
+        node_type = u32(node)
+        count, children = u32(node + 20), u32(node + 24)
+        lines.append((depth, hex(node_type), tuple(i for i, s in enumerate(slots) if s == node)))
+        if node_type == 0x3064:
+            return
+        for i in range(count if children else 0):
+            child = u32(children + 4 * i)
+            if not child:
+                lines.append((depth + 1, "null"))
+            elif child < len(model_buffer) - 28 and u32(child) in NODE_TYPES and u32(child) != 0x3064:
+                walk(child, depth + 1)
+
+    for i, slot in enumerate(slots):
+        if slot and slot < len(model_buffer) - 28 and u32(slot) in NODE_TYPES and slot not in seen:
+            lines.append((0, "slot", i))
+            walk(slot, 1)
+    return lines
+
+
+def animation_types(model_buffer):
+    """How many animations of each type the model's header lists (type = low 4 bits of the flags).
+
+    Type 5 is left out: the game never updates it (SW_RACER_RE src/Swr/swrModel.c
+    swrModel_LoadAllAnimationsOfModel) and import doesn't read it.
+    """
+    u32 = lambda o: struct.unpack_from(">I", model_buffer, o)[0]
+    cursor = 4
+    while u32(cursor) != 0xFFFFFFFF:
+        cursor += 4
+    cursor += 4
+    types = Counter()
+    while model_buffer[cursor:cursor + 4] != b"HEnd":
+        tag = model_buffer[cursor:cursor + 4]
+        cursor += 4
+        if tag == b"Data":
+            cursor += 4 + 4 * u32(cursor)
+            continue
+        while u32(cursor):
+            if tag == b"Anim":
+                anim_type = u32(u32(cursor) + 256) & 0xF
+                if anim_type != 5:
+                    types[anim_type] += 1
+            cursor += 4
+        cursor += 4
+    return dict(types)
+
+
 def display_list_problems(buffer, mesh_start, mesh_format):
     """Checks one exported mesh's display list the way the game's renderer reads it.
 
@@ -535,6 +602,23 @@ class RoundTripTest(unittest.TestCase):
         after = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
         self.assertLessEqual(hidden_mesh_groups(after), hidden_mesh_groups(before),
                              "export hides mesh groups in every layer (flags_1 bits 8-31 all clear)")
+
+    def test_node_structure_preserved(self):
+        """Export keeps a stock model's node tree: node types and order, null child slots, header slots."""
+        trip = self.trip
+        before = read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1]
+        after = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
+        before, after = node_skeleton(before), node_skeleton(after)
+        first = next((i for i, (a, b) in enumerate(zip(before, after)) if a != b), min(len(before), len(after)))
+        self.assertEqual(before, after, f"node tree differs from stock at line {first}: "
+                                        f"{before[first:first + 2]} vs {after[first:first + 2]}")
+
+    def test_animations_kept(self):
+        """Export writes every animation type the stock model has, as often (UV scroll, flipbooks, transforms)."""
+        trip = self.trip
+        before = read_block(trip.original + "out_modelblock.bin", 2).data[self.model_id][1]
+        after = read_block(trip.first + "out_modelblock.bin", 2).data[self.model_id][1]
+        self.assertEqual(animation_types(before), animation_types(after), "animations by type (stock vs export)")
 
     def test_display_lists_valid(self):
         """Exported display lists are drawable by the game (see display_list_problems)."""
