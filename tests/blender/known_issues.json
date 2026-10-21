@@ -2,8 +2,7 @@
   "_about": "Round-trip failures that exist on main today. Listed tests run as expected failures, so the suite gates on regressions; when a fix makes one pass, the run fails with 'unexpected success' until its entry is removed here. 'crash' marks a model whose run is known to crash Blender.",
   "1": {
     "test_animation_preserved": "animated geometry differs at sampled frames",
-    "test_geometry_preserved": "3 visual triangles lost",
-    "test_reexport_is_stable": "settles one round-trip later (587184, 587012, 587020, then 587020): export drops a few triangles and a mesh on the first two round-trips, the same loss as its geometry issue"
+    "test_geometry_preserved": "4 visual triangles lost: the stock model draws 4 triangles twice (exact duplicate faces); export loads each pair from the same vertices and the re-import's mesh.validate() merges them"
   },
   "2": {
     "test_geometry_preserved": "Podd export only understands the authoring template (engine/cockpit/cable child collections); a stock pod exports as an empty skeleton",

@@ -789,6 +789,77 @@ def vert_key(vert):
     """A hashable value that is equal for two VisualsVertChunks exactly when they compare equal."""
     return (tuple(vert.co), tuple(vert.uv), tuple(vert.color.to_array()), getattr(vert, '_hooked', False))
 
+def pack_vertex_loads(faces, capacity):
+    """Splits faces (lists of VisualsVertChunks) into vertex loads of at most `capacity` verts.
+
+    A gSPVertex loads n consecutive vertex buffer entries into the vertex cache and triangles
+    index cache slots, so each face must lie within one load. Returns (verts, loads): the vertex
+    buffer, and per load (buffer index of its first vertex, n, its faces as slot indices).
+
+    Each load grows from one face by repeatedly taking the remaining face that needs the fewest
+    vertices not yet loaded (lowest index on ties, so the output only depends on the face order).
+    A new load starts with the remaining face that best reuses the end of the previous load, and
+    reloads that end of the buffer (loads may overlap) instead of duplicating those vertices.
+    """
+    face_keys = [[vert_key(vert) for vert in face] for face in faces]
+    faces_with_key = {}
+    for f, keys in enumerate(face_keys):
+        for key in keys:
+            faces_with_key.setdefault(key, []).append(f)
+    remaining = [True] * len(faces)
+    first_remaining = 0
+    verts = []
+    keys_at = []
+    loads = []
+    slot_of = {}  # key -> buffer index, for the current load
+    load_start = 0
+
+    def missing(f, start):
+        return len({key for key in face_keys[f] if slot_of.get(key, -1) < start})
+
+    while True:
+        while first_remaining < len(faces) and not remaining[first_remaining]:
+            first_remaining += 1
+        if first_remaining == len(faces):
+            break
+        current = first_remaining
+        new_start = len(verts)
+        if slot_of:
+            best = None
+            for f in sorted({f for key in slot_of for f in faces_with_key[key] if remaining[f]}):
+                start = min(slot_of[key] for key in face_keys[f] if key in slot_of)
+                score = (missing(f, start), len(verts) - start)
+                if score[0] + score[1] <= capacity and (best is None or score < best[0]):
+                    best = (score, f, start)
+            if best is not None:
+                _, current, new_start = best
+        slot_of = {keys_at[i]: i for i in range(new_start, len(verts))}
+        load_start = new_start
+        load_faces = []
+        while current is not None:
+            remaining[current] = False
+            for vert, key in zip(faces[current], face_keys[current]):
+                if key not in slot_of:
+                    slot_of[key] = len(verts)
+                    verts.append(vert)
+                    keys_at.append(key)
+            load_faces.append([slot_of[key] - load_start for key in face_keys[current]])
+            current = None
+            fewest = capacity + 1
+            for f in sorted({f for key in slot_of for f in faces_with_key[key] if remaining[f]}):
+                m = missing(f, load_start)
+                if m < fewest and len(slot_of) + m <= capacity:
+                    current, fewest = f, m
+                    if m == 0:
+                        break
+            if current is None:
+                while first_remaining < len(faces) and not remaining[first_remaining]:
+                    first_remaining += 1
+                if first_remaining < len(faces) and len(slot_of) + missing(first_remaining, load_start) <= capacity:
+                    current = first_remaining
+        loads.append((load_start, len(verts) - load_start, load_faces))
+    return verts, loads
+
 # Vertex normals.
 # A mesh whose material type has bit 0x1 or 0x10 set uses the Vtx_tn vertex format: bytes 12-14 are
 # a signed int8 normal (nx, ny, nz) and byte 15 the alpha, instead of Vtx_t's r, g, b, a
@@ -991,6 +1062,10 @@ class VisualsVertBuffer():
             
         return cursor
     
+# The F3DEX2 vertex cache: a gSPVertex can load into slots [0, 32) only. SW_RACER_RE
+# dinput_hook/renderer_hook.cpp sizes its array at 256 just to draw older add-on exports.
+VERTEX_CACHE_SIZE = 32
+
 class VisualsIndexChunk1(DataStruct):
     # http://n64devkit.square7.ch/n64man/gsp/gSPVertex.htm
     def __init__(self, parent, model, type):
@@ -1176,65 +1251,27 @@ class VisualsIndexBuffer():
     def to_array(self):
         return [d.to_array() for d in self.data]
     
-    def unmake(self, faces):            
-        #grab the base index buffer data from mesh.data.polygons and construct initial chunk list
-        
-        index_buffer = []
-        # TODO: this should not pair faces that have indices more than 63 apart in the same chunk
-        while len(faces) > 1:
-            chunk_type = 6
-            chunk_class = self.map.get(chunk_type)
-            chunk = chunk_class(self, self.model, chunk_type)
-            face_chunk = [f for face in faces[:2] for f in face]
-            assert len(face_chunk) == 6, f"Invalid face chunk length in {self.parent.original_object.name} {face_chunk}"
-            chunk.from_array(face_chunk)
-            index_buffer.append(chunk)
-            faces = faces[2:]
-                
-        #push the last chunk if there is one
-        if len(faces):
-            index_buffer.append(VisualsIndexChunk5(self, self.model, 5).from_array(faces[0]))   
-        
-         
-        #partition chunk list
-        partitions = []
-        partition = []
-        for chunk in index_buffer:
-            min_index = chunk.min_index()
-            if len(partition):
-                min_index = min([chunk.min_index() for chunk in partition])
-            max_index = chunk.max_index()
-            if max_index - min_index > 39:
-                partition_push = partition[:]
-                partitions.append(partition_push)
-                partition = []
-            partition.append(chunk)
-        partitions.append(partition)
-        
-        
-        # Every vertex load must put its vertices at slot v0 = vertex_base_offset (the renderer
-        # aborts otherwise), and slots below v0 take the v0 vertices just before the load. For a
-        # hooked mesh those must be its hooked prefix [0, v0), so it can only have one load.
-        v0 = self.parent.group_count
-        if v0 and len(partitions) > 1:
-            raise ValueError(f"{self.parent.original_object.name}: a hooked mesh must fit in one vertex load "
-                             f"(its triangles span more than {39 + 1} vertices)")
+    def unmake(self, loads):
+        """Builds the display list from Mesh.unmake's vertex loads.
 
-        #add each partition and chunk1 to reset base for each one
-        for partition in partitions:
-            min_index = min([chunk.min_index() for chunk in partition]) 
-            max_index = max([chunk.max_index() for chunk in partition])
-            index_range = max_index - min_index
+        loads: (start, n, faces) per gSPVertex, which loads buffer vertices [start, start + n)
+        into cache slots [v0, v0 + n), v0 = vertex_base_offset; faces index cache slots. Every
+        load must use that v0 (SW_RACER_RE dinput_hook/renderer_hook.cpp aborts otherwise), and
+        triangles are paired into gSP2Triangles only within one load.
+        """
+        v0 = self.parent.group_count
+        for start, n, faces in loads:
+            assert v0 + n <= VERTEX_CACHE_SIZE, f"vertex load of {n} at slot {v0} in {self.parent.original_object.name}"
             chunk1 = VisualsIndexChunk1(self, self.model, 1)
             chunk1.v0 = v0
-            chunk1.start = min_index + v0
-            chunk1.n = index_range + 1 - v0
-            chunk1.max = index_range + 1
+            chunk1.start = start
+            chunk1.n = n
+            chunk1.max = v0 + n
             self.data.append(chunk1)
-            for chunk in partition:
-                chunk.base = min_index
-                self.data.append(chunk)
-        
+            for i in range(0, len(faces) - 1, 2):
+                self.data.append(VisualsIndexChunk6(self, self.model, 6).from_array(faces[i] + faces[i + 1]))
+            if len(faces) % 2:
+                self.data.append(VisualsIndexChunk5(self, self.model, 5).from_array(faces[-1]))
         return self
 
     def write(self, buffer, cursor):
@@ -2766,46 +2803,42 @@ class Mesh(DataStruct):
                                first_remaining)
             ordered_faces = [faces[f] for f in order]
 
-            # relist vertices so indices aren't too far apart
-            new_verts = []
-            new_faces = []
-            last_index = {}
-            for face in ordered_faces:
-                new_face = []
-                for vert in face:
-                    current_index = len(new_verts)
-                    key = vert_key(vert)
-                    # reuse the last instance of vert if it's close enough
-                    index = last_index.get(key, -1)
-                    if index > -1 and current_index - index < 60: #FIXME figure out what value this should be
-                        new_face.append(index)
-                    else:
-                        new_verts.append(vert)
-                        last_index[key] = current_index
-                        new_face.append(current_index)
-
-                new_faces.append(new_face)
-
-            # Reorder so hooked verts occupy indices [0, group_count). The runtime
-            # anchors that prefix to group_parent_id; the suffix stays with the mesh's
-            # own parent node.
-            if self.group_parent_id and any(getattr(v, '_hooked', False) for v in new_verts):
-                hooked_first = [i for i, v in enumerate(new_verts) if getattr(v, '_hooked', False)]
-                rest = [i for i, v in enumerate(new_verts) if not getattr(v, '_hooked', False)]
-                new_order = hooked_first + rest
-                old_to_new = {old: new_idx for new_idx, old in enumerate(new_order)}
-                new_verts = [new_verts[i] for i in new_order]
-                new_faces = [[old_to_new[i] for i in face] for face in new_faces]
-                self.group_count = len(hooked_first)
+            # Pack the faces into vertex loads. Each gSPVertex loads n consecutive buffer vertices
+            # into vertex cache slots [v0, v0 + n), and the F3DEX2 cache has VERTEX_CACHE_SIZE
+            # slots (SW_RACER_RE dinput_hook/renderer_hook.cpp only accepts more to read older
+            # add-on exports). Triangles index cache slots, so every face must lie in one load.
+            # loads: (buffer index of the vertex in slot v0, n, faces as slot indices)
+            if self.group_parent_id and any(getattr(v, '_hooked', False) for face in ordered_faces for v in face):
+                # The runtime draws the buffer's prefix [0, group_count) with group_parent_id's
+                # matrix, and slots below v0 = group_count take the v0 vertices just before the
+                # load, so a hooked mesh has exactly one load: hooked verts first, then the rest.
+                new_verts = []
+                index_of = {}
+                for face in ordered_faces:
+                    for vert in face:
+                        key = vert_key(vert)
+                        if key not in index_of:
+                            index_of[key] = len(new_verts)
+                            new_verts.append(vert)
+                new_verts = ([v for v in new_verts if getattr(v, '_hooked', False)] +
+                             [v for v in new_verts if not getattr(v, '_hooked', False)])
+                self.group_count = sum(getattr(v, '_hooked', False) for v in new_verts)
+                if len(new_verts) > VERTEX_CACHE_SIZE:
+                    raise ValueError(f"{node.name}: a hooked mesh must fit in one vertex load "
+                                     f"(it uses {len(new_verts)} vertices, the limit is {VERTEX_CACHE_SIZE})")
+                index_of = {vert_key(v): i for i, v in enumerate(new_verts)}
+                loads = [(self.group_count, len(new_verts) - self.group_count,
+                          [[index_of[vert_key(v)] for v in face] for face in ordered_faces])]
             else:
                 self.group_count = 0
                 # no hooked vertices left (e.g. the HOOK's group is empty): nothing to anchor
                 self.group_parent_id = 0
                 self.hook_target = None
+                new_verts, loads = pack_vertex_loads(ordered_faces, VERTEX_CACHE_SIZE)
 
             self.visuals_vert_buffer.data = new_verts
 
-            self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(new_faces)
+            self.visuals_index_buffer = VisualsIndexBuffer(self, self.model).unmake(loads)
             #return True
 
         if node.collidable:

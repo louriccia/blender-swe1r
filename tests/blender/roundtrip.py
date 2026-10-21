@@ -292,11 +292,16 @@ def snapshot(col):
     return snap
 
 
+VERTEX_CACHE_SIZE = 32
+
+
 def display_list_problems(buffer, mesh_start, mesh_format):
     """Checks one exported mesh's display list the way the game's renderer reads it.
 
     SW_RACER_RE dinput_hook/renderer_hook.cpp aborts unless every vertex load (gSPVertex) loads
-    into slot v0 == vertex_base_offset; triangles index the slots loaded so far.
+    into slot v0 == vertex_base_offset; triangles index the slots loaded so far. A load must also
+    fit the N64's 32-entry vertex cache (v0 + n <= 32): the hook's larger array only exists so
+    it can draw older add-on exports.
     A hooked mesh (vertex_base_offset > 0) draws its prefix with referenced_node's matrix, so that
     pointer must lead to a mesh group node (0x3064).
     """
@@ -317,6 +322,9 @@ def display_list_problems(buffer, mesh_start, mesh_format):
             # n == 0 is only meaningful as a prefix-only load: a mesh whose vertices are all hooked
             if v0 != base or (n == 0 and not base):
                 problems.append(f"mesh at {mesh_start}: vertex load n={n} v0={v0}, vertex_base_offset={base}")
+            if v0 + n > VERTEX_CACHE_SIZE:
+                problems.append(f"mesh at {mesh_start}: vertex load n={n} v0={v0} overflows the "
+                                f"{VERTEX_CACHE_SIZE}-entry vertex cache")
             loaded = v0 + n
         elif kind in (5, 6):
             slots = [buffer[cursor + i] // 2 for i in ((1, 2, 3) if kind == 5 else (1, 2, 3, 5, 6, 7))]
