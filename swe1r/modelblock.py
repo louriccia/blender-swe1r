@@ -3825,57 +3825,180 @@ class TexturePose(DataStruct):
         pass
     
     
+# How far (Blender units for location/scale, radians for rotation) the game's interpolation of the
+# exported keys may stray from Blender's evaluated curve before another key is baked in, and how
+# finely (in frames) curves are checked for that.
+ANIM_BAKE_TOLERANCE = {'location': 1e-3, 'scale': 1e-3, 'rotation': math.radians(0.1)}
+ANIM_BAKE_STEP = 0.5
+
+ROTATION_PATHS = ('rotation_quaternion', 'rotation_euler', 'rotation_axis_angle')
+
+
+def _anim_rotation_path(obj, channels):
+    """The rotation fcurves Blender actually plays: the ones matching the object's rotation mode."""
+    preferred = {'QUATERNION': 'rotation_quaternion', 'AXIS_ANGLE': 'rotation_axis_angle'}.get(obj.rotation_mode, 'rotation_euler')
+    if preferred in channels:
+        return preferred
+    return next((p for p in ROTATION_PATHS if p in channels), None)
+
+
+def _anim_is_linear(fcurves):
+    """Whether Blender interpolates these curves linearly between their keys (no easing or modifiers
+    other than Cycles), which is what the game does for translation and scale."""
+    for fcurve in fcurves:
+        if any(mod.type != 'CYCLES' for mod in fcurve.modifiers):
+            return False
+        points = fcurve.keyframe_points
+        # the last key's interpolation only applies past it, where both hold the last value
+        if any(points[i].interpolation != 'LINEAR' for i in range(len(points) - 1)):
+            return False
+    return True
+
+
+def _anim_game_slerp(q0, q1, factor):
+    """The game's rotation between two keys: slerp along the shorter arc (SW_RACER_RE
+    src/Primitives/rdMath.c:123-161 rdMath_SlerpQuaternions flips q0 when the dot product is negative)."""
+    if q0.dot(q1) < 0:
+        q0 = -q0
+    return q0.slerp(q1, factor)
+
+
+def _anim_deviation(kind, value, interpolated):
+    if kind == 'rotation':
+        # angle between the rotations, from the chord between the unit quaternions in doubles
+        # (acos of mathutils' single precision dot product can't resolve small angles)
+        a, b = list(value.normalized()), list(interpolated.normalized())
+        chord = min(math.dist(a, b), math.dist(a, [-x for x in b]))
+        return 4 * math.asin(min(1.0, chord / 2))
+    return (value - interpolated).length
+
+
+def _anim_bake(kind, knots, evaluate):
+    """Keys that the game's interpolation (linear, or slerp for rotation; SW_RACER_RE
+    src/Swr/swrModel.c:648-726) turns into Blender's evaluated curve within ANIM_BAKE_TOLERANCE.
+
+    knots are the curve's own key frames and are always kept; between them the curve is sampled
+    every ANIM_BAKE_STEP frames and the worst-fitting sample is added until every sample fits.
+    """
+    times = []
+    for t0, t1 in zip(knots, knots[1:]):
+        steps = max(1, math.ceil((t1 - t0) / ANIM_BAKE_STEP - 1e-6))
+        times += [t0 + (t1 - t0) * i / steps for i in range(steps)]
+    times.append(knots[-1])
+    values = [evaluate(t) for t in times]
+    if kind == 'rotation':
+        values = [mathutils.Quaternion(v).normalized() for v in values]
+    else:
+        values = [mathutils.Vector(v) for v in values]
+    knot_set = set(knots)
+    keep = {i for i, t in enumerate(times) if t in knot_set}
+    tolerance = ANIM_BAKE_TOLERANCE[kind]
+    stack = sorted(keep)
+    segments = list(zip(stack, stack[1:]))
+    while segments:
+        a, b = segments.pop()
+        worst, worst_error = None, tolerance
+        for i in range(a + 1, b):
+            factor = (times[i] - times[a]) / (times[b] - times[a])
+            if kind == 'rotation':
+                interpolated = _anim_game_slerp(values[a], values[b], factor)
+            else:
+                interpolated = values[a].lerp(values[b], factor)
+            error = _anim_deviation(kind, values[i], interpolated)
+            if error > worst_error:
+                worst, worst_error = i, error
+        if worst is not None:
+            keep.add(worst)
+            segments += [(a, worst), (worst, b)]
+    indices = sorted(keep)
+    return [times[i] for i in indices], [values[i] for i in indices]
+
+
 def get_animations(obj, model, entity):
+    """Turns the object's location, rotation and scale fcurves into the game's key frame animations.
+
+    The game interpolates translation and scale linearly and rotation by slerp between axis-angle
+    keys (SW_RACER_RE src/Swr/swrModel.c:648-726). Linear location/scale/quaternion curves, which is
+    what import makes, are written key for key; anything else (eased or stepped interpolation,
+    modifiers, Euler or axis-angle rotation) is baked into as many keys as the game needs to follow
+    Blender's motion. The object's rotation mode is left as the user set it.
+    """
     if not obj.animation_data:
         return None
-    
+
     if not obj.animation_data.action:
         return None
-    
-    obj.rotation_mode = 'QUATERNION'
-    
-    #get all unique keyframes for each fcurve and data path
-    keyframes = {}
+
     bag = anim_utils.action_get_channelbag_for_slot(obj.animation_data.action, obj.animation_data.action_slot)
+    if not bag:
+        return None
+
+    # fcurves by data path and array index, in action order
+    channels = {}
     for fcurve in bag.fcurves:
-        array_index = fcurve.array_index
-        data_path = fcurve.data_path
-        
-        if data_path not in  keyframes:
-            keyframes[data_path] = {"times": [], "poses": {}, "loop": False}
-        
-        if fcurve.modifiers:
-            for mod in fcurve.modifiers:
-                if mod.type == 'CYCLES':
-                    keyframes[data_path]["loop"] = True
-         
-        for keyframe in fcurve.keyframe_points:
-            frame, value = keyframe.co
-            if frame not in keyframes[data_path]['times']: 
-                keyframes[data_path]['times'].append(frame)
-                if data_path in ('location', 'scale'):
-                    keyframes[data_path]['poses'][frame] = [None, None, None]
-                elif data_path == 'rotation_quaternion':
-                    keyframes[data_path]['poses'][frame] = [None, None, None, None]
-                
-    # for each keyframe, evaluate values
-    for fcurve in bag.fcurves:
-        array_index = fcurve.array_index
-        data_path = fcurve.data_path
-        for keyframe in keyframes[data_path]['times']:
-            if data_path in ['location', 'rotation_quaternion', 'scale']:
-                keyframes[data_path]['poses'][keyframe][array_index] = fcurve.evaluate(keyframe)
-                
-    # unmake animations
-    for path in keyframes:
-        times = keyframes[path]['times']
-        poses = keyframes[path]['poses'].values()
-        if path in ['location', 'rotation_quaternion', 'scale']:
-            durations = obj.get(f'anim_durations_{path}')
-            model.animations.append(Anim(entity, model).unmake(times, poses, path, loop = keyframes[path]['loop'],
-                                                                flags = obj.get(f'anim_flags_{path}'),
-                                                                durations = list(durations) if durations is not None else None))
-    
+        if fcurve.data_path in ('location', 'scale', *ROTATION_PATHS) and len(fcurve.keyframe_points):
+            channels.setdefault(fcurve.data_path, {})[fcurve.array_index] = fcurve
+
+    rotation_path = _anim_rotation_path(obj, channels)
+    for path in channels:
+        if path in ROTATION_PATHS and path != rotation_path:
+            continue  # not the rotation Blender plays for this object's rotation mode
+        fcurves = channels[path]
+        loop = any(mod.type == 'CYCLES' for fcurve in fcurves.values() for mod in fcurve.modifiers)
+
+        # every distinct key frame of the path's channels, in time order
+        times = []
+        for fcurve in fcurves.values():
+            for keyframe in fcurve.keyframe_points:
+                frame = keyframe.co[0]
+                if frame not in times:
+                    times.append(frame)
+        times.sort()
+
+        # unkeyed channels hold the object's own value
+        static = list(getattr(obj, path))
+        def evaluate(frame, fcurves=fcurves, static=static):
+            return [fcurves[i].evaluate(frame) if i in fcurves else static[i] for i in range(len(static))]
+
+        if path == 'rotation_euler':
+            order = obj.rotation_mode if obj.rotation_mode not in ('QUATERNION', 'AXIS_ANGLE') else 'XYZ'
+            channel_values = evaluate
+            evaluate = lambda frame: mathutils.Euler(channel_values(frame), order).to_quaternion()
+        elif path == 'rotation_axis_angle':
+            channel_values = evaluate
+            def evaluate(frame):
+                angle, *axis = channel_values(frame)
+                if mathutils.Vector(axis).length < 1e-12:
+                    return mathutils.Quaternion()
+                return mathutils.Quaternion(axis, angle)
+
+        kind = 'rotation' if path in ROTATION_PATHS else path
+        if path in ('location', 'scale', 'rotation_quaternion') and _anim_is_linear(fcurves.values()):
+            # the game interpolates these the way Blender does: keep the keys as they are
+            poses = [evaluate(frame) for frame in times]
+        else:
+            times, poses = _anim_bake(kind, times, evaluate)
+            if kind == 'rotation':
+                # keep each key in the previous one's hemisphere, so the arc the game slerps (always
+                # the shorter one) is also the one a re-import's quaternion lerp follows
+                for i in range(1, len(poses)):
+                    if poses[i].dot(poses[i - 1]) < 0:
+                        poses[i] = -poses[i]
+            poses = [list(p) for p in poses]
+
+        # With one key the game reads past the key arrays: swrModel_AnimationFindKeyFrameIndex
+        # returns num_key_frames - 2 = -1 and the interpolators read key_frame_times[index + 1]
+        # (SW_RACER_RE src/Swr/swrModel.c:992-1009, 648-650). A second, identical key at the same
+        # time gives it a valid segment without changing the motion.
+        if len(times) == 1:
+            times, poses = times * 2, poses * 2
+
+        stored = 'rotation_quaternion' if kind == 'rotation' else path
+        durations = obj.get(f'anim_durations_{stored}')
+        model.animations.append(Anim(entity, model).unmake(times, poses, stored, loop = loop,
+                                                            flags = obj.get(f'anim_flags_{stored}'),
+                                                            durations = list(durations) if durations is not None else None))
+
 class Anim(DataStruct):
     def __init__(self, parent, model):
         super().__init__('>244x3f2HI5f4I')
