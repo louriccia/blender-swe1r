@@ -38,6 +38,7 @@ Alternatively, [download the latest release .zip](https://github.com/louriccia/b
 
 ## Known Issues
 
+- In game, re-exported racer (pilot) models can still show missing or misplaced feet on the racer select screen, and Aldar Beedo can sink into the floor there; the cause hasn't been found yet (the exported pilot models match stock in everything checked so far).
 - Pods built from the add-on's template (the Right Engine / Left Engine / Cockpit / Cable collections) export without LODs or animations and with an empty high detail MAlt model. Imported pods export in full, MAlt included.
 
 ## Development
