@@ -28,4 +28,5 @@ Import sets Loop, Smooth Wrap and Loop Length from the game's own values. Left a
 
 ## Gotchas
 - **Moving collision needs Full Raycast.** A collidable mesh that moves must have the **Full Raycast** surface flag ([Surface Flags](Surface-Flags)), or the pod rides where the mesh was when the track loaded.
+- **Don't drop a platform faster than a pod falls** (a pod falls about 230 units in its first 1.8 s off a lip). A platform dropping at 150/s left the pod in the air above it. When the platform turned and came back up, it passed the pod before the pod landed. The game finds the ground only below the pod, so the pod fell through. Slow the drop, or add keys that slow the platform before it turns.
 - Imported pivots are kept as a pair of helper empties above and below the node. Keyframe the node itself, not the helpers: export stops with an error if a helper is animated.
