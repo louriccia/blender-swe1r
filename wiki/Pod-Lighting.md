@@ -5,7 +5,7 @@ The panel appears once a mesh is **Collidable** and has data added (see [Collisi
 ## Light
 Pick a Blender light in the box at the top. On export the add-on takes two things from it:
 - its **color**, as the light color;
-- its **location**, as the light vector.
+- its **world position**, as the light vector.
 
 Nothing else is used: the light type, strength and rotation are ignored. Choosing a light is what switches the lighting on. Without one, the game ignores the mesh's lighting (unless one of the buttons below is on).
 
@@ -25,7 +25,5 @@ These three toggles set light flag bits:
 The reset arrow in the panel header clears the light, the ambient color and the three toggles on the selected meshes.
 
 ## Limits and gotchas
-- **The light is found by name.** Export looks up the object whose name matches the light *data* name. If you rename the light object (or its data) so the two no longer match, the color and position are not exported.
-- The light's **location** field is used, not its world position. If the light is parented, its location relative to the parent is exported.
 - Lighting changes when the pod moves onto a mesh with different collision data, not every frame.
 - To keep a lighting change for a whole area, either tick **Persist**, or give every mesh in the area the same light.

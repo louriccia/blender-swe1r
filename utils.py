@@ -177,25 +177,17 @@ def update_selected(prop_name, update_mat = False, update_tex = False):
                 if update_mat:
                     from .swe1r.modelblock import Material
                     mats = [slot.material for slot in obj.material_slots]
-                    for mat in mats:
-                        if mat is None: continue
-                        # if update_tex and mat.node_tree:
-                        #     for node in mat.node_tree.nodes:
-                        #         if node.type == 'TEX_IMAGE':
-                        #             node.image = context.scene[prop_name]
-                        elif update_tex is False:
-                            if hasattr(mat, prop_name):
-                                setattr(mat, prop_name, getattr(context.scene, prop_name))
-                            elif hasattr(mat.data, prop_name):
-                                setattr(mat.data, prop_name, getattr(context.scene, prop_name))
-                                
-                        if len(mats):
-                            mat = mats[0]
-                            if prop_name == 'texture' and context.scene[prop_name]:
-                                mat = Material(None, None).remake(mat, tex_name = context.scene[prop_name].name)
-                            else:
-                                mat = Material(None, None).remake(mat)
-                            obj.material_slots[0].material = mat
+                    if not mats or mats[0] is None:
+                        continue
+                    # getattr, not scene[prop]: since Blender 5.0 registered properties are not ID properties
+                    value = getattr(context.scene, prop_name)
+                    if not update_tex:
+                        for mat in mats:
+                            if mat is not None and hasattr(mat, prop_name):
+                                setattr(mat, prop_name, value)
+                    # only the first material is exported, so only it is rebuilt
+                    tex_name = value.name if update_tex and value is not None else None
+                    obj.material_slots[0].material = Material(None, None).remake(mats[0], tex_name = tex_name)
                 else:
                     if hasattr(obj, prop_name):
                         setattr(obj, prop_name, getattr(context.scene, prop_name))
@@ -329,7 +321,8 @@ def calculate_point_light_contribution(light, vertex_position, vertex_normal, de
         return mathutils.Color((0, 0, 0))
 
 def calculate_sun_light_contribution(light, vertex_position, vertex_normal, depsgraph):
-    light_direction = light.rotation_euler.to_matrix().col[2]
+    # toward the sun: its world +Z (a sun shines along its -Z), so parents and any rotation mode count
+    light_direction = (light.matrix_world.to_3x3() @ mathutils.Vector((0, 0, 1))).normalized()
     light_color = light.data.color
 
     # Calculate the angle between the vertex normal and the light direction
@@ -357,26 +350,26 @@ def calculate_total_light_for_object(obj, falloff_factor=2.0, ambient_light_inte
     depsgraph = bpy.context.evaluated_depsgraph_get()
     world_matrix = obj.matrix_world
 
-    # Create a dictionary to store the total light for each vertex
-    ambient_light_color_copy = copy.copy(ambient_light_color)
-    total_lights = {v.index: ambient_light_color_copy for v in mesh.vertices}
-    
-    # Calculate the normal transformation matrix
-    normal_matrix = world_matrix.to_3x3().inverted().transposed()
-    
+    # every vertex starts from the ambient light, scaled by its strength
+    ambient = mathutils.Color(ambient_light_color) * ambient_light_intensity
+    total_lights = {v.index: ambient.copy() for v in mesh.vertices}
+
+    # normals transform by the inverse transpose, so non-uniform scale keeps them perpendicular
+    normal_matrix = world_matrix.to_3x3().inverted_safe().transposed()
+
     # Iterate over all lights in the scene
     for light in bpy.context.scene.objects:
         if light.type == 'LIGHT':
             for vertex in mesh.vertices:
                 # Transform vertex coordinates and normal to world space
                 vertex_world_co = world_matrix @ vertex.co
-                vertex_normal_world = world_matrix.to_3x3() @ vertex.normal
+                vertex_normal_world = (normal_matrix @ vertex.normal).normalized()
                 if light.data.type == 'POINT':
-                    light_contribution = calculate_point_light_contribution(light, vertex_world_co, vertex.normal, depsgraph, falloff_factor)
+                    light_contribution = calculate_point_light_contribution(light, vertex_world_co, vertex_normal_world, depsgraph, falloff_factor)
                     total_lights[vertex.index] = light_contribution + total_lights[vertex.index]
                 elif light.data.type == 'SUN':
-                    light_contribution = calculate_sun_light_contribution(light, vertex_world_co, vertex.normal, depsgraph)
-                    total_lights[vertex.index] = light_contribution + total_lights[vertex.index] 
+                    light_contribution = calculate_sun_light_contribution(light, vertex_world_co, vertex_normal_world, depsgraph)
+                    total_lights[vertex.index] = light_contribution + total_lights[vertex.index]
 
     return total_lights
 

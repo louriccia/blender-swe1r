@@ -3,7 +3,7 @@ The spline is the track's racing line. The game uses it for lap progress, the st
 Importing a track brings its spline from `out_splineblock.bin`. Export writes it back when **Spline** is on in [Export](Export).
 
 ## One curve object
-- A track has exactly **one curve object**, placed directly in the model collection (not in **Track** or **Skybox**). With none, or more than one, the spline isn't exported.
+- A track has exactly **one curve object**, placed directly in the model collection (not in **Track** or **Skybox**). With none, or more than one, the spline isn't exported. A curve in a child collection isn't used either; export says so.
 - That object can hold several paths (Blender splines). Only Bézier paths with 2 or more points are used.
 - Which game spline it replaces follows **Replaces** in the Export panel, so it only works when **Replaces** is a track.
 - The object's location, rotation and scale are applied. Point positions and handles are exported; tilt and radius are not.

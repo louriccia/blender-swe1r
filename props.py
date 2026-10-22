@@ -49,7 +49,7 @@ def register():
     bpy.types.Scene.is_export_model = bpy.props.BoolProperty(name="Model", update=save_settings, default=get_setting('is_export_model', True), description="Export the model (meshes, collision, nodes, animations)")
     bpy.types.Scene.is_export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('is_export_texture', True), description="Export the model's textures")
     bpy.types.Scene.is_export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('is_export_spline', True), description="Export the track's spline (the racing line, start point and AI path)")
-    bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =save_settings, default=get_setting('is_export_separate', False), description = "Also save the exported model, textures and spline as individual .bin files")
+    bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =save_settings, default=get_setting('is_export_separate', False), description = "Also save the exported model and spline as individual .bin files")
     bpy.types.Scene.is_export_debug = bpy.props.BoolProperty(name ="Debug", update =save_settings, default=get_setting('is_export_debug', False), description = "Write a human-readable debug dump of the exported model buffer alongside the .bin files (for troubleshooting only)")
 
     
@@ -166,7 +166,7 @@ def register():
     # MARK: UI State
     
     # visuals
-    bpy.types.Scene.visible = bpy.props.BoolProperty(name = 'Visible', update = update_selected('visible'), default = False, description = "The selected meshes are drawn in game. A mesh that is neither Visible nor Collidable exports as both")
+    bpy.types.Scene.visible = bpy.props.BoolProperty(name = 'Visible', update = update_selected('visible'), default = False, description = "The selected meshes are drawn in game. In a track, a mesh that is neither Visible nor Collidable exports as both; in other models, as Visible")
     
     bpy.types.Scene.texture = bpy.props.PointerProperty(type = bpy.types.Image, name="Texture", description="The selected meshes' texture. Exported at up to 128x128", update= update_selected("texture", update_mat = True, update_tex = True))
     bpy.types.Scene.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, description="Set base material color", update =update_selected("material_color", update_mat = True))
@@ -189,7 +189,7 @@ def register():
     bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'Show Visuals', update =UpdateVisibleSelectable, default=True, description = "Show or hide every visible mesh in the viewport (does not change the export)")
     bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'Select Visuals', update =UpdateVisibleSelectable, default=True, description = "Make every visible mesh selectable or unselectable in the viewport")
     
-    bpy.types.Scene.collidable = bpy.props.BoolProperty(name = 'Collidable', update = update_selected('collidable'), default = False, description = "Pods collide with the selected meshes in game. A mesh that is neither Visible nor Collidable exports as both")
+    bpy.types.Scene.collidable = bpy.props.BoolProperty(name = 'Collidable', update = update_selected('collidable'), default = False, description = "Pods collide with the selected meshes in game. In a track, a mesh that is neither Visible nor Collidable exports as both; in other models, as Visible")
     bpy.types.Scene.collision_data = bpy.props.BoolProperty(name ='Collision Data', update = update_selected('collision_data'), default = False, description = "Give the selected collision meshes surface flags, fog, pod lighting, load triggers and event triggers")
     
     # terrain
@@ -215,7 +215,7 @@ def register():
         'Soft': "Soft: marks the pod as on a soft surface",
         'NRsp': "No respawn (effect not yet traced in the decomp)",
         'Flat': "Flat: AI pods only, has no effect on the player",
-        'Side': "Side: the pod tilts fully onto its side while on this surface",
+        'Side': "Side: AI pods (and the autopilot) tilt fully onto their side while on this surface",
     }
     for flag in dir(SurfaceEnum):
         if not flag.startswith("__"):
@@ -234,11 +234,11 @@ def register():
     
     # fog
     bpy.types.Scene.fog_color = bpy.props.FloatVectorProperty(name="Fog Color", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0), min=0, max=1, description="Fog color. It is also the background (sky) color", update = update_selected("fog_color"))
-    bpy.types.Scene.fog_range_update = bpy.props.BoolProperty(name = 'Set Range', default=False, update = update_selected("fog_range_update"), description = "When the pod touches the selected meshes, set the fog start and the draw distance")
-    bpy.types.Scene.fog_color_update = bpy.props.BoolProperty(name = 'Set Color', default=False, update = update_selected("fog_color_update"), description = "When the pod touches the selected meshes, turn fog on with this color")
+    bpy.types.Scene.fog_range_update = bpy.props.BoolProperty(name = 'Set Draw Distance', default=False, update = update_selected("fog_range_update"), description = "When the pod touches the selected meshes, set the draw distance")
+    bpy.types.Scene.fog_color_update = bpy.props.BoolProperty(name = 'Set Fog', default=False, update = update_selected("fog_color_update"), description = "When the pod touches the selected meshes, turn fog on with this color and start")
     bpy.types.Scene.fog_min = bpy.props.IntProperty(name="Fog Start", default=1000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Where fog starts. Not a plain distance: the game uses it as an N64 fog value and clamps it at 996", update = update_selected("fog_min"))
-    bpy.types.Scene.fog_max = bpy.props.IntProperty(name="Draw Distance", default=30000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Draw distance: fog is fully opaque here and nothing beyond is drawn", subtype = 'DISTANCE', update = update_selected("fog_max"))
-    bpy.types.Scene.fog_clear = bpy.props.BoolProperty(name = 'Clear Fog', default=False, update = update_selected("fog_clear"), description = "When the pod touches the selected meshes, turn fog off. This also resets the draw distance")
+    bpy.types.Scene.fog_max = bpy.props.IntProperty(name="Distance", default=30000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Draw distance: fog is fully opaque here and nothing beyond is drawn", subtype = 'DISTANCE', update = update_selected("fog_max"))
+    bpy.types.Scene.fog_clear = bpy.props.BoolProperty(name = 'Clear Fog', default=False, update = update_selected("fog_clear"), description = "When the pod touches the selected meshes, turn fog off (writes a fog start of 0)")
     bpy.types.Scene.skybox_show = bpy.props.BoolProperty(name ='Show Skybox', default=False, update = update_selected("skybox_show"), description = "When the pod touches the selected meshes, show the skybox")
     bpy.types.Scene.skybox_hide = bpy.props.BoolProperty(name ='Hide Skybox', default=False, update = update_selected("skybox_hide"), description = "When the pod touches the selected meshes, hide the skybox")
     

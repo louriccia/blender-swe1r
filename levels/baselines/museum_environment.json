@@ -1,7 +1,7 @@
 {
   "after_light": {
     "cam_flags": 1,
-    "draw_target": -1.0,
+    "draw_set": 30000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
@@ -26,7 +26,7 @@
   },
   "draw_2000": {
     "cam_flags": 1,
-    "draw_target": 2000.0,
+    "draw_set": 2000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
@@ -51,7 +51,7 @@
   },
   "draw_30000": {
     "cam_flags": 1,
-    "draw_target": 30000.0,
+    "draw_set": 30000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
@@ -76,7 +76,7 @@
   },
   "env_plain": {
     "cam_flags": 16,
-    "draw_target": -1.0,
+    "draw_set": 5000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
@@ -101,7 +101,7 @@
   },
   "fog_blue_996": {
     "cam_flags": 2,
-    "draw_target": -1.0,
+    "draw_set": 5000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
@@ -125,12 +125,12 @@
     "respawns": 0
   },
   "fog_clear": {
-    "cam_flags": 1,
-    "draw_target": 30000.0,
+    "cam_flags": 0,
+    "draw_set": 5000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
-      3,
+      1,
       255,
       255,
       255,
@@ -151,7 +151,7 @@
   },
   "fog_red": {
     "cam_flags": 2,
-    "draw_target": -1.0,
+    "draw_set": 5000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
@@ -176,7 +176,7 @@
   },
   "light_flicker": {
     "cam_flags": 1,
-    "draw_target": 30000.0,
+    "draw_set": 30000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
@@ -201,7 +201,7 @@
   },
   "light_invert": {
     "cam_flags": 1,
-    "draw_target": 30000.0,
+    "draw_set": 30000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
@@ -226,7 +226,7 @@
   },
   "light_persist": {
     "cam_flags": 1,
-    "draw_target": -1.0,
+    "draw_set": 30000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
@@ -251,7 +251,7 @@
   },
   "light_red": {
     "cam_flags": 1,
-    "draw_target": 30000.0,
+    "draw_set": 30000.0,
     "explodes": 0,
     "fired": [],
     "fog": [
