@@ -9,6 +9,7 @@ predictions taken from the decomp. Prints a table, writes report.json into the r
 """
 import json
 import math
+import struct
 import os
 import sys
 
@@ -54,6 +55,8 @@ class Centerline:
 def measure(station, samples, events, line_z, cruise):
     out = {"samples": len(samples)}
     if not samples:
+        if "route" in station["measure"]:
+            out["visited"] = False
         return out
     t0, t1 = samples[0]["t"], samples[-1]["t"]
     out["time_s"] = round(t1 - t0, 2)
@@ -103,6 +106,44 @@ def measure(station, samples, events, line_z, cruise):
             out["grip_min"] = round(min(s["grip"] for s in samples), 3)
             out["heat_drop"] = round(samples[0]["heat"] - min(s["heat"] for s in samples), 1)
             out["speed_drop"] = round(samples[0]["spd"] - out["speed_min"], 1)
+        elif kind == "lift":
+            # the pod riding an animated platform: its height swing and the time between peaks
+            zs = [(s["t"], s["pos"][2]) for s in samples]
+            out["swing"] = round(max(z for _, z in zs) - min(z for _, z in zs), 1)
+            # going down the platform outruns the pod's fall, so the pod leaves it; going up it
+            # carries the pod: the longest steady climb is the platform's own speed
+            rates = [((z1 - z0) / (t1 - t0)) for (t0, z0), (t1, z1) in zip(zs, zs[1:]) if t1 > t0]
+            best, run = [], []
+            for r in rates + [None]:
+                if r is not None and r > 20 and (not run or abs(r - run[-1]) < 0.15 * abs(run[-1])):
+                    run.append(r)
+                else:
+                    if len(run) > len(best):
+                        best = run
+                    run = [r] if r is not None and r > 20 else []
+            out["rise_rate"] = round(sorted(best)[len(best) // 2], 1) if len(best) >= 4 else None
+        elif kind == "route":
+            out["visited"] = True
+            laps = [s["lap"] for s in samples]
+            # lap progress (swrObjJdge_GetRacerProgress) only grows within a station
+            out["progress_back"] = round(max([0.0] + [a - b for a, b in zip(laps, laps[1:]) if a - b < 0.5]), 4)
+        elif kind == "env":
+            # the fog/light read from the mesh under the pod, and the camera's state (test runner
+            # "env" lines): the middle of the station, the camera having had time to ease
+            env = [e for e in events if e["ev"] == "env"]
+            middle = env[len(env) // 3:] or env
+            if middle:
+                out["fog"] = list(mode(tuple(e["fog"]) for e in middle))
+                lights = [e["light"] for e in middle]
+                out["light_flags"] = mode(l[0] for l in lights)
+                out["light_rgb"] = list(mode(tuple(l[1:7]) for l in lights))
+                cam = middle[-1]["cam"]
+                out["cam_flags"] = cam[0]
+                f = [struct.unpack("<f", struct.pack("<I", w))[0] for w in cam[2:]]
+                # +0x2c8 (fog_r_target in src) is the draw distance target, +0x2d0 (fog_b_target)
+                # the fog start target, both floats
+                out["draw_target"] = round(f[4], 1)
+                out["fog_start_target"] = round(f[6], 1)
     out["respawns"] = sum(1 for e in events if e["ev"] == "respawn")
     out["explodes"] = sum(1 for e in events if e["ev"] == "explode")
     out["triggers"] = [e["type"] for e in events if e["ev"] == "trigger"]
@@ -174,6 +215,18 @@ def check(level_dir, run_dir, race=None):
         if p[4] in per_station and p[4] not in done:
             per_station[p[4]][0 if e["ev"] == "s" else 1].append(e)
 
+    # AI pods, from the all-pods lines: which AI pod (by index) was seen in which station
+    ai_seen = {}
+    for e in log:
+        if e.get("ev") != "pods":
+            continue
+        for i, (x, y, z, local) in enumerate(e["p"]):
+            if local:
+                continue
+            p = line.nearest(x, y, z)
+            if p is not None:
+                ai_seen.setdefault(p[4], set()).add(i)
+
     # cruising speed: the median on the flat closing straight (where the grid is)
     grid = sorted(e["spd"] for e in log if e.get("ev") == "s" and e.get("_station") == "grid" and e["t"] > 20)
     cruise = grid[len(grid) // 2] if grid else 600.0
@@ -189,6 +242,8 @@ def check(level_dir, run_dir, race=None):
         zs = [p[3] for p in exp["centerline"] if p[4] == st["name"]]
         line_z = (zs[0], max(zs)) if zs else (0, 0)
         m = measure(st, samples, events, line_z, cruise)
+        if "route" in st["measure"]:
+            m["ai_pods"] = len(ai_seen.get(st["name"], ()))
         m["disturbed"] = disturbed
         verdicts = {}
         for key, want in ({} if disturbed else st["predict"]).items():
@@ -201,13 +256,51 @@ def check(level_dir, run_dir, race=None):
                 failures.append(f"{st['name']}: {key} predicted {want}, measured {have}")
         report[st["name"]] = {"measured": m, "predictions": verdicts, "source": st.get("source", "")}
     report["_route"] = visits
+    if "grid" in exp:
+        ok, detail = check_grid(exp["grid"], log)
+        report["_grid"] = detail
+        if not ok:
+            failures.append(f"grid: {detail}")
     with open(os.path.join(run_dir, "report.json"), "w") as f:
         json.dump(report, f, indent=2)
     return report, failures
 
 
+def predicted_grid(start, forward, racers):
+    """swrObjJdge_GetSpawnTransform (0x465840): rows of 4 and 3 pods alternately, the first 100
+    behind spline point 0 and each next 30 further back, pods 20 apart across the row."""
+    fx, fy = forward
+    lx, ly = -fy, fx
+    out, row, left = [], 0, racers
+    while left > 0:
+        n = min(4 if row % 2 == 0 else 3, left)
+        back = 100 + 30 * row
+        for i in range(n):
+            side = (i - (n - 1) / 2) * 20
+            out.append((start[0] - fx * back + lx * side, start[1] - fy * back + ly * side))
+        left -= n
+        row += 1
+    return out
+
+
+def check_grid(grid, log):
+    first = next((e for e in log if e.get("ev") == "pods"), None)
+    if first is None:
+        return False, "no pods line"
+    have = [(p[0], p[1]) for p in first["p"]]
+    want = predicted_grid(grid["start"], grid["forward"], grid["racers"])
+    unmatched = list(have)
+    for w in want:
+        best = min(unmatched, key=lambda h: (h[0] - w[0]) ** 2 + (h[1] - w[1]) ** 2, default=None)
+        if best is None or (best[0] - w[0]) ** 2 + (best[1] - w[1]) ** 2 > 3 ** 2:
+            return False, f"no pod at {tuple(round(v) for v in w)}; pods {[tuple(round(v) for v in h) for h in have]}"
+        unmatched.remove(best)
+    return True, f"{len(want)} pods where predicted"
+
+
 BASELINE_KEYS = ("climbs", "slows", "airborne", "respawns", "explodes", "hover", "wall_radius", "surf",
-                 "spec", "fired")
+                 "spec", "fired", "fog", "light_flags", "light_rgb", "cam_flags", "draw_target",
+                 "fog_start_target", "swing", "rise_rate")  # routes at forks are coin flips: not baselined
 
 
 def baseline_of(report):
@@ -260,6 +353,8 @@ def main():
         marks = " ".join(f"{k}:{'ok' if v['ok'] else 'FAIL'}" for k, v in r["predictions"].items())
         print(f"{name:<14} {marks:<24} {facts}")
     print("route:", " > ".join(report["_route"]))
+    if "_grid" in report:
+        print("grid:", report["_grid"])
     for f in failures:
         print("FAIL", f)
     sys.exit(1 if failures else 0)

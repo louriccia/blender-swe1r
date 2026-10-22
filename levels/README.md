@@ -21,7 +21,11 @@ be in-game* (GodotFest 2025):
 | `gym` | done | The pod's physical limits: slopes, jumps, drops, gate widths, turns. |
 | `museum_surfaces` | done | Every surface flag and special flag: exact bits reach the game, and their effect. |
 | `museum_triggers` | done | Every trigger type and flag: what fires, when, and what it does. |
-| museum: environment, animation, splines | planned | Fog/light/skybox, animation types, spline splits and joins. Zones wait on planet-independent custom tracks. |
+| `museum_environment` | done | Per-surface fog colour, fog start, draw distance and light flags: the bytes, and what the camera does. |
+| `museum_splines` | done | An alternate path that splits off and joins (raced with AI pods). |
+| `museum_p2p` | done | A point-to-point track: open spline, one lap, finish at the dead end, the grid. |
+| `museum_animation` | done | A lift the pod rides (timing checked), plus rotation, scale and UV-scroll scenery. |
+| museum: zones | waiting | Load/unload zones wait for planet-independent custom tracks (see below). |
 | `zoo` | planned | Every stock texture and material setting, and stock props, labelled by id. |
 
 ## Running
@@ -131,6 +135,39 @@ exactly. Their effects, measured:
   | 7 Malastare | 0 methane |
 
   314 uses slot 0, 501 slot 5, 213 slot 3 and 306 slot 1.
+
+**Environment** (`museum_environment`): every fog and light byte set in Blender reaches the game.
+
+- **`fog_color_update`:** turns fog on. The fog colour is also the background colour.
+- **`fog_min` is not a distance.** The game uses it as an N64-style fog value and clamps it at 996
+  (the literal 0x44790000). The add-on's 1–30000 range is misleading.
+- **`fog_range_update`:** sets the draw distance from `fog_max`. **`fog_clear` also sets that bit**,
+  so clearing fog resets the draw distance too.
+- **Lights:**
+  - A light sets `light_flags` 0x3. Invert, flicker and persistent add 0x4, 0x8 and 0x10.
+  - **The add-on calls 0x4 "invert", but the game reads it as "the light vector is a position".**
+  - Track geometry with baked vertex colours isn't lit; the pod is.
+
+**Splines** (`museum_splines`, `museum_p2p`):
+
+- **Forks:** the add-on writes an alternate path as a split (`next_count` 2) and a join
+  (`prev_count` 2). AI pods flip a coin at every fork (`swrRace.c:2382-2394`), and the autopilot
+  pod does too.
+- **Point-to-point:** a track whose spline point 0 has no previous point is one, no matter what lap
+  count is set. Its finish is the dead end.
+- **The grid is behind point 0** (`swrObjJdge_GetSpawnTransform`):
+  - the first row is 100 back, and each further row 30 more;
+  - rows alternate 4 and 3 pods, set 20 apart.
+
+  **A point-to-point track needs road behind point 0.** Without it, every pod falls through the
+  countdown.
+
+**Animation** (`museum_animation`):
+
+- Exported animations play with the authored timing: the lift rises at exactly 150 units/s as built.
+- **Animated collision needs the "elevation" flag (full raycast).** Without it, the pod's ground ray
+  uses the track mesh the game cached under the spline at load. The platform's visual moves, but the
+  pod rides where the platform was at load: a 4-unit swing on a 150-unit lift.
 
 ## Facts every custom track runs into
 

@@ -37,8 +37,9 @@ def ramp(length, degrees, station, **kwargs):
 
 
 def arc(radius, degrees, station, bank=0.0, ease=0.25, **kwargs):
-    """A left turn. bank eases in over the first and out over the last `ease` of the arc."""
-    length = radius * math.radians(degrees)
+    """A turn, left for positive degrees. bank eases in over the first and out over the last
+    `ease` of the arc."""
+    length = radius * math.radians(abs(degrees))
 
     def roll(u):
         t = u / length

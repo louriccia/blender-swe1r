@@ -12,6 +12,7 @@ Environment:
     SWR_RACER_RE     an SW_RACER_RE checkout with scripts/run_tests.py (default: ../SWR_wt_levels)
 """
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -53,10 +54,12 @@ def main():
     for block in ("out_modelblock.bin", "out_splineblock.bin", "out_textureblock.bin"):
         shutil.copy(os.path.join(level_dir, block), os.path.join(target_root, args.level, block))
 
+    with open(os.path.join(level_dir, "expectations.json")) as f:
+        racers = json.load(f).get("racers", 1)   # a level that needs AI pods (forks) asks for them
     shutil.rmtree(run_dir, ignore_errors=True)
     cmd = [sys.executable, os.path.join(RACER_RE, "scripts", "run_tests.py"), "--game-dir", GAME_DIR,
            "--tracks", ",".join(["custom"] * args.races), "--finish-tracks", "custom", "--laps", "1",
-           "--racers", "1", "--race-timeout", "400", "--custom-tracks-dir", "./" + LEVELS_IN_GAME,
+           "--racers", str(racers), "--race-timeout", "400", "--custom-tracks-dir", "./" + LEVELS_IN_GAME,
            "--telemetry-hz", "20", "--fixed-dt-hz", str(FIXED_HZ), "--out", run_dir]
     if args.screenshot_s:
         cmd += ["--screenshot-s", str(args.screenshot_s)]

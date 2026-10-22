@@ -214,6 +214,19 @@ def spline(name, points, model_collection, cyclic=True, lift=10.0):
     return obj
 
 
+def spline_path(spline_obj, points, lift=10.0):
+    """An alternate path in the track spline: an open bezier whose first and last points are
+    (copies of) points of the main path, where it splits off and joins back (the add-on matches them
+    to the nearest main point, swe1r/splineblock.py)."""
+    s = spline_obj.data.splines.new('BEZIER')
+    s.bezier_points.add(len(points) - 1)
+    for bp, p in zip(s.bezier_points, points):
+        bp.co = g(p[0], p[1], p[2] + lift)
+        bp.handle_left_type = bp.handle_right_type = 'AUTO'
+    s.use_cyclic_u = False
+    return s
+
+
 # MARK: layouts
 
 def stadium(straight, radius, step=500.0, z=0.0, start=(0.0, 0.0)):

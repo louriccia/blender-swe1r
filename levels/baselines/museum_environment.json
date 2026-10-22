@@ -1,0 +1,277 @@
+{
+  "after_light": {
+    "cam_flags": 1,
+    "draw_target": -1.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      0,
+      255,
+      255,
+      255,
+      1000,
+      30000
+    ],
+    "fog_start_target": 0.0,
+    "light_flags": 0,
+    "light_rgb": [
+      255,
+      255,
+      255,
+      255,
+      255,
+      255
+    ],
+    "respawns": 0
+  },
+  "draw_2000": {
+    "cam_flags": 1,
+    "draw_target": 2000.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      2,
+      255,
+      255,
+      255,
+      1000,
+      2000
+    ],
+    "fog_start_target": 0.0,
+    "light_flags": 0,
+    "light_rgb": [
+      255,
+      255,
+      255,
+      255,
+      255,
+      255
+    ],
+    "respawns": 0
+  },
+  "draw_30000": {
+    "cam_flags": 1,
+    "draw_target": 30000.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      2,
+      255,
+      255,
+      255,
+      1000,
+      30000
+    ],
+    "fog_start_target": 0.0,
+    "light_flags": 0,
+    "light_rgb": [
+      255,
+      255,
+      255,
+      255,
+      255,
+      255
+    ],
+    "respawns": 0
+  },
+  "env_plain": {
+    "cam_flags": 16,
+    "draw_target": -1.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      0,
+      255,
+      255,
+      255,
+      1000,
+      30000
+    ],
+    "fog_start_target": -1.0,
+    "light_flags": 0,
+    "light_rgb": [
+      255,
+      255,
+      255,
+      255,
+      255,
+      255
+    ],
+    "respawns": 0
+  },
+  "fog_blue_996": {
+    "cam_flags": 2,
+    "draw_target": -1.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      1,
+      0,
+      0,
+      255,
+      5000,
+      30000
+    ],
+    "fog_start_target": 996.0,
+    "light_flags": 0,
+    "light_rgb": [
+      255,
+      255,
+      255,
+      255,
+      255,
+      255
+    ],
+    "respawns": 0
+  },
+  "fog_clear": {
+    "cam_flags": 1,
+    "draw_target": 30000.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      3,
+      255,
+      255,
+      255,
+      0,
+      30000
+    ],
+    "fog_start_target": 0.0,
+    "light_flags": 0,
+    "light_rgb": [
+      255,
+      255,
+      255,
+      255,
+      255,
+      255
+    ],
+    "respawns": 0
+  },
+  "fog_red": {
+    "cam_flags": 2,
+    "draw_target": -1.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      1,
+      255,
+      0,
+      0,
+      500,
+      30000
+    ],
+    "fog_start_target": 500.0,
+    "light_flags": 0,
+    "light_rgb": [
+      255,
+      255,
+      255,
+      255,
+      255,
+      255
+    ],
+    "respawns": 0
+  },
+  "light_flicker": {
+    "cam_flags": 1,
+    "draw_target": 30000.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      0,
+      255,
+      255,
+      255,
+      1000,
+      30000
+    ],
+    "fog_start_target": 0.0,
+    "light_flags": 11,
+    "light_rgb": [
+      51,
+      51,
+      51,
+      0,
+      0,
+      255
+    ],
+    "respawns": 0
+  },
+  "light_invert": {
+    "cam_flags": 1,
+    "draw_target": 30000.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      0,
+      255,
+      255,
+      255,
+      1000,
+      30000
+    ],
+    "fog_start_target": 0.0,
+    "light_flags": 7,
+    "light_rgb": [
+      51,
+      51,
+      51,
+      0,
+      255,
+      0
+    ],
+    "respawns": 0
+  },
+  "light_persist": {
+    "cam_flags": 1,
+    "draw_target": -1.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      0,
+      255,
+      255,
+      255,
+      1000,
+      30000
+    ],
+    "fog_start_target": 0.0,
+    "light_flags": 19,
+    "light_rgb": [
+      102,
+      102,
+      102,
+      255,
+      255,
+      0
+    ],
+    "respawns": 0
+  },
+  "light_red": {
+    "cam_flags": 1,
+    "draw_target": 30000.0,
+    "explodes": 0,
+    "fired": [],
+    "fog": [
+      0,
+      255,
+      255,
+      255,
+      1000,
+      30000
+    ],
+    "fog_start_target": 0.0,
+    "light_flags": 3,
+    "light_rgb": [
+      51,
+      51,
+      51,
+      255,
+      0,
+      0
+    ],
+    "respawns": 0
+  }
+}
