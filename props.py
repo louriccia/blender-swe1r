@@ -1,5 +1,5 @@
 import bpy
-from .utils import get_anim_loop, set_anim_loop, update_export_model, save_settings, get_setting, model_types, import_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
+from .utils import get_anim_loop, set_anim_loop, update_anim_loop_length, update_export_model, save_settings, get_setting, model_types, import_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
 from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
 from .swe1r.trigger_types import TRIGGER_TYPES, type_label
@@ -337,7 +337,7 @@ def register():
     # swrModel_AnimationFlags, src/Swr/swrModel.c swrModel_LoadAnimation)
     bpy.types.Object.anim_loop = bpy.props.BoolProperty(name="Loop", get=get_anim_loop, set=set_anim_loop, description="Start the animation over when it reaches its end (flag 0x10). Off: it plays once and stops. Stored as Cycles modifiers on the object's curves, so Blender's timeline loops it too")
     bpy.types.Object.anim_loop_transition = bpy.props.BoolProperty(name="Smooth Wrap", default=False, description="Flag 0x40: when it loops, blend back to the start instead of jumping. Only the game's code gives the blend a speed; set in a file, the animation freezes at its first loop (tested in game). Kept for imports")
-    bpy.types.Object.anim_loop_length = bpy.props.FloatProperty(name="Loop Length", default=0.0, min=0.0, soft_max=60.0, unit='TIME_ABSOLUTE', precision=3, description="Seconds before the animation starts over. 0, or anything shorter than the keys: right after the last key. Longer holds the last pose until then (stock puppets share one length across their limbs)")
+    bpy.types.Object.anim_loop_length = bpy.props.FloatProperty(name="Loop Length", default=0.0, min=0.0, soft_max=60.0, unit='TIME_ABSOLUTE', precision=3, update=update_anim_loop_length, description="Seconds before the animation starts over. 0, or anything shorter than the keys: right after the last key. Longer holds the last pose until then (stock puppets share one length across their limbs); a key repeating the last pose at this time makes Blender play it the same way, and isn't exported")
     bpy.types.Object.swr_node_type = bpy.props.EnumProperty(name="Node Type", items=NODE_TYPE_ITEMS, get=get_node_type, set=set_node_type, description="What kind of node this empty exports as")
     bpy.types.Object.swr_selected_child = bpy.props.IntProperty(name="Selected Child", min=-2, get=custom_getter('selected_child', 0), set=custom_setter('selected_child'), description="Which child the selector draws: its number (0 is the first), -1 for all of them, -2 for none")
     bpy.types.Object.swr_lod_distances = bpy.props.FloatVectorProperty(name="LOD Distances", size=8, get=get_lod_distances, set=set_lod_distances, description="Where each child takes over, by distance from the camera: child 1 from the second value, and so on. The first value is 0, and -1 ends the list")

@@ -29,7 +29,7 @@ from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Byt
 from .textureblock import Texture, compute_image_hash, compute_hash, needed_pixel_bytes, format_map
 from .pod_visual import pod_anchor_positions
 from .pod_parts import STOCK_GLOW, STOCK_CABLE, STOCK_GLOW_MATERIAL, STOCK_CABLE_MATERIAL
-from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt
+from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt, sync_hold_key, hold_key_frame, is_hold_key
 
 def find_existing_light(objects, color, location, rotation):
     for light in objects:
@@ -4543,12 +4543,16 @@ def get_animations(obj, model, entity):
         fcurves = channels[path]
         loop = any(mod.type == 'CYCLES' for fcurve in fcurves.values() for mod in fcurve.modifiers)
 
-        # every distinct key frame of the path's channels, in time order
+        # every distinct key frame of the path's channels, in time order, less the hold key that
+        # makes Blender play the Loop Length (utils.sync_hold_key): Loop Length writes that
+        hold = hold_key_frame(obj)
+        if hold is not None and not all(is_hold_key(fcurve, hold) for fcurve in fcurves.values()):
+            hold = None
         times = []
         for fcurve in fcurves.values():
             for keyframe in fcurve.keyframe_points:
                 frame = keyframe.co[0]
-                if frame not in times:
+                if frame not in times and (hold is None or abs(frame - hold) >= 1e-3):
                     times.append(frame)
         times.sort()
 
@@ -4846,6 +4850,8 @@ class Anim(DataStruct):
                 ensure_cycles_first(fcurve)
             for keyframe in fcurve.keyframe_points:
                 keyframe.interpolation = 'LINEAR'
+        if isinstance(target, bpy.types.Object):
+            sync_hold_key(target)     # Blender holds the last pose until Loop Length, as the game does
     
         
     

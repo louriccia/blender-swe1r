@@ -1042,7 +1042,10 @@ class SWR_PT_animation(SWRPanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         obj = context.active_object
-        frames = [k.co[0] for f in utils.transform_fcurves(obj) for k in f.keyframe_points]
+        hold = utils.hold_key_frame(obj)
+        frames = [k.co[0] for f in utils.transform_fcurves(obj)
+                  for i, k in enumerate(f.keyframe_points)
+                  if hold is None or not (i == len(f.keyframe_points) - 1 and utils.is_hold_key(f, hold))]
         fps = context.scene.render.fps
         hint(layout, f"{obj.name}: keys {min(frames) / fps:.2f} to {max(frames) / fps:.2f} s")
         layout.prop(obj, 'anim_loop')
