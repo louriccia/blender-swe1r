@@ -28,7 +28,10 @@ from .constants import *
 from . import NAME, VERSION
 import os
 from bpy.utils import previews
+import mathutils
+import numpy as np
 from mathutils import Color, Vector, Euler, Quaternion
+from . import utils
 
 
 classes = []
@@ -87,16 +90,12 @@ def get_prop_value(prop_name, indeterminates, items):
         indeterminates.append(prop_name)
     return get_default(bpy.context.scene, prop_name)
 
-obj_props = ['visible', 
-            'lighting_color', 
-            'lighting_light',
-            'visible',
+obj_props = ['visible',
             'collidable',
             'collision_data',
             'magnet',
             'strict_spline',
             'elevation',
-            'lighting_light',
             'lighting_color',
             'lighting_invert',
             'lighting_flicker',
@@ -125,6 +124,15 @@ mat_props = [
     'transparent',
     'use_backface_culling',
 ]
+
+# The game's four-letter surface codes, spelled out (the tooltip says what each does)
+SURFACE_FLAG_LABELS = {
+    'Fast': "Fast", 'Slow': "Slow", 'Swst': "Very Slow", 'Slip': "Slippery", 'Lava': "Lava",
+    'ZOn': "Zero-g On", 'ZOff': "Zero-g Off", 'Fall': "Fall", 'NRsp': "No Respawn",
+    'Dust': "Dust", 'Wet': "Wet", 'Swmp': "Swamp", 'Snow': "Snow", 'NSnw': "No Snow",
+    'Mirr': "Mirror", 'Side': "Side",
+    'Ruff': "Rough", 'Soft': "Soft", 'Flat': "Flat (AI)",
+}
 
 def is_indeterminate(prop, text = ""):
     indeterminates = bpy.context.scene.indeterminates
@@ -168,8 +176,8 @@ def is_texture_default(context):
         if mats[0] is None: continue
         if mats[0].use_backface_culling:
             return False
-        for prop in mat_props:
-            if prop in mats[0] and mats[0][prop] :
+        for prop in ['scroll_x', 'scroll_y', 'flip_x', 'flip_y', 'clip_x', 'clip_y', 'transparent']:
+            if getattr(mats[0], prop, False):
                 return False
     return True
         
@@ -180,10 +188,10 @@ def is_terrain_default(context):
             continue
         for flag in dir(SurfaceEnum):
             if not flag.startswith("__"):
-                if flag in obj and obj[flag]:
+                if getattr(obj, flag, False):
                     return False
         for flag in ['magnet', 'strict_spline', 'elevation']:
-            if flag in obj and obj[flag]:
+            if getattr(obj, flag, False):
                 return False
     return True
 
@@ -242,7 +250,7 @@ def on_object_selection(scene = None, depsgraph = None):
     active = view_layer.objects.active if view_layer else None
     active_name = active.name if active else None
     sel = frozenset(obj.name for obj in bpy.context.selected_objects)
-    key = (active_name, sel)
+    key = (active_name, sel, utils.panel_sync_generation[0])
 
     if key == _last_selection:
         return
@@ -266,6 +274,8 @@ def on_object_selection(scene = None, depsgraph = None):
                 selected_objects.add(obj)
                 mats = [slot.material for slot in obj.material_slots]
                 for mat in mats:
+                    if mat is None:
+                        continue
                     selected_materials.add(mat)
                     if mat is not None and mat.node_tree:
                         for node in mat.node_tree.nodes:
@@ -276,11 +286,17 @@ def on_object_selection(scene = None, depsgraph = None):
         
         for prop in obj_props:
             val = get_prop_value(prop, indeterminates, selected_objects)
-            if val is not None and prop != 'lighting_light':
+            if val is not None:
                 setattr(context, prop, val)
             elif hasattr(context, prop) and isinstance(getattr(context, prop), int):
                 setattr(context, prop, False)
             
+        # a pointer has no default to fall back on: show the shared light, or none when mixed
+        lights = {obj.lighting_light for obj in selected_objects}
+        context.lighting_light = next(iter(lights)) if len(lights) == 1 else None
+        if len(lights) > 1:
+            indeterminates.append('lighting_light')
+
         for prop in mat_props:
             val = get_prop_value(prop, indeterminates, selected_materials)
             if val is not None:
@@ -349,6 +365,9 @@ def _subscribe_selection_msgbus():
 def _selection_msgbus_load_post(dummy):
     _subscribe_selection_msgbus()
 
+def find_model_collection(context):
+    return utils.find_model_collection(context)
+
 def op_with_props(layout, op, text, props={}):
     """Helper to add an operator with dynamic properties."""
     operator = layout.operator(op, text=text)
@@ -371,10 +390,16 @@ class InfoPanel(bpy.types.Panel):
         layout = self.layout
         row = layout.row()
         row.label(text = NAME)
-        row.operator("view3d.open_url", text="", icon = "QUESTION", emboss = False).url = URL_WIKI
-        row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["discord"].icon_id, emboss = False).url = URL_DISCORD
-        row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["github"].icon_id, emboss = False).url = URL_GITHUB
-        row.operator("view3d.open_url", text="", icon_value=preview_collections["main"]["kofi"].icon_id, emboss = False).url = URL_KOFI
+        for url, tooltip, icon in [(URL_WIKI, "Open the wiki (how-to guides)", None),
+                                   (URL_DISCORD, "Ask for help on the SWE1R Discord", "discord"),
+                                   (URL_GITHUB, "Report a bug or read the code on GitHub", "github"),
+                                   (URL_KOFI, "Support the project on Ko-fi", "kofi")]:
+            if icon is None:
+                op = row.operator("view3d.open_url", text="", icon = "QUESTION", emboss = False)
+            else:
+                op = row.operator("view3d.open_url", text="", icon_value=preview_collections["main"][icon].icon_id, emboss = False)
+            op.url = url
+            op.tooltip = tooltip
         
         row = layout.row()
         row.label(text = "Version: " + VERSION)
@@ -423,42 +448,40 @@ class ExportPanel(bpy.types.Panel):
         layout.label(icon='EXPORT')
     
     def draw(self, context):
-        layout = self.layout
-            
-        collection = bpy.context.view_layer.active_layer_collection
-        if collection:
-            collection = collection.collection
-            
-        # Export
-        layout.prop(context.scene, "export_folder", text="", full_event=False)
-        layout.prop(collection, 'export_model', text = "Model")
-        row = layout.row(align=True)
-        row.prop(context.scene, "is_export_model", text="Model", icon='MESH_CUBE', toggle=True, icon_only=True)
-        row.prop(context.scene, "is_export_texture", text="Texture", icon='MATERIAL', toggle=True, icon_only=True)
-        row.prop(context.scene, "is_export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
-        
-        if context.scene.is_export_texture:
-            row = layout.row()
-            row.label(text = "New custom textures may require a game restart")
-            row.enabled = False
-            
-        layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
-        layout.prop(context.scene, "is_export_debug", text = "Write model debug dump (.txt)")
-        row = layout.row()
-            
-            
-        row.scale_y = 1.5
-        if context.scene.export_progress > 0.0 and context.scene.export_progress < 1.0:
-            row.progress(factor = context.scene.export_progress, type = 'BAR', text = context.scene.export_status)
-        else:
-            row.operator("view3d.export_operator", text="Export")
-        
-        
-        if not any([context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline]) or collection.collection_type != "MODEL":
-            row.enabled = False
-            if collection.collection_type != "MODEL":
-                row = layout.row()
-                row.label(text = "Please select a model collection")
+        draw_export(self.layout, context)
+
+def draw_export(layout, context):
+    collection = find_model_collection(context)
+    if collection is None:
+        col = layout.column()
+        col.label(text = "Click a model collection in the Outliner", icon = 'INFO')
+        col.label(text = "(e.g. model_1_Trak) or one of its objects")
+        col.label(text = "Or make one with Tools > New")
+        return
+
+    layout.label(text = collection.name, icon = 'OUTLINER_COLLECTION')
+    layout.prop(context.scene, "export_folder", text="", full_event=False)
+    layout.prop(collection, 'export_model', text = "Replaces")
+    row = layout.row(align=True)
+    row.prop(context.scene, "is_export_model", text="Model", icon='MESH_CUBE', toggle=True)
+    row.prop(context.scene, "is_export_texture", text="Texture", icon='MATERIAL', toggle=True)
+    row.prop(context.scene, "is_export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True)
+
+    layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
+    layout.prop(context.scene, "is_export_debug", text = "Write model debug dump (.txt)")
+    row = layout.row()
+    row.scale_y = 1.5
+    if context.scene.export_progress > 0.0 and context.scene.export_progress < 1.0:
+        row.progress(factor = context.scene.export_progress, type = 'BAR', text = context.scene.export_status)
+    else:
+        row.operator("view3d.export_operator", text="Export")
+    if not any([context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline]):
+        row.enabled = False
+        layout.label(text = "Turn on Model, Texture or Spline")
+    elif context.scene.is_export_texture:
+        col = layout.column()
+        col.enabled = False
+        col.label(text = "New textures may need a game restart")
 
 # MARK: Tools   
 class ToolPanel(bpy.types.Panel):
@@ -477,12 +500,12 @@ class ToolPanel(bpy.types.Panel):
         box = layout.box()
         
         row = box.row()
-        row.operator("object.generate_material_assets", text="Export Asset Library", icon='ASSET_MANAGER')
-        
-        row = box.row()
         row.label(text = "New", icon = "FILE_NEW")
         row.prop(context.scene, "new_type", text="")
         row.operator("view3d.new_model", text = "", icon = "ADD")
+
+        row = box.row()
+        row.operator("object.generate_material_assets", text="Export Asset Library", icon='ASSET_MANAGER')
         
         box = layout.box()
         row = box.row(align = True)
@@ -559,14 +582,12 @@ class SelectedPanel(bpy.types.Panel):
         light = False
         trigger = False
         
-        collection = bpy.context.collection
-        
-        if not context.selected_objects and not collection:
-            layout.label(text = "Select an object/spline to edit its properties")
-            layout.label(text = "Select a collection to export it as a model")
+        if not context.selected_objects:
+            layout.label(text = "Select a mesh, spline, light or trigger", icon = 'INFO')
+            layout.label(text = "to edit its game properties")
             return
         
-        # Check if any of them are collections
+        selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
         for obj in context.selected_objects:
             if obj.type == 'MESH':
                 mesh = True
@@ -600,15 +621,16 @@ class SelectedPanel(bpy.types.Panel):
 
                 # MARK: material
                 box = parent_box.box()
-                section_header(context, box, 'view3d.reset_texture', 'is_texture_default', 'textures_expanded', 'Material', 'MATERIAL')                
-                mats = [slot.material for slot in obj.material_slots]
+                section_header(context, box, 'view3d.reset_texture', 'is_texture_default', 'textures_expanded', 'Material', 'MATERIAL')
+                slot_counts = [len(m.material_slots) for m in selected_meshes]
                 if context.scene.textures_expanded:
-                    if len(mats) > 1:
+                    if max(slot_counts) > 1:
                         row = box.row()
-                        row.label(text = "Only one material per mesh is supported")
+                        row.label(text = "One material per mesh: export splits it", icon = 'ERROR')
                         row = box.row()
+                        row.enabled = context.active_object in selected_meshes and len(context.active_object.material_slots) > 1
                         row.operator("view3d.split_by_material", text = "Split mesh by material")
-                    elif len(mats):
+                    elif min(slot_counts) > 0:
                         row = box.row()
                         row.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
                         row = box.row()
@@ -623,17 +645,18 @@ class SelectedPanel(bpy.types.Panel):
                             row.label(text = 'Scroll')
                             row.prop(context.scene, 'scroll_x', text = f'x{is_indeterminate("scroll_x")}')
                             row.prop(context.scene, 'scroll_y', text = f'y{is_indeterminate("scroll_y")}')
+                            # flip_y/clip_y are the X (U) axis, flip_x/clip_x the Y (V) axis (see Material.make)
                             row= box.row()
                             row.label(text = 'Mirror')
-                            row.prop(context.scene, 'flip_x', text = f'x{is_indeterminate("flip_x")}')
-                            row.prop(context.scene, 'flip_y', text = f'y{is_indeterminate("flip_y")}')
+                            row.prop(context.scene, 'flip_y', text = f'x{is_indeterminate("flip_y")}')
+                            row.prop(context.scene, 'flip_x', text = f'y{is_indeterminate("flip_x")}')
                             row= box.row()
                             row.label(text = 'Clip')
-                            row.prop(context.scene, 'clip_x', text = f'x{is_indeterminate("clip_x")}')
-                            row.prop(context.scene, 'clip_y', text = f'y{is_indeterminate("clip_y")}')
+                            row.prop(context.scene, 'clip_y', text = f'x{is_indeterminate("clip_y")}')
+                            row.prop(context.scene, 'clip_x', text = f'y{is_indeterminate("clip_x")}')
                     else:
                         row = box.row()
-                        row.operator('view3d.remake_materials', text = "Add material")
+                        row.operator('view3d.remake_materials', text = "Add material", icon = 'ADD')
             
             parent_box = layout.box()
             row = parent_box.row()
@@ -658,6 +681,7 @@ class SelectedPanel(bpy.types.Panel):
                         gameplay = ["Fast", "Slow", "Swst", "Slip", "Lava", "ZOn", "ZOff", "Fall", "NRsp"]
                         effects = ["Dust", "Wet", "Swmp", "Snow", "NSnw", "Mirr", "Side"]
                         feedback = ["Ruff", "Soft", "Flat"]
+                        labels = SURFACE_FLAG_LABELS
                         
                         row = box.row()
                         col = row.column()
@@ -665,28 +689,27 @@ class SelectedPanel(bpy.types.Panel):
                         r.label(text = "Gameplay")
                         r.enabled = False
                         for flag in gameplay:
-                            col.prop(context.scene, flag, text = f"{flag}{is_indeterminate(flag)}")
+                            col.prop(context.scene, flag, text = f"{labels.get(flag, flag)}{is_indeterminate(flag)}")
                         
                         r = col.row()
                         r.label(text = "Overrides")
                         r.enabled = False
-                        r = col.row()
-                        r.prop(context.scene, "magnet", text = is_indeterminate('magnet'), icon = 'SNAP_ON')
-                        r.prop(context.scene, "strict_spline", text = is_indeterminate('strict_spline'), icon = 'SEQ_LUMA_WAVEFORM')
-                        r.prop(context.scene, "elevation", text = is_indeterminate('elevation'), icon = 'MOD_DISPLACE')
+                        col.prop(context.scene, "magnet", text = f"Magnet{is_indeterminate('magnet')}")
+                        col.prop(context.scene, "elevation", text = f"Full Raycast{is_indeterminate('elevation')}")
+                        col.prop(context.scene, "strict_spline", text = f"Spline Fork{is_indeterminate('strict_spline')}")
                             
                         col = row.column()
                         r = col.row()
                         r.label(text = "Effects")
                         r.enabled = False
                         for flag in effects:
-                            col.prop(context.scene, flag, text = f"{flag}{is_indeterminate(flag)}")
+                            col.prop(context.scene, flag, text = f"{labels.get(flag, flag)}{is_indeterminate(flag)}")
                             
                         r = col.row()
                         r.label(text = "Feedback")
                         r.enabled = False
                         for flag in feedback:
-                            col.prop(context.scene, flag, text = f"{flag}{is_indeterminate(flag)}")
+                            col.prop(context.scene, flag, text = f"{labels.get(flag, flag)}{is_indeterminate(flag)}")
                     
                     # MARK: fog
                     
@@ -704,8 +727,8 @@ class SelectedPanel(bpy.types.Panel):
                         col = row.column()
                         col.prop(context.scene, 'fog_range_update', text = f'Set range{is_indeterminate("fog_range_update")}')
                         col = row.column()
-                        col.prop(context.scene, 'fog_min', text = f'Min{is_indeterminate("fog_min")}', slider = True)
-                        col.prop(context.scene, 'fog_max', text = f'Max{is_indeterminate("fog_max")}', slider = True)
+                        col.prop(context.scene, 'fog_min', text = f'Start{is_indeterminate("fog_min")}', slider = True)
+                        col.prop(context.scene, 'fog_max', text = f'Draw distance{is_indeterminate("fog_max")}', slider = True)
                         col.enabled = context.scene.fog_range_update
                         
                         row = box.row()
@@ -725,14 +748,18 @@ class SelectedPanel(bpy.types.Panel):
                         row.prop(context.scene, 'lighting_color', text = f'Ambient Color{is_indeterminate("lighting_color")}')
                         row = box.row(align = True)
                         row.prop(context.scene, 'lighting_flicker', text = f'Flicker{is_indeterminate("lighting_flicker")}', toggle = True)
-                        row.prop(context.scene, 'lighting_invert', text = f'Invert{is_indeterminate("lighting_invert")}', toggle = True)
+                        row.prop(context.scene, 'lighting_invert', text = f'Point{is_indeterminate("lighting_invert")}', toggle = True)
                         row.prop(context.scene, 'lighting_persistent', text = f'Persist{is_indeterminate("lighting_persistent")}', toggle = True)
                     
                     # MARK: loading
                     
                     box = parent_box.box()
-                    section_header(context, box, 'view3d.reset_loading', 'is_loading_default', 'trigger_expanded', 'Load Trigger', 'MOD_BUILD')                
+                    section_header(context, box, 'view3d.reset_loading', 'is_loading_default', 'trigger_expanded', 'Load Trigger', 'MOD_BUILD')
                     if context.scene.trigger_expanded:
+                        col = box.column(align = True)
+                        col.enabled = False
+                        col.label(text = "Click a zone to cycle: unchanged,")
+                        col.label(text = "load on touch, unload on touch")
                         row = box.row()
                         # Scrolling list
                         row.template_list("MY_UL_CustomList", "", context.scene, "load_trigger", context.scene, "load_trigger_index", rows=4)
@@ -741,7 +768,6 @@ class SelectedPanel(bpy.types.Panel):
                         row.operator("view3d.preview_load", text = "Preview", icon = 'HIDE_OFF')
                         
                     row = parent_box.row()
-                    row.enabled = len(context.selected_objects) == 1
                     row.operator("view3d.add_trigger", text = "Add event trigger", icon = 'ADD')
                 
             if context.scene.indeterminates:
@@ -757,14 +783,26 @@ class SelectedPanel(bpy.types.Panel):
             column = row.column()
             column.enabled = spline.use_cyclic_u and context.mode == 'EDIT_CURVE'
             column.operator("view3d.reconstruct_spline", text = "Set spawn", icon = "TRACKING" )
+            if not column.enabled:
+                hint = layout.column()
+                hint.enabled = False
+                hint.label(text = "Set spawn needs a cyclic spline in Edit Mode")
             layout.operator("view3d.invert_spline", text = "Invert", icon='ARROW_LEFTRIGHT')
             row = layout.row()
             row.prop(spline, 'use_cyclic_u', text = "Cyclic")
             row.prop(context.space_data.overlay, "show_curve_normals", text = "Show direction")
+            if not spline.use_cyclic_u:
+                hint = layout.column()
+                hint.enabled = False
+                hint.label(text = "Not cyclic: a point-to-point track")
             
         elif light:
             layout.prop(light, "color", text = "Color")
             layout.prop(light, 'LStr', text = 'Light Streak')
+            col = layout.column()
+            col.enabled = False
+            col.label(text = "Pod lighting lights are set on a collision")
+            col.label(text = "mesh: Collidable > Pod Lighting")
             
         elif trigger:
             row = layout.row()
@@ -777,45 +815,12 @@ class SelectedPanel(bpy.types.Panel):
             col.prop(trigger, "SkipLap2", text = 'Skip Lap 2')
             col.prop(trigger, "SkipLap3", text = 'Skip Lap 3')
             row = layout.row()
-            row.prop(trigger, 'trigger_id', text = 'ID')
+            row.prop(trigger, 'trigger_id', text = 'Type')
             row.prop(trigger, 'trigger_settings', text = 'Settings')
             layout.prop(trigger, 'target')
+            if trigger.parent is None or trigger.parent.type != 'MESH':
+                layout.label(text = "Parent this to a collidable mesh", icon = 'ERROR')
             
-        elif collection:
-            
-            layout = self.layout
-            if collection.collection_type != "MODEL":
-                row = layout.row()
-                row.label(text = "Please select a model collection")
-                return
-                
-            # Export
-            layout.prop(context.scene, "export_folder", text="", full_event=False)
-            layout.prop(collection, 'export_model', text = "Model")
-            row = layout.row(align=True)
-            row.prop(context.scene, "is_export_model", text="Model", icon='MESH_CUBE', toggle=True, icon_only=True)
-            row.prop(context.scene, "is_export_texture", text="Texture", icon='MATERIAL', toggle=True, icon_only=True)
-            row.prop(context.scene, "is_export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True, icon_only=True)
-            
-            if context.scene.is_export_texture:
-                row = layout.row()
-                row.label(text = "New custom textures may require a game restart")
-                row.enabled = False
-                
-            layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
-            row = layout.row()
-                
-            row.scale_y = 1.5
-            if context.scene.export_progress > 0.0 and context.scene.export_progress < 1.0:
-                row.progress(factor = context.scene.export_progress, type = 'BAR', text = context.scene.export_status)
-            else:
-                row.operator("view3d.export_operator", text="Export")
-            
-            if not any([context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline]) or collection.collection_type != "MODEL":
-                row.enabled = False
-                if collection.collection_type != "MODEL":
-                    row = layout.row()
-                    row.label(text = "Please select a model collection")
 
 def register():
     # Load custom icons
@@ -838,6 +843,7 @@ def register():
     _subscribe_selection_msgbus()
     bpy.utils.register_class(InfoPanel)
     bpy.utils.register_class(ImportPanel)
+    bpy.utils.register_class(ExportPanel)
     bpy.utils.register_class(MY_UL_CustomList)
     bpy.utils.register_class(ToolPanel)
     bpy.utils.register_class(SelectedPanel)
@@ -851,6 +857,7 @@ def unregister():
     bpy.msgbus.clear_by_owner(_msgbus_owner)
     bpy.utils.unregister_class(InfoPanel)
     bpy.utils.unregister_class(ImportPanel)
+    bpy.utils.unregister_class(ExportPanel)
     bpy.utils.unregister_class(MY_UL_CustomList)
     bpy.utils.unregister_class(ToolPanel)
     bpy.utils.unregister_class(SelectedPanel)

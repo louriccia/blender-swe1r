@@ -144,19 +144,22 @@ showbytes = {
 
 SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_settings.json")
 
+def import_model_items(model_type):
+    """Items for the Import > Model dropdown. 'All' (-1) imports every model of the chosen type,
+    so it is only offered when a single type is chosen."""
+    if model_type == 'All':
+        return [model_enum_item(i, model) for i, model in enumerate(model_list)]
+    items = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_type]
+    items.insert(0, ('-1', 'All', f'Import all {model_type} models'))
+    return items
+
 def update_model_dropdown(self, context):
     model_type = model_types[int(context.scene.import_type)][1]
-    
-    if model_type == 'All':
-        items_for_selected_category = [model_enum_item(i, model) for i, model in enumerate(model_list)]
-    else:
-        items_for_selected_category = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_type]
-        items_for_selected_category.insert(0, ('-1', 'All', f'Import all {model_type} models'))
-        
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
-        items=items_for_selected_category,
-        name="Model Selection",
-        description="Select models to import",
+        items=import_model_items(model_type),
+        name="Model",
+        description="Select a model to import",
+        update=save_settings,
     )
     save_settings(self, context)
     
@@ -248,11 +251,22 @@ def UpdateVisibleSelectable(self, context = None):
             
             
     
+# Scene properties remembered between Blender sessions (each is registered with update=save_settings)
+SETTINGS_KEYS = [
+    'import_folder', 'import_type', 'import_model', 'export_folder', 'new_type',
+    'is_export_model', 'is_export_texture', 'is_export_spline', 'is_export_separate', 'is_export_debug',
+    'flags_expanded', 'fog_expanded', 'lighting_expanded', 'trigger_expanded', 'lights_expanded',
+    'textures_expanded', 'light_falloff', 'ambient_light', 'ambient_light_intensity',
+]
+
 def save_settings(self, context):
-    keys = ['import_folder', 'import_type', 'import_model', 'export_folder', 'is_export_model', 'is_export_texture', 'is_export_spline']
+    # getattr, not scene.get(): since Blender 5.0 registered properties are not ID properties
     settings = load_settings()
-    for key in [key for key in keys if context.scene.get(key) is not None]:
-        settings[key] = context.scene.get(key)
+    for key in SETTINGS_KEYS:
+        if not hasattr(context.scene, key):
+            continue
+        value = getattr(context.scene, key)
+        settings[key] = value if isinstance(value, (str, int, float, bool)) else list(value)
     with open(SETTINGS_FILE, 'w') as f:
         json.dump(settings, f)
 
@@ -262,11 +276,6 @@ def load_settings():
         with open(SETTINGS_FILE, 'r') as f:
             settings = json.load(f)
     return settings
-
-def set_setting(key, value):
-    settings = load_settings()
-    settings[key] = value
-    save_settings(settings)
 
 def get_setting(key, default=None):
     settings = load_settings()
@@ -455,21 +464,6 @@ def check_flipped(o):
         o = o.parent
     return flipped
 
-def center_of_mass(o):
-    mesh = o.data
-    total = mathutils.Vector((0, 0, 0))
-    num_verts = len(mesh.vertices)
-
-    # Sum all vertex coordinates
-    for vert in mesh.vertices:
-        total += o.matrix_world @ vert.co
-
-    # Average the positions to get the center of mass in local coordinates
-    center_of_mass_local = total / num_verts
-
-    # Convert to world coordinates
-    return [mass / o.scale[i] for i, mass in enumerate(center_of_mass_local)]
-    
 def show_custom_popup(context, title, message):
     def draw(self, context):
         layout = self.layout
@@ -481,9 +475,43 @@ def show_custom_popup(context, title, message):
         return
     bpy.context.window_manager.popup_menu(draw, title=title, icon='INFO')
     
+# Bumped to make the sidebar re-read the selection's properties (panels.on_object_selection only
+# re-syncs when the selection changes, so an operator that edits the selected objects bumps this)
+panel_sync_generation = [0]
+
 def reselect_obj(obj):
+    panel_sync_generation[0] += 1
     obj.select_set(False)
     obj.select_set(True)
+
+def find_model_collection(context):
+    """The Model collection (collection_type 'MODEL') the user is working in: the active
+    collection or the active object's collection, or the nearest Model collection above either.
+    None if there is none."""
+    parents = {}
+    for collection in bpy.data.collections:
+        for child in collection.children:
+            parents.setdefault(child.name, collection)
+
+    def climb(collection):
+        while collection is not None:
+            if collection.collection_type == "MODEL":
+                return collection
+            collection = parents.get(collection.name)
+        return None
+
+    starts = []
+    obj = context.active_object
+    if obj is not None and obj.select_get():
+        starts.extend(obj.users_collection)
+    layer_collection = context.view_layer.active_layer_collection
+    if layer_collection is not None:
+        starts.append(layer_collection.collection)
+    for collection in starts:
+        found = climb(collection)
+        if found is not None:
+            return found
+    return None
     
     
 def validate_folder_path(folder_path, file_name):

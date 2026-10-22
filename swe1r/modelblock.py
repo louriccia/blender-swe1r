@@ -3932,9 +3932,9 @@ class ModelData():
         for d in self.data:
             if isinstance(d, LStr):
                 d.make()
-    def unmake(self):
-        # TODO: only get objects from collection
-        for obj in bpy.data.objects:
+    def unmake(self, collection):
+        # only this model's light streaks: other imported tracks in the file have their own
+        for obj in sorted(get_all_objects_in_collection(collection), key=lambda o: o.name):
             if obj.type == 'LIGHT' and obj.data.LStr:
                 self.data.append(LStr(self, self.model).unmake(obj))
         return self
@@ -4826,7 +4826,7 @@ class ModelHeader():
             self.size = len(imported_header)
         self.values = {int(slot): int(value) for slot, value in collection.get('header_values', {}).items()}
         if self.model.type == "7":
-            self.model.Data = ModelData(self, self.model).unmake()
+            self.model.Data = ModelData(self, self.model).unmake(collection)
         self.model.Anim = AnimList(self, self.model).unmake()
     
     def write(self, buffer, cursor):
