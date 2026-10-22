@@ -23,6 +23,10 @@ With Loop on, blend back to the start instead of jumping to it. **Leave it off: 
 ## Loop Length
 Seconds before the animation starts over. **0** means right after its last key, and a length shorter than the keys is raised to that. A longer length holds the last pose until then: stock characters give every limb the same length so they stay in step even when one limb's keys end early.
 
+## Platforms the pod rides
+- Animated collision needs **Full Raycast** on the mesh (see [Surface Flags](Surface-Flags)); without it the pod rides where the mesh was when the track loaded.
+- **Don't drop a platform faster than a pod falls** (a pod falls about 230 units in its first 1.8 s off a lip). A platform dropping at 150/s left the pod in the air above it. When the platform turned and came back up, it passed the pod before the pod landed. The game finds the ground only below the pod, so the pod fell through. Slow the drop, or add keys that slow the platform before it turns.
+
 ## Imported animations
 Import sets Loop, Smooth Wrap and Loop Length from the game's own values. Left as they are, the animation exports exactly as it came in.
 

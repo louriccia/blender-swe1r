@@ -187,8 +187,14 @@ exactly. Their effects, measured:
   pod rides where the platform was at load: a 4-unit swing on a 150-unit lift.
 - **Loop off** plays the animation once from the race start: by the time the pod gets there the lift
   is still. **Loop Length** longer than the keys holds the last pose until then: the 4 s lift climbs
-  every 4.0 s. Once, at the bottom of a cycle, the pod lost the ground under it and fell; the cause
-  isn't known.
+  every 4.0 s.
+- **A lift can rise through the pod.** The game finds the ground only with a ray cast downward from
+  the pod. On the hold lift, the platform dropped at 150/s, faster than the pod falls, so the pod
+  ended up 60 above it (airborne). At the bottom the platform turned and rose at 150/s, closing on
+  the falling pod at about 300/s (5 units a frame), and passed it before it landed. With the floor
+  above it, the ray found nothing: the pod fell and respawned. The ground the telemetry reports
+  followed the authored height to within one frame, so the animation played as built. Keep a
+  platform's drop slower than a pod falls, or slow it before it turns.
 - **Smooth Wrap (0x40) freezes the animation.** Loading sets the blend's speed to 0
   (`swrModel.c:566`), and the first wrap divides by it. The add-on warns about it.
 
