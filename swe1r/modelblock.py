@@ -2341,7 +2341,10 @@ class Material(DataStruct):
             # get animations
             if self.model:
                 flipbook = material.get('flipbook')
-                if flipbook is not None and flipbook.get('frames'):
+                if len(material.flipbook_frames):
+                    self.model.animations.append(flipbook_from_frames(self, material, self.model))
+                elif flipbook is not None and flipbook.get('frames'):
+                    # imported by a version without the Flipbook panel: written back as read
                     self.model.animations.append(flipbook_anim(self, flipbook.to_dict(), self.model))
                 # self.scroll_x/y come from get_material_prop, which also reads older imports
                 for axis, scroll in (('uv_x', self.scroll_x), ('uv_y', self.scroll_y)):
@@ -4422,6 +4425,59 @@ def flipbook_anim(material, flipbook, model):
         anim.keyframe_poses.append(pose)
     return anim
 
+def flipbook_signature(material):
+    """What the Flipbook panel shows, to tell an imported flipbook the user hasn't changed."""
+    return {'images': [frame.image.name if frame.image else '' for frame in material.flipbook_frames],
+            'frame_time': round(material.flipbook_frame_time, 6), 'loop': bool(material.flipbook_loop)}
+
+def flipbook_from_frames(material_struct, material, model):
+    """The type 0x2 animation for the Flipbook panel's frames.
+
+    Laid out as every stock flipbook is (Parts 48/49, Modls 146/151/294/297/316, Part 317): a key
+    per frame, frame_time apart; a looping one (flag 0x10) ends with a key at the loop length that
+    shows the first frame again, and the durations (float1-5) are the last key's time. An imported
+    flipbook the user hasn't changed keeps its own key times and texture structs.
+    """
+    imported = material.get('flipbook')
+    imported = imported.to_dict() if imported is not None else None
+    signature = material.get('flipbook_imported')
+    unchanged = imported is not None and signature is not None and signature.to_dict() == flipbook_signature(material)
+    if unchanged:
+        anim = flipbook_anim(material_struct, imported, model)
+        raw_frames = imported['frames']
+    else:
+        anim = Anim(material_struct, model)
+        anim.target = material_struct
+        loop = bool(material.flipbook_loop)
+        count = len(material.flipbook_frames) + (1 if loop else 0)
+        anim.keyframe_times = [i * material.flipbook_frame_time for i in range(count)]
+        length = anim.keyframe_times[-1]
+        anim.float1 = anim.float2 = anim.float3 = anim.float4 = anim.float5 = length
+        anim.flag2 = 0x2 | (0x10 if loop else 0)
+        raw_frames = []
+        if imported is not None:
+            # keep the stock list position so code that picks animations by index still finds it
+            anim.index = int(imported.get('index', -1)) if int(imported.get('index', -1)) >= 0 else None
+            anim.target_word = int(imported.get('target_word', 0))
+    # tile mirror/clamp bits follow the material's own texture
+    main = material_struct.texture.chunks[0].unk1 & 0x33 if material_struct.texture is not None and material_struct.texture.chunks else 0
+    images = [frame.image for frame in material.flipbook_frames]
+    # a looping flipbook's closing key shows the first frame again (the panel lists it once)
+    if (len(raw_frames) == len(images) + 1) if unchanged else material.flipbook_loop:
+        images.append(images[0])
+    anim.keyframe_poses = []
+    for i, image in enumerate(images):
+        pose = TexturePose(anim, model)
+        raw = raw_frames[i] if i < len(raw_frames) and raw_frames[i] else None
+        if raw is not None and (image is None or (image.get('id') is not None and int(image['id']) == int(raw['id'])
+                                                  and image.get('internal_hash') == compute_image_hash(image))):
+            pose.texture = material_texture_from_fields(pose, model, raw)
+        else:
+            pose.texture = MaterialTexture(pose, model).unmake(image)
+            pose.texture.chunks[0].unk1 = (pose.texture.chunks[0].unk1 & ~0x33) | main
+        anim.keyframe_poses.append(pose)
+    return anim
+
 def get_animations(obj, model, entity):
     """Turns the object's location, rotation and scale fcurves into the game's key frame animations.
 
@@ -4663,6 +4719,20 @@ class Anim(DataStruct):
                 'times': list(self.keyframe_times),
                 'frames': [texture_fields(pose.texture) for pose in self.keyframe_poses],
             }
+            # the Flipbook panel's frames: one image per key, without the closing key a looping
+            # flipbook repeats its first frame with
+            poses = list(self.keyframe_poses)
+            loop = bool(self.flag2 & 0x10)
+            if loop and len(poses) > 1 and texture_fields(poses[-1].texture) == texture_fields(poses[0].texture):
+                poses = poses[:-1]
+            target.flipbook_frames.clear()
+            for pose in poses:
+                frame = target.flipbook_frames.add()
+                frame.image = pose.texture.make() if pose.texture is not None else None
+            times = list(self.keyframe_times)
+            target.flipbook_frame_time = (times[-1] - times[0]) / (len(times) - 1) if len(times) > 1 else 0.04
+            target.flipbook_loop = loop
+            target['flipbook_imported'] = flipbook_signature(target)
             return
 
             
