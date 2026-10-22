@@ -20,7 +20,7 @@ The viewport follows the same combiner, so what you see in Material Preview is a
 - [Materials](Materials): blend mode, texture, color, culling, scroll, mirror and clip.
 
 ## Reset
-While a selected mesh's settings differ from the defaults, a reset arrow appears in the header. It sets the vertex colors back to white and resets the material settings (blend to Opaque, Backface Culling, Scroll, Mirror and Clip). It leaves the texture and Color alone.
+While a selected mesh's settings differ from the defaults, a reset arrow appears in the header. It sets the vertex colors back to white and resets the material settings (blend to Opaque, Hide to Off, Scroll, Mirror and Clip). It leaves the texture and Color alone.
 
 ## Gotchas
 - One material per mesh. A mesh with more than one material is split on export; the Material panel offers to split it now.

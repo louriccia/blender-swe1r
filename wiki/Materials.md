@@ -22,7 +22,7 @@ How the game draws the material. Each choice is a whole setup copied from the ga
 
 - New materials are **Opaque**. Imported materials show the blend their stored setup matches, or **Custom**.
 - Picking a blend replaces the material's whole draw setup. A **Custom** material is never changed unless you pick something else, so imported materials export exactly as they came in.
-- Choosing **Tinted**, **Glow** or **Flat Color** on a material whose Color is black sets it to white, so it doesn't vanish. **Glow** also turns Backface Culling off, as stock glow materials have it.
+- Choosing **Tinted**, **Glow** or **Flat Color** on a material whose Color is black sets it to white, so it doesn't vanish. **Glow** and **Shadow** also set Hide to **Off**, as stock glow and shadow materials have it.
 - There is no additive blend: the game's renderer has no such mode.
 - **Translucent** meshes are sorted back to front by the centre of their bounding box, so large or intersecting translucent meshes can sort wrongly. Split them up if they flicker.
 - Meshes in a **Skybox** collection are always drawn as sky (no depth test, no fog), so the panel shows that instead of the dropdown.
@@ -30,8 +30,11 @@ How the game draws the material. Each choice is a whole setup copied from the ga
 ## Color
 The material's primitive color. It only matters for **Tinted**, **Glow**, **Flat Color**, **Shadow** and some **Custom** materials, so it is greyed out for the others. The viewport follows the material's color setup: if changing Color changes nothing in Material Preview, it changes nothing in game either.
 
-## Backface Culling
-On: faces seen from behind are not drawn. Off: faces are drawn from both sides. Materials made by **Add material** start with it on.
+## Hide (culling)
+Which side of the faces the game doesn't draw:
+- **Back Faces**: faces seen from behind (most stock meshes). Materials made by **Add material** start with it. Blender's viewport hides them too.
+- **Front Faces**: faces seen from the front. Stock uses it on mirrored copies of meshes, whose faces are wound the other way. Blender can't hide front faces, so the viewport shows them double-sided.
+- **Off**: both sides are drawn.
 
 ## Texture
 The image the mesh is drawn with. Pick an image already in the file, or click the folder button to load one from disk.
@@ -66,7 +69,7 @@ Repeats the texture mirrored, along **x** or **y**, instead of tiling it.
 Stops the texture repeating along **x** or **y**: beyond the edge of the texture, its edge pixels are stretched.
 
 ## Reset
-The arrow in the panel header sets the blend to **Opaque** and resets Backface Culling, Scroll, Mirror and Clip on the selected meshes. It leaves the texture and Color alone, and turns Backface Culling off.
+The arrow in the panel header sets the blend to **Opaque** and sets Hide to **Off** and resets Scroll, Mirror and Clip on the selected meshes. It leaves the texture and Color alone.
 
 ## Gotchas
 - New textures may need a game restart to show.

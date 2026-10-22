@@ -56,6 +56,45 @@ def set_scene_blend_mode(self, value):
         obj.material_slots[0].material = Material(None, None).remake(material)
         reselect_obj(obj)
 
+# Culling: the material type's 0x8 culls back faces, 0x40 front faces, neither is double-sided;
+# 0x8 wins when both are set (SW_RACER_RE dinput_hook/renderer_hook.cpp; a node with flags_5 0x1
+# mirrors its subtree and swaps the two). Back is Blender's Backface Culling; Front and Off show
+# double-sided in Blender, which has no front-face culling.
+CULL_MODE_ITEMS = [
+    ('BACK', "Back Faces", "Hide faces seen from behind (type 0x8). Most stock meshes", 0),
+    ('FRONT', "Front Faces", "Hide faces seen from the front (type 0x40). Stock uses it on mirrored copies of meshes. Shown double-sided in Blender", 1),
+    ('NONE', "Off", "Draw both sides", 2),
+]
+
+
+def get_material_cull_mode(self):
+    if self.use_backface_culling:
+        return 0
+    return 1 if self.get('format', 14) & 0x40 else 2
+
+
+def set_material_cull_mode(self, value):
+    fmt = self.get('format', 14) & ~0x48
+    self.use_backface_culling = value == 0
+    self['format'] = fmt | (0x8 if value == 0 else 0x40 if value == 1 else 0)
+
+
+def get_scene_cull_mode(self):
+    context = bpy.context
+    materials = blend_mode_materials(context)
+    if not materials:
+        return 2
+    active = next((m for o, m in materials if o == context.active_object), materials[0][1])
+    return get_material_cull_mode(active)
+
+
+def set_scene_cull_mode(self, value):
+    from .utils import reselect_obj
+    for obj, material in blend_mode_materials(bpy.context):
+        set_material_cull_mode(material, value)
+        obj.material_slots[0].material = Material(None, None).remake(material)
+        reselect_obj(obj)
+
 # the Trigger Type dropdown's entry for a number not in TRIGGER_TYPES
 OTHER_TRIGGER_TYPE = 999999
 
@@ -259,6 +298,7 @@ def register():
     bpy.types.Material.clip_y = bpy.props.BoolProperty(name = 'clip_y', default = False)
     # files from older versions chose translucency with this; the Blend Mode dropdown replaces it
     bpy.types.Material.transparent = bpy.props.BoolProperty(name = 'transparent', default = False)
+    bpy.types.Material.cull_mode = bpy.props.EnumProperty(name = 'Culling', items = CULL_MODE_ITEMS, get = get_material_cull_mode, set = set_material_cull_mode, description = "Which side of the faces the game hides")
     bpy.types.Material.blend_mode = bpy.props.EnumProperty(name = 'Blend Mode', items = [(*item, i) for i, item in enumerate(BLEND_MODE_ITEMS)], get = get_material_blend_mode, set = set_material_blend_mode, description = "How the game draws the material: a preset copied from stock materials")
     # texture flipbook: the material's texture swaps through these frames in game
     bpy.types.Material.flipbook_frames = bpy.props.CollectionProperty(type=SWR_FlipbookFrame)
@@ -309,7 +349,7 @@ def register():
     bpy.types.Scene.texture = bpy.props.PointerProperty(type = bpy.types.Image, name="Texture", description="The selected meshes' texture. Exported at up to 128x128", update= update_selected("texture", update_mat = True, update_tex = True))
     bpy.types.Scene.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, description="Set base material color", update =update_selected("material_color", update_mat = True))
     bpy.types.Scene.blend_mode = bpy.props.EnumProperty(name = 'Blend Mode', items = SCENE_BLEND_MODE_ITEMS, get = get_scene_blend_mode, set = set_scene_blend_mode, description = "How the game draws the selected meshes: a preset copied from stock materials")
-    bpy.types.Scene.use_backface_culling = bpy.props.BoolProperty(name = 'Backface Culling', default = False, update = update_selected("use_backface_culling", update_mat = True), description = "Hide faces seen from behind")
+    bpy.types.Scene.cull_mode = bpy.props.EnumProperty(name = 'Culling', items = CULL_MODE_ITEMS, get = get_scene_cull_mode, set = set_scene_cull_mode, description = "Which side of the selected meshes' faces the game hides")
     bpy.types.Scene.scroll_x = bpy.props.FloatProperty(name = 'Scroll X', default = 0.0, update = update_selected("scroll_x", update_mat = True), description = "Scroll the texture along X: seconds per full scroll, negative for the other direction, 0 for none")
     bpy.types.Scene.scroll_y = bpy.props.FloatProperty(name = 'Scroll Y', default = 0.0, update = update_selected("scroll_y", update_mat = True), description = "Scroll the texture along Y: seconds per full scroll, negative for the other direction, 0 for none")
     bpy.types.Scene.flip_x = bpy.props.BoolProperty(name = 'Mirror Y', default = False, update = update_selected("flip_x", update_mat = True), description = "Repeat the texture mirrored along Y (V) instead of tiling it. Stored as flip_x for older files")
