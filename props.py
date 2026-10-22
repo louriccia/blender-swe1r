@@ -52,15 +52,6 @@ def register():
     bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =save_settings, default=get_setting('is_export_separate', False), description = "Also save the exported model, textures and spline as individual .bin files")
     bpy.types.Scene.is_export_debug = bpy.props.BoolProperty(name ="Debug", update =save_settings, default=get_setting('is_export_debug', False), description = "Write a human-readable debug dump of the exported model buffer alongside the .bin files (for troubleshooting only)")
 
-    bpy.types.Scene.flags_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('flags_expanded', False))
-    bpy.types.Scene.fog_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('fog_expanded', False))
-    bpy.types.Scene.lighting_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('lighting_expanded', False))
-    bpy.types.Scene.trigger_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('trigger_expanded', False))
-    bpy.types.Scene.lights_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('lights_expanded', False))
-    bpy.types.Scene.textures_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('textures_expanded', False))
-    bpy.types.Scene.new_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('new_expanded', False))
-    bpy.types.Scene.visuals_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('visuals_expanded', False))
-    bpy.types.Scene.collision_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('collision_expanded', False))
     
     bpy.types.Scene.import_progress = bpy.props.FloatProperty(name="Import Progress", default=0.0, min=0.0, max=1.0)
     bpy.types.Scene.import_status = bpy.props.StringProperty(name="Import Status", default="")

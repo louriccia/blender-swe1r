@@ -255,8 +255,7 @@ def UpdateVisibleSelectable(self, context = None):
 SETTINGS_KEYS = [
     'import_folder', 'import_type', 'import_model', 'export_folder', 'new_type',
     'is_export_model', 'is_export_texture', 'is_export_spline', 'is_export_separate', 'is_export_debug',
-    'flags_expanded', 'fog_expanded', 'lighting_expanded', 'trigger_expanded', 'lights_expanded',
-    'textures_expanded', 'light_falloff', 'ambient_light', 'ambient_light_intensity',
+    'light_falloff', 'ambient_light', 'ambient_light_intensity',
 ]
 
 def save_settings(self, context):

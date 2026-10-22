@@ -72,6 +72,15 @@ Small models share a Blender process (`--batch`, default 8; starting Blender tak
 
 Failures that already exist are listed in `tests/blender/known_issues.json` and run as expected failures, so the suite fails only on regressions. When a fix makes one of them pass, the run fails with `unexpected success` (or `FIXED?` for a known crash) until its entry is removed.
 
+### Wiki
+
+The [wiki](https://github.com/louriccia/blender-swe1r/wiki) is written in `wiki/` in this repo; edit pages there, not in GitHub's wiki editor. Each sidebar panel's **?** button opens a page listed in `help_pages.py`, and `tests/test_help_pages.py` checks that every such page and every link between pages exists. To publish:
+
+```
+python scripts/publish_wiki.py          # show what would change
+python scripts/publish_wiki.py --push   # replace the GitHub wiki with wiki/
+```
+
 ## License
 
 This project is licensed under the GNU GENERAL PUBLIC LICENSE - see the [LICENSE](https://github.com/louriccia/blender-swe1r/blob/main/LICENSE) file for details.

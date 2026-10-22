@@ -41,6 +41,8 @@ paths_exclude_pattern = [
   "/.gitattributes",
   "/tests/",
   "/levels/",
+  "/wiki/",
+  "/scripts/",
   "*.zip",
   "*.tar.xz",
 ]
