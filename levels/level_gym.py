@@ -1,11 +1,12 @@
 """The gym: the pod's physical limits as measured geometry you can drive.
 
-One loop, driven start to finish by the test runner's autopilot. Each station is a stretch of it
+A point-to-point track, driven start to finish by the test runner's autopilot. Each station is a stretch of it
 with a sign and an entry in expectations.json: what the decomp predicts there (with the source) and
 what the checker (levels/check.py) measures from the test runner's telemetry.
 
 Bottom straight (+X): start, slopes 5-20 deg, jump gaps, slopes 25-45 deg.
-Back straight (-X): drops of 100 / 300 / 600, the climb back up, width gates.
+Back straight (-X): drops of 100 / 300 / 600, the climb back up, width gates, then the finish at
+the end of the road.
 """
 import math
 
@@ -16,7 +17,6 @@ import lib
 import signs
 
 R = 2500.0          # turn radius
-CLOSE = 2000.0      # closing straight before the line: the grid sits on it
 SLOPES_EASY = (5, 10, 15, 20)       # 500 long
 SLOPES_HARD = (25, 30, 35, 40, 45)  # 150 high
 GAPS = (200, 400, 600, 800)
@@ -58,7 +58,7 @@ def gap_station(gap):
 
 
 def layout():
-    bottom = [C.straight(1000, "start")]
+    bottom = [C.straight(C.APRON, "grid"), C.straight(1000, "start")]
     for deg in SLOPES_EASY:
         bottom += slope_station(deg)
     for gap in GAPS:
@@ -79,15 +79,10 @@ def layout():
     back += [C.straight(400, "gates")]
     for w in GATES:
         back += [C.straight(800, f"gate{w}")]
-    used = sum(seg.length for seg in back)
-    b = a + CLOSE
-    assert used <= b, f"back straight too long: {used} > {b}"
-    back += [C.straight(b - used, "backstraight")]
+    back += [C.straight(C.RUNOUT, "finish"), C.straight(C.OVERRUN, "overrun")]
 
-    turn2 = [C.arc(R, 180, "turn_home")]
-    closing = [C.straight(CLOSE, "grid")]
-    # centre the loop on the origin: vertices are int16
-    course = C.Course(bottom + turn1 + back + turn2 + closing, origin=(-(a - CLOSE) / 2, -R))
+    # centred on the origin: vertices are int16
+    course = C.Course(bottom + turn1 + back, origin=(-a / 2, -R), start_s=C.APRON, overrun=C.OVERRUN)
     assert course.extent() < 32000, f"course reaches {course.extent():.0f}, past the int16 vertex range"
     return course
 
@@ -154,8 +149,6 @@ def build(addon):
     sign_mat = lib.material(addon, "gym_signs", signs.atlas_image())
 
     course = layout()
-    dist, heading_err, z_err = course.closure_error()
-    assert dist < 1 and abs(heading_err) < 0.01 and abs(z_err) < 1, course.closure_error()
 
     names = {smp['station'] for smp in course.samples}
     roads = course.road(track, road_mat, colors={n: tint(n) for n in names})
@@ -163,7 +156,7 @@ def build(addon):
         for obj in objs:
             lib.shade(obj)
     gate_walls(course, track, white_mat)
-    lib.spline("spline", course.spline_points(), model)
+    course.spline(model)
 
     entries = []
     for name, info in stations().items():

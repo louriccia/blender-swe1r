@@ -1,13 +1,16 @@
 """Zoo, materials: what the add-on makes of authored images and material settings.
 
-Two walls of labelled tiles along a loop:
+Walls of labelled tiles along the track:
 - Formats: images built to land on each texture format the add-on picks from the pixels
   (swe1r/textureblock.py: grey -> I4/I8, few colours -> CI4/CI8, partial alpha -> RGBA32), and
   the size rules (longest side scaled to at most 128, sides rounded up to a power of two, at least
   16). verify() re-imports the export and checks each tile's format and size.
 - Settings: one orientation texture (an arrow, numbered quadrants) under every material setting:
   flip and clip (UVs run 0..2, so the repeat shows), UV scroll, transparency, backface culling
-  (the tile's back faces the road), vertex colours.
+  (the tile's back faces the road), vertex colours, and a flipbook (red / green / blue every 0.5 s).
+- Blends: every Blend Mode preset (swe1r/modelblock.py BLEND_PRESETS) on the arrow, or on a holed
+  copy of it where the preset reads the texture's alpha (Cutout, Translucent, Shadow).
+verify() also re-imports each blend tile's preset and the flipbook's frames.
 The look in game is in the test runner's screenshots.
 """
 import math
@@ -76,6 +79,20 @@ def arrow(x, y):
     return (1, 1, 1, 1) if in_arrow else base
 
 
+def holes(x, y):
+    """The arrow with a grid of transparent holes, for the presets that read the texture's alpha."""
+    r, g, b, a = arrow(x, y)
+    return (r, g, b, 0.0 if (x // 8 + y // 8) % 2 and 16 <= x < 48 and 16 <= y < 48 else 1.0)
+
+
+def tint(color):
+    """The arrow shaded toward a colour: the flipbook's frames."""
+    def fn(x, y):
+        r, g, b, a = arrow(x, y)
+        return (0.3 * r + 0.7 * color[0], 0.3 * g + 0.7 * color[1], 0.3 * b + 0.7 * color[2], 1.0)
+    return fn
+
+
 FORMATS = [
     ("grey16", "16 GREYS", lambda: make_image("zoo_grey16", 64, 64, grey16), I4, (64, 64)),
     ("grey256", "256 GREYS", lambda: make_image("zoo_grey256", 64, 64, grey256), I8, (64, 64)),
@@ -99,6 +116,18 @@ SETTINGS = [
     ("transparent", "TRANSPARENT", {"transparent": True}),
     ("backface", "CULL (BACK)", {"use_backface_culling": True}),
     ("vcolor", "VERTEX COLOUR", {}),
+    ("flipbook", "FLIPBOOK 0.5 S", {}),
+]
+
+# (name, label, preset, Color, uses the holed texture)
+BLENDS = [
+    ("opaque", "OPAQUE", 'OPAQUE', None, False),
+    ("tinted", "TINTED ORANGE", 'TINTED', (1.0, 0.5, 0.0, 1.0), False),
+    ("cutout", "CUTOUT", 'CUTOUT', None, True),
+    ("translucent", "TRANSLUCENT", 'TRANSLUCENT', None, True),
+    ("glow", "GLOW CYAN", 'GLOW', (0.0, 1.0, 1.0, 0.5), False),
+    ("flat", "FLAT GREEN", 'FLAT', (0.0, 1.0, 0.0, 1.0), False),
+    ("shadow", "SHADOW", 'SHADOW', (0.0, 0.0, 0.0, 0.8), True),
 ]
 
 
@@ -108,9 +137,10 @@ def build(addon):
     sign_mat = lib.material(addon, "zoom_signs", signs.atlas_image())
     arrow_image = make_image("zoo_arrow", 64, 64, arrow)
 
-    n = max(len(FORMATS), len(SETTINGS))
+    holed_image = make_image("zoo_holes", 64, 64, holes, alpha=True)
+    n = max(len(FORMATS), len(SETTINGS), len(BLENDS))
     length = n * PITCH + PITCH
-    course = C.exhibit_loop([("formats", length), ("settings", length)], gap=600.0)
+    course = C.exhibit_line([("formats", length), ("settings", length), ("blends", length)], gap=600.0)
     for objs in course.road(track, road_mat).values():
         for obj in objs:
             lib.shade(obj)
@@ -151,16 +181,32 @@ def build(addon):
         mat.use_backface_culling = False
         for key, value in settings.items():
             setattr(mat, key, value)
+        if name == "flipbook":
+            for colour in ((1, 0, 0), (0, 1, 0), (0, 0, 1)):
+                frame = make_image(f"zoo_flip_{colour}", 64, 64, tint(colour))
+                mat.flipbook_frames.add().image = frame
+            mat.flipbook_frame_time = 0.5
+            mat.flipbook_loop = True
         tile(f"set_{name}", mat, base, out, uv_max=2.0, back=(name == "backface"), vcolor=(name == "vcolor"))
+        labels.append((text, tuple(base + Vector((0, 0, 70))), (-out.x, -out.y)))
+    for i, (name, text, preset, color, holed) in enumerate(BLENDS):
+        base, out = slot("blends", i)
+        mat = lib.material(addon, f"zoom_blend_{name}", holed_image if holed else arrow_image)
+        mat.blend_mode = preset            # before Color: a preset that uses Color whitens a black one
+        if color is not None:
+            mat.material_color = color
+        tile(f"blend_{name}", mat, base, out)
         labels.append((text, tuple(base + Vector((0, 0, 70))), (-out.x, -out.y)))
     signs.labels("zoom_labels", labels, track, sign_mat, char=40.0)
     signs.station_sign(course, "formats", ["TEXTURE FORMATS", "AS THE ADD-ON", "PICKS THEM"], track, sign_mat)
     signs.station_sign(course, "settings", ["MATERIAL", "SETTINGS"], track, sign_mat)
-    lib.spline("spline", course.spline_points(), model)
+    signs.station_sign(course, "blends", ["BLEND MODES"], track, sign_mat)
+    course.spline(model)
     return model, {"level": "zoo_materials", "length": round(course.length, 1), "centerline": course.describe(),
                    "stations": [{"name": n, "s": list(course.station_range(n)), "measure": [], "predict": {},
-                                 "source": "visual"} for n in ("formats", "settings")],
+                                 "source": "visual"} for n in ("formats", "settings", "blends")],
                    "tiles": tiles, "formats": {name: [fmt, list(size)] for name, _, _, fmt, size in FORMATS},
+                   "blends": {name: preset for name, _, preset, _, _ in BLENDS},
                    "lap": {"finishes": True}}
 
 
@@ -170,16 +216,29 @@ def verify(addon, out_dir, expectations):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     imp.import_model(out_dir + os.sep, [1], lambda *a, **k: None)
     problems = []
-    for name, (fmt, size) in expectations["formats"].items():
+
+    def tile_object(name):
         want = Vector(expectations["tiles"][name])
-        found = None
         for obj in bpy.data.objects:
             if obj.type != 'MESH' or len(obj.data.vertices) > 8 or not obj.material_slots:
                 continue
             center = sum((obj.matrix_world @ v.co for v in obj.data.vertices), Vector()) / len(obj.data.vertices)
             if (center - want).length < 30:     # import places geometry in game units
-                found = obj
-                break
+                return obj
+        return None
+
+    for name, preset in expectations.get("blends", {}).items():
+        found = tile_object(f"blend_{name}")
+        have = found.material_slots[0].material.blend_mode if found else None
+        if have != preset:
+            problems.append(f"blend {name}: expected {preset}, got {have}")
+    found = tile_object("set_flipbook")
+    mat = found.material_slots[0].material if found else None
+    have = (len(mat.flipbook_frames), round(mat.flipbook_frame_time, 3), mat.flipbook_loop) if mat else None
+    if have != (3, 0.5, True):
+        problems.append(f"flipbook: expected 3 frames, 0.5 s, looping; got {have}")
+    for name, (fmt, size) in expectations["formats"].items():
+        found = tile_object(name)
         image = None
         if found is not None:
             for node in found.material_slots[0].material.node_tree.nodes:

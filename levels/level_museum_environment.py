@@ -72,7 +72,7 @@ def build(addon):
     road_mat = lib.material(addon, "env_road", lib.checker_image("env_checker"))
     white_mat = lib.material(addon, "env_white", lib.flat_image("env_white", (1, 1, 1, 1)))
     sign_mat = lib.material(addon, "env_signs", signs.atlas_image())
-    course = C.exhibit_loop([(e["name"], LENGTH) for e in EXHIBITS], gap=300.0)
+    course = C.exhibit_line([(e["name"], LENGTH) for e in EXHIBITS], gap=300.0)
     names = {e["name"] for e in EXHIBITS}
     colors = {n: ((0.8, 0.95, 0.8) if n in names else (0.85, 0.85, 0.85)) for n in {s['station'] for s in course.samples}}
     roads = course.road(track, road_mat, colors=colors)
@@ -111,6 +111,6 @@ def build(addon):
         entries.append({"name": e["name"], "s": [round(s0, 1), round(s1, 1)], "measure": ["env"],
                         "predict": e["predict"], "source": e["source"]})
 
-    lib.spline("spline", course.spline_points(), model)
+    course.spline(model)
     return model, {"level": "museum_environment", "length": round(course.length, 1),
                    "centerline": course.describe(), "stations": entries, "lap": {"finishes": True}}

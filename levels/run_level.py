@@ -13,6 +13,7 @@ Environment:
     SWR_RACER_RE     an SW_RACER_RE checkout with scripts/run_tests.py (default: ../SWR_wt_levels)
 """
 import argparse
+import filecmp
 import json
 import os
 import shutil
@@ -34,7 +35,47 @@ FIXED_HZ = 60
 
 LEVELS = ["hello", "gym", "museum_surfaces", "museum_triggers", "museum_environment", "museum_splines",
           "museum_p2p", "museum_animation", "zoo_materials", "zoo_textures_1", "zoo_textures_2",
-          "zoo_textures_3", "zoo_textures_4", "zoo_props_1", "zoo_props_2", "zoo_props_3", "zoo_props_4"]
+          "zoo_textures_3", "zoo_textures_4", "zoo_props_1", "zoo_props_2", "zoo_props_3", "zoo_props_4",
+          "museum_nodes", "zoo_pod"]
+POD_BLOCKS = ("out_modelblock.bin", "out_textureblock.bin")
+POD_SAMPLE_S = 20
+
+
+def run_pod(level, level_dir, run_dir, args):
+    """A pod level: its blocks go over the game's data/lev01 (pods always load from there) for a
+    sampled race on the stock Boonta Training Course, then the stock blocks go back. Passes when the
+    race ran and the pod drove off (an exploding or unloadable pod doesn't)."""
+    data = os.path.join(GAME_DIR, "data", "lev01")
+    for block in POD_BLOCKS:
+        stock = os.path.join(data, block)
+        if not os.path.exists(stock + ".bak"):
+            shutil.copy(stock, stock + ".bak")
+        elif not filecmp.cmp(stock, stock + ".bak", shallow=False):
+            print(f"[{level}] {stock} isn't stock (differs from its .bak): put the stock file back first")
+            return False
+    ok = False
+    try:
+        for block in POD_BLOCKS:
+            shutil.copy(os.path.join(level_dir, block), os.path.join(data, block))
+        cmd = [sys.executable, os.path.join(RACER_RE, "scripts", "run_tests.py"), "--game-dir", GAME_DIR,
+               "--tracks", "0", "--finish-tracks", "none", "--sample-s", str(POD_SAMPLE_S), "--racers", "1",
+               "--telemetry-hz", "20", "--fixed-dt-hz", str(FIXED_HZ),
+               "--screenshot-s", str(args.screenshot_s or 2), "--out", run_dir]
+        ok = subprocess.run(cmd).returncode == 0
+    finally:
+        for block in POD_BLOCKS:
+            stock = os.path.join(data, block)
+            shutil.copy(stock + ".bak", stock)
+            if not filecmp.cmp(stock, stock + ".bak", shallow=False):
+                print(f"[{level}] FAIL couldn't restore {stock}")
+                ok = False
+    with open(os.path.join(run_dir, "swr_test_results.jsonl")) as f:
+        races = [r for r in map(json.loads, f) if "race" in r]
+    with open(os.path.join(run_dir, "swr_test_telemetry.jsonl")) as f:
+        pos = [r["pos"] for r in map(json.loads, f) if r.get("ev") == "s"]
+    driven = sum(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 for a, b in zip(pos, pos[1:]))
+    print(f"--- {level}: {[r['outcome'] for r in races]}, drove {driven:.0f}")
+    return ok and [r["outcome"] for r in races] == ["sampled"] and driven > 1000
 
 
 def run_one(level, args):
@@ -49,6 +90,12 @@ def run_one(level, args):
             print(f"[{level}] build failed")
             return False
 
+    with open(os.path.join(level_dir, "expectations.json")) as f:
+        expectations = json.load(f)
+    if "pod" in expectations:
+        shutil.rmtree(run_dir, ignore_errors=True)
+        return run_pod(level, level_dir, run_dir, args)
+
     # the runner races every folder under custom_tracks_dir: give it only this level
     target_root = os.path.join(GAME_DIR, *LEVELS_IN_GAME.split("/"))
     shutil.rmtree(target_root, ignore_errors=True)
@@ -56,8 +103,7 @@ def run_one(level, args):
     for block in ("out_modelblock.bin", "out_splineblock.bin", "out_textureblock.bin"):
         shutil.copy(os.path.join(level_dir, block), os.path.join(target_root, level, block))
 
-    with open(os.path.join(level_dir, "expectations.json")) as f:
-        racers = json.load(f).get("racers", 1)   # a level that needs AI pods (forks) asks for them
+    racers = expectations.get("racers", 1)   # a level that needs AI pods (forks) asks for them
     shutil.rmtree(run_dir, ignore_errors=True)
     cmd = [sys.executable, os.path.join(RACER_RE, "scripts", "run_tests.py"), "--game-dir", GAME_DIR,
            "--tracks", ",".join(["custom"] * args.races), "--finish-tracks", "custom", "--laps", "1",

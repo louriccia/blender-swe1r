@@ -6,7 +6,7 @@ Every exhibit checks two things:
 - **Behaviour:** what swrRace_UpdateSurfaceTag (SW_RACER_RE src/Swr/swrRace.c:3318-3407) and the
   physics do with them.
 
-The fall pad sits in a shallow pit (20 under the road) at the end of the lap. The game respawns a pod
+The fall pad sits in a shallow pit (20 under the road) near the end. The game respawns a pod
 on a Fall surface only once it is within 30 of it (not airborne); a pod falls slowly (about 230
 units in the first 1.8 s off a lip), so a deeper pit is flown over before the pod gets that close.
 
@@ -22,7 +22,6 @@ import lib
 import signs
 
 R = 2500.0
-CLOSE = 2000.0
 GAP = 300.0         # plain road between exhibits, so samples don't straddle two lanes
 SRC = "SW_RACER_RE src/Swr/swrRace.c:3318-3407 (swrRace_UpdateSurfaceTag)"
 
@@ -100,7 +99,7 @@ def exhibits():
 def layout(ex):
     # the fall pit at the end: a gap over the Fall pad (added in build)
     tail = [C.straight(600, "fall_lip"), C.straight(900, "fall", solid=False), C.straight(1200, "fall_out")]
-    return C.exhibit_loop([(e["name"], e["length"]) for e in ex], GAP, tail, R, CLOSE)
+    return C.exhibit_line([(e["name"], e["length"]) for e in ex], GAP, tail, R)
 
 
 def build(addon):
@@ -121,11 +120,13 @@ def build(addon):
                 lib.set_surface(obj, *e["flags"], **{s: True for s in e["special"]})
             lib.shade(obj)
 
-    # the Fall pad, its top 20 under the road
+    # the Fall pad, its top 20 under the road. It stays inside the pit's ends: the game respawns
+    # the pod at the far end, and where the pad ran on under the road the ground cached under the
+    # spline there was the pad, so the pod respawned onto it over and over
     s0, s1 = course.station_range("fall")
     a, b = course.frame(s0), course.frame(s1)
     mid = (a['pos'] + b['pos']) / 2
-    pad = lib.box("fall_pad", tuple(mid + Vector((0, 0, -40))), ((b['pos'] - a['pos']).length + 400, 1200, 40),
+    pad = lib.box("fall_pad", tuple(mid + Vector((0, 0, -40))), ((b['pos'] - a['pos']).length - 20, 1200, 40),
                   track, road_mat, colors=None)
     lib.set_surface(pad, "Fall")
     lib.shade(pad, tint=(1.0, 0.4, 0.4))
@@ -134,7 +135,7 @@ def build(addon):
                       source="SW_RACER_RE src/Swr/swrRace.c:3403-3406: on a Fall surface, respawn at once "
                              "(no ground at all takes >3 s, 3439-3448)"))
 
-    lib.spline("spline", course.spline_points(), model)
+    course.spline(model)
 
     entries = []
     for e in ex:

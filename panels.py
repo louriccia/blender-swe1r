@@ -1042,6 +1042,10 @@ class SWR_PT_animation(SWRPanel, bpy.types.Panel):
         row = layout.row()
         row.prop(obj, 'anim_loop_transition')
         row.enabled = obj.anim_loop
+        if obj.anim_loop and obj.anim_loop_transition:
+            col = layout.column(align = True)
+            col.label(text = "Smooth Wrap freezes the animation", icon = 'ERROR')
+            col.label(text = "at its first loop in game")
         layout.prop(obj, 'anim_loop_length', text = "Loop Length (0: last key)")
         hint(layout, "Tracks play their animations by", "themselves; other models when the", "game or a trigger starts them")
 

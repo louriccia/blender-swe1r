@@ -18,7 +18,7 @@ On: the animation starts over when it reaches its end. Off: it plays once and ho
 Loop is stored as Cycles modifiers on the object's curves: turning it on or off adds or removes them, so Blender's timeline plays the animation the way the game will. New keys start with Loop off; adding a Cycles modifier yourself turns it on.
 
 ## Smooth Wrap
-With Loop on, blend back to the start instead of jumping to it. No stock animation uses this, and it hasn't been tested in game.
+With Loop on, blend back to the start instead of jumping to it. **Leave it off: set in a file, it freezes the animation at its first loop.** The blend's speed only comes from the game's own code (`swrModel_AnimationsSetSettings`, which turns the flag off when it has no speed). Loading a model sets the speed to 0, so the first wrap divides by zero. In the museum, a lift with Smooth Wrap stood still. No stock animation uses it; it's kept so imports round-trip.
 
 ## Loop Length
 Seconds before the animation starts over. **0** means right after its last key, and a length shorter than the keys is raised to that. A longer length holds the last pose until then: stock characters give every limb the same length so they stay in step even when one limb's keys end early.

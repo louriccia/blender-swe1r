@@ -112,16 +112,24 @@ def measure(station, samples, events, line_z, cruise):
             out["swing"] = round(max(z for _, z in zs) - min(z for _, z in zs), 1)
             # going down the platform outruns the pod's fall, so the pod leaves it; going up it
             # carries the pod: the longest steady climb is the platform's own speed
-            rates = [((z1 - z0) / (t1 - t0)) for (t0, z0), (t1, z1) in zip(zs, zs[1:]) if t1 > t0]
-            best, run = [], []
-            for r in rates + [None]:
+            steps = [((z1 - z0) / (t1 - t0), t0) for (t0, z0), (t1, z1) in zip(zs, zs[1:]) if t1 > t0]
+            best, run, run_end, ends = [], [], None, []
+            for r, t in steps + [(None, None)]:
                 if r is not None and r > 20 and (not run or abs(r - run[-1]) < 0.15 * abs(run[-1])):
                     run.append(r)
+                    run_end = t
                 else:
+                    if len(run) >= 4:
+                        ends.append(run_end)
                     if len(run) > len(best):
                         best = run
-                    run = [r] if r is not None and r > 20 else []
+                    run, run_end = ([r], t) if r is not None and r > 20 else ([], None)
             out["rise_rate"] = round(sorted(best)[len(best) // 2], 1) if len(best) >= 4 else None
+            # the time from one climb's top to the next: the platform's loop length (a climb starts
+            # wherever the pod caught the platform, but ends at its top). The shortest gap, as a
+            # climb the pod missed (it fell off) doubles one
+            gaps = [b - a for a, b in zip(ends, ends[1:])]
+            out["period"] = round(min(gaps), 2) if gaps else None
         elif kind == "route":
             out["visited"] = True
             laps = [s["lap"] for s in samples]
@@ -230,8 +238,10 @@ def check(level_dir, run_dir, race=None):
             if p is not None:
                 ai_seen.setdefault(p[4], set()).add(i)
 
-    # cruising speed: the median on the flat closing straight (where the grid is)
-    grid = sorted(e["spd"] for e in log if e.get("ev") == "s" and e.get("_station") == "grid" and e["t"] > 20)
+    # cruising speed: the median on the flat run-out before a point-to-point finish, or on a
+    # loop's closing straight (where the grid is)
+    grid = sorted(e["spd"] for e in log if e.get("ev") == "s" and (e.get("_station") == "finish" or
+                  e.get("_station") == "grid" and e["t"] > 20))
     cruise = grid[len(grid) // 2] if grid else 600.0
     # crashes and respawns, with where they happened: one in an earlier station disturbs the next
     incidents = [(e["t"], e.get("_station")) for e in log if e.get("ev") in ("respawn", "explode")]
@@ -303,7 +313,7 @@ def check_grid(grid, log):
 
 BASELINE_KEYS = ("climbs", "slows", "airborne", "respawns", "explodes", "hover", "wall_radius", "surf",
                  "spec", "fired", "fog", "light_flags", "light_rgb", "cam_flags", "draw_set",
-                 "fog_start_target", "swing", "rise_rate")  # routes at forks are coin flips: not baselined
+                 "fog_start_target", "swing", "rise_rate", "period")  # routes at forks are coin flips: not baselined
 
 
 def baseline_of(report):
