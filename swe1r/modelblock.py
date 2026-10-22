@@ -28,6 +28,7 @@ import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt16BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture, compute_image_hash, compute_hash, needed_pixel_bytes, format_map
 from .pod_visual import pod_anchor_positions
+from .pod_check import is_pod_template, pod_errors, part_meshes, mirrored_engine, MIRROR_X
 from .pod_parts import STOCK_GLOW, STOCK_CABLE, STOCK_GLOW_MATERIAL, STOCK_CABLE_MATERIAL
 from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt, sync_hold_key, hold_key_frame, is_hold_key
 
@@ -5781,6 +5782,13 @@ class Model():
                 raise ValueError("MAlt (High-LOD pod) models are exported automatically with their Podd, not on their own.")
             raise ValueError(f"Exporting model type '{type_name}' is not supported.")
 
+        # a pod template built wrong (no engine, meshes outside the part collections) is refused
+        # before the scene is touched, rather than written with parts missing (pod_check.py)
+        if str(self.type) == '4' and is_pod_template(collection):
+            errors = pod_errors(collection)
+            if errors:
+                raise ValueError(" ".join(errors))
+
         root = Group20580(self, self, 20580)
         
         if self.type == '3':
@@ -5968,6 +5976,10 @@ class Model():
                 node.matrix.data[3].from_array(list(vector))
                 return node
 
+            # The meshes of a part, a jet trail or a shadow are (object, pre) pairs: pre goes before the
+            # object's world matrix, MIRROR_X for an engine made from the other one, else identity.
+            IDENTITY = mathutils.Matrix()
+
             def create_podd_component(mesh, type, trails = ()):
                 comp_a = NodeTransformedWithPivot(None, self, 53349)
                 comp_b = NodeTransformed(None, self, 53348)
@@ -5978,7 +5990,7 @@ class Model():
                 comp_d = Group20580(None, self, 20580)
                 link_nodes(comp_b, [comp_d])
                 frame = anchor_frame(type)
-                meshes = [obj for obj in mesh if obj.type == 'MESH']
+                meshes = [(obj, pre) for obj, pre in mesh if obj.type == 'MESH']
                 # the game draws the left engine (slot 2) with its culling reversed (swrRace_Init
                 # sets flags_5 bit 0 on slots 2/4/14/62; dinput_hook/renderer_hook.cpp flips the
                 # cull face on it), so its faces are wound the other way to show the right side
@@ -5994,7 +6006,7 @@ class Model():
                         # jet trails hang from a node at the exhaust, in the engine's 0.016 space
                         # (stock: about -215 file units back); the game spins/scales the flat
                         # slot and stretches the tube slot along Y with speed (PoddAnimateEngines)
-                        offset = (mathutils.Vector(anchors[exhaust]) - mathutils.Vector(anchors[type])) / self.scale
+                        offset = (mathutils.Vector(anchors.get(exhaust, (0, 0, 0))) - mathutils.Vector(anchors.get(type, (0, 0, 0)))) / self.scale
                         trail_frame = anchor_frame(exhaust)
                         for slot, objs in ((tube_slot, trails), (flat_slot, [])):
                             branch = Group20580(None, self, 20580)
@@ -6006,9 +6018,9 @@ class Model():
                             link_nodes(at, [trail])
                             link_nodes(trail, [trail_group])
                             if len(objs):
-                                assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, trail_frame @ obj.matrix_world, flip_winding = flip) for obj in objs], trail_group, self)
+                                assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, trail_frame @ pre @ obj.matrix_world, flip_winding = flip) for obj, pre in objs], trail_group, self)
                 if len(meshes):
-                    assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, frame @ obj.matrix_world, flip_winding = flip) for obj in meshes], content, self)
+                    assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, frame @ pre @ obj.matrix_world, flip_winding = flip) for obj, pre in meshes], content, self)
                 return comp_a
 
             def nearest(obj, keys):
@@ -6023,10 +6035,26 @@ class Model():
                 objs = [obj for obj in get_all_objects_in_collection(child_collection) if obj.type == 'MESH']
                 if child_collection.collection_type == '6':
                     for obj in objs:
-                        trails['engine_r' if nearest(obj, ('exhaust_r', 'exhaust_l')) == 'exhaust_r' else 'engine_l'].append(obj)
+                        trails['engine_r' if nearest(obj, ('exhaust_r', 'exhaust_l')) == 'exhaust_r' else 'engine_l'].append((obj, IDENTITY))
                 elif child_collection.collection_type == '7':
                     for obj in objs:
-                        shadows[nearest(obj, tuple(shadows))].append(obj)
+                        shadows[nearest(obj, tuple(shadows))].append((obj, IDENTITY))
+
+            # An engine collection without meshes (or none) is made from the other engine mirrored
+            # across x, as its anchor is (pod_visual.py), with that engine's jet trail and shadow
+            # when it has none of its own (pod_check.mirrored_engine).
+            engines = {'engine_r': [], 'engine_l': [], 'cockpit': []}
+            for collection_type, objs in part_meshes(collection).items():
+                key = {'2': 'engine_r', '3': 'engine_l', '4': 'cockpit'}.get(collection_type)
+                if key:
+                    engines[key] = [(obj, IDENTITY) for obj in objs]
+            mirror = mirrored_engine(part_meshes(collection))
+            if mirror is not None:
+                source = 'engine_r' if mirror == 'engine_l' else 'engine_l'
+                engines[mirror] = [(obj, MIRROR_X) for obj, _ in engines[source]]
+                for objs in (trails, shadows):
+                    if not len(objs[mirror]):
+                        objs[mirror] = [(obj, MIRROR_X @ pre) for obj, pre in objs[source]]
 
             def shadow_meshes(key, node):
                 """A shadow's meshes in its slot's space: the game puts the slot on the ground under
@@ -6037,10 +6065,10 @@ class Model():
                     return
                 anchor = mathutils.Vector(anchors.get(key, (0, 0, 0)))
                 # the shadow's lowest point goes on the ground
-                floor = min((obj.matrix_world @ v.co).z for obj in objs for v in obj.data.vertices) if any(len(obj.data.vertices) for obj in objs) else anchor.z
+                floor = min((obj.matrix_world @ v.co).z for obj, _ in objs for v in obj.data.vertices) if any(len(obj.data.vertices) for obj, _ in objs) else anchor.z
                 frame = mathutils.Matrix.Scale(1.6 / 0.004 * self.scale, 4) @ mathutils.Matrix.Translation(-mathutils.Vector((anchor.x, anchor.y, floor)))
                 # slot 62 is drawn with its culling reversed, like the left engine
-                assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, frame @ obj.matrix_world, flip_winding = node.header == [62]) for obj in objs], node, self)
+                assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, frame @ pre @ obj.matrix_world, flip_winding = node.header == [62]) for obj, pre in objs], node, self)
             
             def stock_material(spec, name):
                 """A temporary material with a stock part's whole setup (pod_parts.py)."""
@@ -6148,35 +6176,25 @@ class Model():
             podd_airsream_left = create_air_stream([stock_part(STOCK_GLOW, glow_material)] if glow else [], 68, 70)
             
             
-            podd_engine_r = None
-            podd_engine_l = None
-            podd_cockpit = None
             podd_cable1 = None
             podd_cable2 = None
             
+            # both engines and the cockpit are always written, empty if need be: the game sets
+            # their slots' transforms every frame (pod_visual.py), so a missing slot is a null node
+            def create_part(key, slot, top_slot):
+                part = create_podd_component(engines[key], key, trails.get(key, ()))
+                link_nodes(podd_71_node, [part])
+                top = NodeTransformedWithPivot(None, self, 53349, header = [top_slot])
+                link_nodes(top, part.children)
+                part.header = [slot]
+                return top
+
+            podd_engine_r = create_part('engine_r', 14, 1)
+            podd_engine_l = create_part('engine_l', 15, 2)
+            podd_cockpit = create_part('cockpit', 16, 5)
+
             for child_collection in collection.children:
-                if child_collection.collection_type == '2':
-                    right_engine_mesh = get_all_objects_in_collection(child_collection)
-                    right_engine = create_podd_component(right_engine_mesh, 'engine_r', trails['engine_r'])
-                    link_nodes(podd_71_node, [right_engine])
-                    podd_engine_r = NodeTransformedWithPivot(None, self, 53349, header = [1])
-                    link_nodes(podd_engine_r, right_engine.children)
-                    right_engine.header = [14]
-                elif child_collection.collection_type == '3':
-                    left_engine_mesh = get_all_objects_in_collection(child_collection)
-                    left_engine = create_podd_component(left_engine_mesh, 'engine_l', trails['engine_l'])
-                    link_nodes(podd_71_node, [left_engine])
-                    podd_engine_l = NodeTransformedWithPivot(None, self, 53349, header = [2])
-                    link_nodes(podd_engine_l, left_engine.children)
-                    left_engine.header = [15]
-                elif child_collection.collection_type == '4':
-                    cockpit_mesh = get_all_objects_in_collection(child_collection)
-                    cockpit = create_podd_component(cockpit_mesh, 'cockpit')
-                    link_nodes(podd_71_node, [cockpit])
-                    podd_cockpit = NodeTransformedWithPivot(None, self, 53349, header = [5])
-                    link_nodes(podd_cockpit, cockpit.children)
-                    cockpit.header = [16]
-                elif child_collection.collection_type == '5':
+                if child_collection.collection_type == '5':
                     # the game stretches the cable from cockpit to engine and, up close, draws its
                     # own tube instead (pod_parts.py), so the stock strip is written with the
                     # collection's material (or the stock black one)
@@ -6189,17 +6207,12 @@ class Model():
             
             link_nodes(podd_a_node, [podd_shadows_node, podd_b_node])
             
-            if podd_engine_r:
-                link_nodes(podd_a_node, [podd_engine_r])
-            if podd_engine_l:
-                link_nodes(podd_a_node, [podd_engine_l])
+            link_nodes(podd_a_node, [podd_engine_r, podd_engine_l])
             if podd_cable1:
                 link_nodes(podd_a_node, [podd_cable1, podd_cable2])
             
             link_nodes(podd_a_node, [podd_sparks, podd_sparks_ai, podd_72_node, podd_73_node, podd_binder1, podd_airsream_right, podd_airsream_left])
-            
-            if podd_cockpit:
-                link_nodes(podd_a_node, [podd_cockpit])
+            link_nodes(podd_a_node, [podd_cockpit])
             # !0 (20581) 1111(on) 1101(collision off)
             #   (20580) 1111(on) 1101(collision off)
             #       (20580) 1111(on) 1101(collision off)

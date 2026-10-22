@@ -470,6 +470,28 @@ class SWR_PT_import(SWRPanel, bpy.types.Panel):
             row.operator("view3d.import_operator", text="Import")
 
 
+POD_CHECK_ICONS = {'OK': 'CHECKMARK', 'INFO': 'DOT', 'WARNING': 'ERROR', 'ERROR': 'CANCEL'}
+
+def draw_pod_check(layout, collection):
+    """A pod's parts as export will write them (swe1r/pod_check.py); the errors that stop it."""
+    from .swe1r.pod_check import is_pod_template, pod_report, pod_errors, loose_meshes
+    box = layout.box()
+    if not is_pod_template(collection):
+        hint(box, "Imported pod: its own node tree", "is written back", icon='INFO')
+        return []
+    box.label(text="Pod Parts", icon='AUTO')
+    col = box.column(align=True)
+    for status, part, text in pod_report(collection):
+        row = col.row()
+        split = row.split(factor=0.5)
+        split.label(text=part, icon=POD_CHECK_ICONS[status])
+        split.label(text=text)
+    if loose_meshes(collection):
+        box.operator("view3d.sort_pod_meshes", icon='OUTLINER_COLLECTION')
+    hint(box, "The game places each part:", "model it around its anchor")
+    return pod_errors(collection)
+
+
 # MARK: Export
 class SWR_PT_export(SWRPanel, bpy.types.Panel):
     bl_label = "Export"
@@ -490,6 +512,7 @@ class SWR_PT_export(SWRPanel, bpy.types.Panel):
         layout.label(text = collection.name, icon = 'OUTLINER_COLLECTION')
         layout.prop(context.scene, "export_folder", text="", full_event=False)
         layout.prop(collection, 'export_model', text = "Replaces")
+        pod_errors = draw_pod_check(layout, collection) if collection.export_type == '4' else []
         row = layout.row(align=True)
         row.prop(context.scene, "is_export_model", text="Model", icon='MESH_CUBE', toggle=True)
         row.prop(context.scene, "is_export_texture", text="Texture", icon='MATERIAL', toggle=True)
@@ -503,7 +526,10 @@ class SWR_PT_export(SWRPanel, bpy.types.Panel):
             row.progress(factor = context.scene.export_progress, type = 'BAR', text = context.scene.export_status)
         else:
             row.operator("view3d.export_operator", text="Export")
-        if not any([context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline]):
+        if pod_errors and context.scene.is_export_model:
+            row.enabled = False
+            hint(layout, "Fix the pod parts marked above", icon='ERROR')
+        elif not any([context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline]):
             row.enabled = False
             hint(layout, "Turn on Model, Texture or Spline")
         elif context.scene.is_export_texture:

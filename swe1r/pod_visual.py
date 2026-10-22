@@ -59,6 +59,12 @@ POD_VISUAL = {
     46: dict(racer=22, cockpit=(0.0, -4.94, 0.9), engine=(2.07, 5.3, 0.08), cable_cockpit=(0.26, 2.12, -0.1), cable_engine=(0.0, 0.98, 0.93), binder=(1.04, 1.08, 0.1), exhaust=(0.0, -1.34, 0.0)),
 }
 
+# The table has no row for Jinn Reeso's and Cy Yunga's pods (Podd 299, 301): the game races them in
+# place of Mars Guo (Podd 16) and Bullseye Navior (Podd 46), whose rows they are drawn with
+# (SW_RACER_RE src/Swr/swrRace.c swrRace_ReplaceMarsGuoWithJinnReeso 0x44b530,
+# swrRace_ReplaceBullseyeWithCyYunga 0x44b5e0; the rows are by racer, swrRacerVisualData in types.h).
+POD_VISUAL_STAND_IN = {299: 16, 301: 46}
+
 # A pod's part content sits under a 0.016-scale node, and the add-on writes Blender units at 100 file
 # units each (Model.scale 0.01): one Blender unit in a pod template is 1.6 game units.
 POD_BLENDER_SCALE = 0.016 / 0.01
@@ -75,7 +81,8 @@ def pod_anchor_positions(podd_id):
     0x46f0e0, called with x sign +1 for the right cable, slot 10, and -1 for the left, slot 11):
     from the cockpit plus the row's cockpit cable offset to the engine plus its engine cable
     offset, both x-signed."""
-    row = POD_VISUAL.get(int(podd_id))
+    podd_id = int(podd_id)
+    row = POD_VISUAL.get(POD_VISUAL_STAND_IN.get(podd_id, podd_id))
     if row is None:
         return None
     s = 1.0 / POD_BLENDER_SCALE

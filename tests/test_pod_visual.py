@@ -36,6 +36,11 @@ class PodVisualTest(unittest.TestCase):
         self.assertAlmostEqual(a['cable_cockpit_r'][1] * 1.6, -4.44 + 2.18)
         self.assertAlmostEqual(a['cable_engine_r'][2] * 1.6, -0.44 + 0.76)
 
+    def test_jinn_and_cy_use_the_racers_they_replace(self):
+        m = load()
+        self.assertEqual(m.pod_anchor_positions(299), m.pod_anchor_positions(16))
+        self.assertEqual(m.pod_anchor_positions(301), m.pod_anchor_positions(46))
+
     def test_unknown_model(self):
         self.assertIsNone(load().pod_anchor_positions(1))
 
