@@ -60,11 +60,9 @@ from .swr_export import *
 from .utils import *
 
 class ImportOperator(bpy.types.Operator):
-    """Import the selected model to the Blender scene"""
+    """Import the chosen model from the game's .bin files into the scene"""
     bl_label = "Import"
     bl_idname = "view3d.import_operator"
-    bl_info = "Import the selected model"
-    
 
     def execute(self, context):
         
@@ -81,13 +79,14 @@ class ImportOperator(bpy.types.Operator):
             
             # manually redraw since blender doesn't while in operation
             # this is not recommended according to https://docs.blender.org/api/current/info_gotcha.html
-            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+            if context.window is not None and not bpy.app.background:
+                bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
            
         try: 
             id = int(context.scene.import_model)
             import_type = next((item[1] for item in model_types if item[0] == context.scene.import_type), None)
             if id == -1:
-                selector = [model["index"] for model in model_list if model['extension'] == import_type]
+                selector = [model["index"] for model in model_list if import_type == 'All' or model['extension'] == import_type]
             else:
                 selector = [int(context.scene.import_model)]
             import_model(folder_path, selector, update_progress)
@@ -106,25 +105,19 @@ class ImportOperator(bpy.types.Operator):
     
 
 class ExportOperator(bpy.types.Operator):
-    """Export the selected collection to the game files"""
+    """Write the active Model collection into the game's .bin files, replacing the model chosen in the Export panel. Export also splits, triangulates and applies scale to the meshes in the scene (Ctrl+Z undoes that)"""
     bl_label = "Export"
     bl_idname = "view3d.export_operator"
+    bl_options = {'UNDO'}
 
     def execute(self, context):
-        selected_objects = context.selected_objects
-        selected_collection = context.view_layer.active_layer_collection.collection
-        if selected_objects:
-            selected_collection = selected_objects[0].users_collection[0]
-            
+        selected_collection = find_model_collection(context)
         if selected_collection is None:
-            show_custom_popup(bpy.context, "No collection", "Exported items must be part of a collection")
+            show_custom_popup(bpy.context, "No model collection", "Click a model collection (e.g. model_1_Trak) in the Outliner, or one of its objects, then export")
             return {'CANCELLED'}
-                
+
         folder_path = context.scene.export_folder if context.scene.export_folder else context.scene.import_folder
-        
-        if selected_collection.export_model is None:
-            show_custom_popup(bpy.context, "Invalid collection selected", "Please select a model collection to export")
-            return {'CANCELLED'}
+
         if folder_path == "":
             show_custom_popup(bpy.context, "No set export folder", "Select your folder containing the .bin files")
             return {'CANCELLED'}
@@ -151,7 +144,8 @@ class ExportOperator(bpy.types.Operator):
             
             # manually redraw since blender doesn't while in operation
             # this is not recommended according to https://docs.blender.org/api/current/info_gotcha.html
-            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+            if context.window is not None and not bpy.app.background:
+                bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
             
         try:
             export_model(selected_collection, folder_path, [context.scene.is_export_model, context.scene.is_export_texture, context.scene.is_export_spline], update_progress)
@@ -173,7 +167,7 @@ class ExportOperator(bpy.types.Operator):
         return {'FINISHED'}
     
 class NewModelOperator(bpy.types.Operator):
-    """Create a new model"""
+    """Add an empty model collection of the chosen type, ready to fill and export"""
     bl_label = "New Model"
     bl_idname = "view3d.new_model"
     
@@ -217,15 +211,31 @@ class NewModelOperator(bpy.types.Operator):
             
         main_collection.export_type = type
         main_collection.export_model = str(valid_models[0]['index'])
-        
+
         context.scene.collection.children.link(main_collection)
-        
+        # the game's visibility zones; without them every mesh exports in no zone and is never drawn
+        ensure_24_view_layers()
+        layer_collection = find_layer_collection(context.view_layer.layer_collection, main_collection)
+        if layer_collection is not None:
+            context.view_layer.active_layer_collection = layer_collection
+
+        target = model_list[int(main_collection.export_model)]
+        self.report({'INFO'}, f"Created '{main_collection.name}'. It will replace {target['name']} ({type_name} {target['index']}) on export; change Model in the Export panel")
         return {'FINISHED'}
+
+def find_layer_collection(layer_collection, collection):
+    if layer_collection.collection == collection:
+        return layer_collection
+    for child in layer_collection.children:
+        found = find_layer_collection(child, collection)
+        if found is not None:
+            return found
+    return None
 
 # TOOLS
     
 class SelectByProperty(bpy.types.Operator):
-    """Select mesh objects based on a specified property"""
+    """Select every mesh of this kind (making them selectable first)"""
     bl_label = "Select by Property"
     bl_idname = "view3d.select_by_property"
 
@@ -251,7 +261,7 @@ class SelectByProperty(bpy.types.Operator):
 
     
 class ResetVisuals(bpy.types.Operator):
-    """Reset visual data"""
+    """Reset vertex colors and material settings on the selected meshes"""
     bl_label = "Reset Visuals"
     bl_idname = "view3d.reset_visuals"
     
@@ -274,7 +284,7 @@ class ResetVColor(bpy.types.Operator):
         return {'FINISHED'}
     
 class ResetTexture(bpy.types.Operator):
-    """Reset texture data"""
+    """Reset the material settings (culling, transparency, scroll, mirror, clip) on the selected meshes"""
     bl_label = "Reset Texture"
     bl_idname = "view3d.reset_texture"
     
@@ -282,7 +292,7 @@ class ResetTexture(bpy.types.Operator):
         selected_objects = context.selected_objects
         for obj in selected_objects:
             mats = [slot.material for slot in obj.material_slots]
-            if not len(mats): continue
+            if not len(mats) or mats[0] is None: continue
             mats[0].use_backface_culling = False
             mats[0].transparent = False
             mats[0].scroll_x = False
@@ -291,10 +301,11 @@ class ResetTexture(bpy.types.Operator):
             mats[0].flip_y = False
             mats[0].clip_x = False
             mats[0].clip_y = False
+            reselect_obj(obj)
         return {'FINISHED'}
 
 class ResetCollidable(bpy.types.Operator):
-    """Reset collidable data"""
+    """Remove surface flags, fog, pod lighting and load triggers from the selected meshes"""
     bl_label = "Reset Collidable"
     bl_idname = "view3d.reset_collidable"
     
@@ -312,25 +323,26 @@ class ResetCollidable(bpy.types.Operator):
     
 
 class ResetTerrain(bpy.types.Operator):
-    """Reset terrain data"""
+    """Clear every surface flag on the selected meshes"""
     bl_label = "Reset Terrain"
     bl_idname = "view3d.reset_terrain"
-    
+
     def execute(self, context):
         selected_objects = context.selected_objects
         for obj in selected_objects:
+            if obj.type != 'MESH':
+                continue
+            # setattr: registered properties are not ID properties since Blender 5.0
             for flag in dir(SurfaceEnum):
                 if not flag.startswith("__"):
-                    obj[flag] = False
-                    context.scene[flag] = False
+                    setattr(obj, flag, False)
             for flag in ['magnet', 'strict_spline', 'elevation']:
-                obj[flag] = False
-                context.scene[flag] = False
+                setattr(obj, flag, False)
             reselect_obj(obj)
         return {'FINISHED'}
     
 class ResetLighting(bpy.types.Operator):
-    """Reset lighting data"""
+    """Clear the pod lighting on the selected meshes"""
     bl_label = "Reset Lighting"
     bl_idname = "view3d.reset_lighting"
     
@@ -346,7 +358,7 @@ class ResetLighting(bpy.types.Operator):
         return {'FINISHED'}
     
 class ResetFog(bpy.types.Operator):
-    """Reset fog data"""
+    """Clear the fog and skybox changes on the selected meshes"""
     bl_label = "Reset Fog"
     bl_idname = "view3d.reset_fog"
     
@@ -365,7 +377,7 @@ class ResetFog(bpy.types.Operator):
         return {'FINISHED'}
     
 class ResetLoading(bpy.types.Operator):
-    """Reset loading data"""
+    """Clear the load triggers on the selected meshes"""
     bl_label = "Reset Loading"
     bl_idname = "view3d.reset_loading"
     
@@ -381,7 +393,7 @@ class ResetLoading(bpy.types.Operator):
 
 # Custom operator to load and assign an image
 class OpenImageTexture(bpy.types.Operator, ImportHelper):
-    """Open Image and Assign to Texture Node"""
+    """Load an image from disk as the selected meshes' texture"""
     bl_idname = "view3d.open_image"
     bl_label = "Open Image"
     bl_options = {'REGISTER', 'UNDO'}
@@ -409,7 +421,7 @@ class OpenImageTexture(bpy.types.Operator, ImportHelper):
         for obj in context.selected_objects:
             if obj and obj.type == 'MESH':
                 mats = [slot.material for slot in obj.material_slots]
-                if mats[0] is not None:
+                if mats and mats[0] is not None:
                     obj.material_slots[0].material = Material(None, None).remake(mats[0], tex_name = image.name)
                 # if len(mats) and mats[0].node_tree:
                 #     for node in mats[0].node_tree.nodes:
@@ -421,7 +433,7 @@ class OpenImageTexture(bpy.types.Operator, ImportHelper):
 class RemakeMaterials(bpy.types.Operator):
     bl_idname = "view3d.remake_materials"
     bl_label = "Remake Materials"
-    bl_description = "Remake materials for all selected objects"
+    bl_description = "Give the selected meshes a game material (rebuilding an existing one from its settings)"
     
     def execute(self, context):
         selected_objects = context.selected_objects
@@ -439,7 +451,7 @@ class RemakeMaterials(bpy.types.Operator):
 class BakeVColors(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors"
     bl_label = "Bake Vertex Colors"
-    bl_description = "Bake lighting into dedicated color map, while preserving Render Color"
+    bl_description = "Bake the scene's lights into the selected meshes' vertex colors (track lighting is baked; the game only lights pods)"
     
     def execute(self, context):
         selected_objects = context.selected_objects
@@ -489,7 +501,7 @@ class SplitByMaterial(bpy.types.Operator):
 # MARK: COLLISION
     
 class PreviewLoadTrigger(bpy.types.Operator):
-    """Show which objects would be loaded when the player touches this collision"""
+    """Show in the viewport what is loaded and unloaded when the pod touches this mesh"""
     bl_label = "Preview Load Trigger"
     bl_idname = "view3d.preview_load"
     
@@ -513,7 +525,7 @@ class PreviewLoadTrigger(bpy.types.Operator):
         return {'FINISHED'}
     
 class ToggleViewLayerState(bpy.types.Operator):
-    """Cycles through Unchecked → Checked → Exed → Unchecked"""
+    """Cycle this zone between: unchanged, load when touched, unload when touched"""
     bl_idname = "my_list.toggle_state"
     bl_label = "Toggle State"
     
@@ -535,33 +547,45 @@ class ToggleViewLayerState(bpy.types.Operator):
         return {'FINISHED'}
     
 class AddTrigger(bpy.types.Operator):
-    """Add a gameplay trigger to the selected collision"""
+    """Add an event trigger box on the selected collision mesh. The game only checks the triggers of the mesh the pod is on"""
     bl_label = "Add Trigger"
     bl_idname = "view3d.add_trigger"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        if obj is None or obj.type != 'MESH' or not obj.collidable:
+            cls.poll_message_set("Select one collidable mesh")
+            return False
+        return True
 
     def execute(self, context):
-        selected_object = context.active_object
-        selected_collection = None
-        for collection in bpy.data.collections:
-        # Check if the object is in the collection
-            if selected_object.name in collection.objects:
-                selected_collection = collection
-        
-        trigger = CollisionTrigger(None, None)
-        
-        # find center of mass
-        center = center_of_mass(selected_object)
-        trigger.position.data = center
-        new_empty = trigger.make(selected_object, selected_collection)
+        mesh = context.active_object
+        collection = mesh.users_collection[0] if mesh.users_collection else context.scene.collection
+        verts = mesh.data.vertices
+        if len(verts):
+            center = sum((mesh.matrix_world @ v.co for v in verts), mathutils.Vector()) / len(verts)
+        else:
+            center = mesh.matrix_world.to_translation()
+
+        trigger = bpy.data.objects.new("trigger", None)
+        trigger.empty_display_type = 'CUBE'
+        collection.objects.link(trigger)
+        trigger.parent = mesh
+        # a 200 x 200 x 100 game-unit box: export reads the size from the world scale (x2, 0.01
+        # Blender units per game unit) and the position from the world matrix
+        trigger.matrix_world = mathutils.Matrix.LocRotScale(center, None, (1.0, 1.0, 0.5))
+
         bpy.ops.object.select_all(action='DESELECT')
-        new_empty.select_set(True)
-        bpy.context.view_layer.objects.active = new_empty
+        trigger.select_set(True)
+        context.view_layer.objects.active = trigger
         return {'FINISHED'}
-    
+
 # MARK: SPLINE
 
 class InvertSpline(bpy.types.Operator):
-    """Invert the selected spline"""
+    """Reverse the spline's direction (the direction pods race)"""
     bl_label = "Invert Spline"
     bl_idname = "view3d.invert_spline"
     bl_options = {'REGISTER', 'UNDO'}
@@ -605,29 +629,10 @@ class InvertSpline(bpy.types.Operator):
 
         return {'FINISHED'}
   
-class SplineCyclic(bpy.types.Operator):
-    """Toggle the selected spline between open (rally) and closed (circuit)"""
-    bl_idname = "view3d.toggle_cyclic"
-    bl_label = "Toggle Spline Cyclic"
-    
-    @classmethod
-    def poll(cls, context):
-        obj = context.active_object
-        return obj and obj.type == 'CURVE' and obj.data.splines.active
-
-    def execute(self, context):
-        obj = context.active_object
-        spline = obj.data.splines.active
-        
-        if spline:
-            spline.use_cyclic_u = not spline.use_cyclic_u
-            
-        return {'FINISHED'}
-    
 class ReconstructSpline(bpy.types.Operator):
-    """Set selected point as start/finish line"""
+    """Make the selected point the spline's first point: the start/finish line and starting grid. Needs a cyclic spline in Edit Mode"""
     bl_idname = "view3d.reconstruct_spline"
-    bl_label = "Reconstruct Spline with Selected Point as First"
+    bl_label = "Set Spawn Point"
 
     @classmethod
     def poll(cls, context):
@@ -672,7 +677,7 @@ class ReconstructSpline(bpy.types.Operator):
         return {'FINISHED'}
     
 class SelectFirstSplinePointOperator(bpy.types.Operator):
-    """Select First Point (Spawn Point) of Spline"""
+    """Select the spline's first point: the start/finish line and starting grid"""
     bl_idname = "curve.select_first_spline_point"
     bl_label = "Select First Spline Point"
     bl_options = {'REGISTER', 'UNDO'}
@@ -715,11 +720,15 @@ class SelectFirstSplinePointOperator(bpy.types.Operator):
 class OpenUrl(bpy.types.Operator):
     """Open link"""
     bl_idname = "view3d.open_url"
-    bl_description = "Open URL"
     bl_label = "Open URL"
 
     url: bpy.props.StringProperty("")
-        
+    tooltip: bpy.props.StringProperty(default="", options={'HIDDEN', 'SKIP_SAVE'})
+
+    @classmethod
+    def description(cls, context, properties):
+        return properties.tooltip or f"Open {properties.url}"
+
     def execute(self, context):
         open_url(self.url)
         return {"FINISHED"}
@@ -1033,12 +1042,27 @@ class TagManager:
         return tags
 
 class OBJECT_OT_generate_material_assets(bpy.types.Operator):
-    """Generate materials from custom file and add to asset library"""
+    """Save every stock material as an asset (swe1r_materials.blend in your first asset library). Reopens your file afterward, so save it first"""
     bl_idname = "object.generate_material_assets"
-    bl_label = "Generate Material Assets"
-    bl_options = {'REGISTER', 'UNDO'}
-    
+    bl_label = "Export Asset Library"
+
+    @classmethod
+    def poll(cls, context):
+        if not context.preferences.filepaths.asset_libraries:
+            cls.poll_message_set("Add an asset library in Preferences > File Paths first")
+            return False
+        if not bpy.data.filepath or bpy.data.is_dirty:
+            cls.poll_message_set("Save your file first: this reopens it when done")
+            return False
+        return True
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event, title="Export Asset Library", message="Read every model and save its materials as assets? This takes a few minutes, then reopens your saved file.", confirm_text="Export")
+
     def execute(self, context):
+        if not bpy.data.filepath or bpy.data.is_dirty:
+            self.report({'ERROR'}, "Save your file first: Export Asset Library reopens it when done")
+            return {'CANCELLED'}
     
         folder_path = validate_folder_path(context.scene.import_folder, ["out_modelblock.bin", "out_textureblock.bin"])
         if folder_path is None or folder_path == {"CANCELLED"}:
@@ -1066,7 +1090,7 @@ class OBJECT_OT_generate_material_assets(bpy.types.Operator):
             asset_libs = prefs.filepaths.asset_libraries
             
             if not asset_libs:
-                print("No asset library configured")
+                self.report({'ERROR'}, "Add an asset library in Preferences > File Paths first")
                 return {'CANCELLED'}
             
             asset_lib_path = asset_libs[0].path
@@ -1208,15 +1232,12 @@ class OBJECT_OT_generate_material_assets(bpy.types.Operator):
         except Exception as e:
             print("Complete exception details:")
             traceback.print_exception(type(e), e, e.__traceback__)
-            print(f"Error occurred: {str(e)}")
+            self.report({'ERROR'}, f"Export Asset Library failed: {e}")
             return {'CANCELLED'}
         
         finally:
-            # Always restore the original file
-            if current_file:
-                bpy.ops.wm.open_mainfile(filepath=current_file)
-            else:
-                bpy.ops.wm.read_homefile(use_empty=True)
+            # Always restore the original file (poll and execute require it to be saved)
+            bpy.ops.wm.open_mainfile(filepath=current_file)
         
         # Report after restoring context
         self.report({'INFO'}, f"Created {len(material_catalog)} material assets")
@@ -1242,8 +1263,7 @@ register_classes = (
     SelectByProperty,
     AddTrigger,
     InvertSpline,
-    SplineCyclic,
-    ReconstructSpline,
+ReconstructSpline,
     OpenUrl,
     BakeVColors,
     SplitByMaterial,

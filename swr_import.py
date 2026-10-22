@@ -71,6 +71,7 @@ def import_model(file_path, selector=None, update_progress=None):
 
     # unpacking
 
+    failed = []
     for model_id in selector:
         update_progress(f'Reading model {model_id}')
 
@@ -79,8 +80,9 @@ def import_model(file_path, selector=None, update_progress=None):
         model.modelblock = modelblock
         model = model.read(model_buffer)
         if model is None:
-            print("There was an error while parsing the model")
-            return 
+            print(f"There was an error while parsing model {model_id}")
+            failed.append(model_id)
+            continue
         update_progress(f'Making model {model_id}')
 
         collection = model.make()
@@ -102,7 +104,10 @@ def import_model(file_path, selector=None, update_progress=None):
 
     # reporting
 
-    print(f'Successfully unpacked {len(selector)} models')
-
-    show_custom_popup(bpy.context, "Imported", f"Successfully unpacked {len(selector)} models.")
+    imported = len(selector) - len(failed)
+    print(f'Successfully unpacked {imported} models')
+    if failed:
+        show_custom_popup(bpy.context, "Imported with errors", f"Imported {imported} of {len(selector)} models. Could not read: {', '.join(str(i) for i in failed)} (see the system console).")
+    else:
+        show_custom_popup(bpy.context, "Imported", f"Successfully unpacked {imported} models.")
     

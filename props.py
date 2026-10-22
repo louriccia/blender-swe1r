@@ -1,5 +1,5 @@
 import bpy
-from .utils import save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item
+from .utils import save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
 from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
 
@@ -27,40 +27,40 @@ def register():
         update=update_model_dropdown
     )
     
+    # MAlt models are exported with their Podd, never on their own
+    new_types = [t for t in model_types[1:] if t[1] != 'MAlt']
+    saved_new_type = str(get_setting('new_type', '7'))
     bpy.types.Scene.new_type = bpy.props.EnumProperty(
-        items=model_types[1:],
+        items=new_types,
         name="New Model Type",
-        description="Create a new template for the selected model type",
-        default=get_setting('new_type', 0)
+        description="The type of model New creates",
+        default=saved_new_type if saved_new_type in [t[0] for t in new_types] else '7',
+        update=save_settings,
     )
     
-    import_items = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_types[int(get_setting('import_type', 0))][1]]
-    if not len(import_items):
-        import_items = [model_enum_item(i, model) for i, model in enumerate(model_list)]
-    import_items.append(("-1", "All", "Import all models of this type"))
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
-        items=import_items,
+        items=import_model_items(model_types[int(get_setting('import_type', 0))][1]),
         name="Model",
         description="Select a model to import",
         default=0, #get_setting('import_model', 0), 
         update=save_settings
     )
     bpy.types.Scene.export_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=save_settings, default=get_setting('export_folder', ""), description="Select the lev01 folder in Star Wars Episode I Racer/data/lev01 (or any folder you wish to export to)")
-    bpy.types.Scene.is_export_model = bpy.props.BoolProperty(name="Model", update=save_settings, default=get_setting('is_export_model', True))
-    bpy.types.Scene.is_export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('is_export_texture', True))
-    bpy.types.Scene.is_export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('is_export_spline', True))
-    bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =save_settings, default=get_setting('export_separate', False), description = "Save a copy of the exported elements as individual .bin files")
-    bpy.types.Scene.is_export_debug = bpy.props.BoolProperty(name ="Debug", update =save_settings, default=get_setting('export_debug', False), description = "Write a human-readable debug dump of the exported model buffer alongside the .bin files (for troubleshooting only)")
+    bpy.types.Scene.is_export_model = bpy.props.BoolProperty(name="Model", update=save_settings, default=get_setting('is_export_model', True), description="Export the model (meshes, collision, nodes, animations)")
+    bpy.types.Scene.is_export_texture = bpy.props.BoolProperty(name="Texture", update=save_settings, default=get_setting('is_export_texture', True), description="Export the model's textures")
+    bpy.types.Scene.is_export_spline = bpy.props.BoolProperty(name="Spline", update=save_settings, default=get_setting('is_export_spline', True), description="Export the track's spline (the racing line, start point and AI path)")
+    bpy.types.Scene.is_export_separate = bpy.props.BoolProperty(name ="Separate", update =save_settings, default=get_setting('is_export_separate', False), description = "Also save the exported model, textures and spline as individual .bin files")
+    bpy.types.Scene.is_export_debug = bpy.props.BoolProperty(name ="Debug", update =save_settings, default=get_setting('is_export_debug', False), description = "Write a human-readable debug dump of the exported model buffer alongside the .bin files (for troubleshooting only)")
 
-    bpy.types.Scene.flags_expanded = bpy.props.BoolProperty(name = 'flags_expanded', update=save_settings, default=get_setting('flags_expanded', False))
-    bpy.types.Scene.fog_expanded = bpy.props.BoolProperty(name = 'fog_expanded', update=save_settings, default=get_setting('fog_expanded', False))
-    bpy.types.Scene.lighting_expanded = bpy.props.BoolProperty(name = 'lighting_expanded', update=save_settings, default=get_setting('lighting_expanded', False))
-    bpy.types.Scene.trigger_expanded = bpy.props.BoolProperty(name = 'trigger_expanded', update=save_settings, default=get_setting('trigger_expanded', False))
-    bpy.types.Scene.lights_expanded = bpy.props.BoolProperty(name = 'lights_expanded', update=save_settings, default=get_setting('lights_expanded', False))
-    bpy.types.Scene.textures_expanded = bpy.props.BoolProperty(name = 'texture_expanded', update=save_settings, default=get_setting('texture_expanded', False))
-    bpy.types.Scene.new_expanded = bpy.props.BoolProperty(name = 'new_expanded', update=save_settings, default=get_setting('new_expanded', False))
-    bpy.types.Scene.visuals_expanded = bpy.props.BoolProperty(name = 'visuals_expanded', update=save_settings, default=get_setting('visuals_expanded', False))
-    bpy.types.Scene.collision_expanded = bpy.props.BoolProperty(name = 'collision_expanded', update=save_settings, default=get_setting('collision_expanded', False))
+    bpy.types.Scene.flags_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('flags_expanded', False))
+    bpy.types.Scene.fog_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('fog_expanded', False))
+    bpy.types.Scene.lighting_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('lighting_expanded', False))
+    bpy.types.Scene.trigger_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('trigger_expanded', False))
+    bpy.types.Scene.lights_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('lights_expanded', False))
+    bpy.types.Scene.textures_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('textures_expanded', False))
+    bpy.types.Scene.new_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('new_expanded', False))
+    bpy.types.Scene.visuals_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('visuals_expanded', False))
+    bpy.types.Scene.collision_expanded = bpy.props.BoolProperty(name = 'Expand', description = 'Show or hide this section',update=save_settings, default=get_setting('collision_expanded', False))
     
     bpy.types.Scene.import_progress = bpy.props.FloatProperty(name="Import Progress", default=0.0, min=0.0, max=1.0)
     bpy.types.Scene.import_status = bpy.props.StringProperty(name="Import Status", default="")
@@ -80,14 +80,14 @@ def register():
     bpy.types.Collection.export_model = bpy.props.EnumProperty(
         items = export_model_items,
         name = "Model",
-        description = "The model this collection will be exported as",
+        description = "The game model this collection replaces on export",
         default = 0
     )
     
     bpy.types.Collection.export_type = bpy.props.EnumProperty(
         items=[i for i in model_types[1:]],
         name="Model Type",
-        description="The type of model to export",
+        description="The type of game model this collection is",
         default=0,
     )
     bpy.types.Collection.collection_type = bpy.props.EnumProperty(
@@ -109,9 +109,9 @@ def register():
     # MARK: obj state
     bpy.types.Object.id = bpy.props.StringProperty(name = "id", default = "")
     
-    bpy.types.Object.visible = bpy.props.BoolProperty(name ='visible', default=False)
-    bpy.types.Object.collidable = bpy.props.BoolProperty(name ='collidable', default=False)
-    bpy.types.Object.collision_data = bpy.props.BoolProperty(name ='collision_data', default=False)
+    bpy.types.Object.visible = bpy.props.BoolProperty(name ='Visible', default=False, description="The mesh is drawn in game")
+    bpy.types.Object.collidable = bpy.props.BoolProperty(name ='Collidable', default=False, description="Pods collide with the mesh in game")
+    bpy.types.Object.collision_data = bpy.props.BoolProperty(name ='Collision Data', default=False, description="The collision mesh carries surface flags, fog, pod lighting, load triggers and event triggers")
     
     for flag in dir(SurfaceEnum):
         if not flag.startswith("__"):
@@ -150,98 +150,106 @@ def register():
     bpy.types.Material.clip_x = bpy.props.BoolProperty(name = 'clip_x', default = False)
     bpy.types.Material.clip_y = bpy.props.BoolProperty(name = 'clip_y', default = False)
     bpy.types.Material.transparent = bpy.props.BoolProperty(name = 'transparent', default = False)
-    bpy.types.Material.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, min=0.0, max=1.0)
+    bpy.types.Material.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, min=0.0, max=1.0, description="The material's base (primitive) color")
     
     
     #light state
-    bpy.types.Light.LStr = bpy.props.BoolProperty(name = 'LStr', default=False, update = create_update_function("LStr"))
+    bpy.types.Light.LStr = bpy.props.BoolProperty(name = 'Light Streak', default=False, update = create_update_function("LStr"), description="Export this light's position as a light streak (LStr), the streaks of light drawn on the camera when it passes. Tracks only")
     
     # MARK: Trigger State
-    bpy.types.Object.trigger_id = bpy.props.IntProperty(name='trigger_id', update = create_update_function("trigger_id"))
-    bpy.types.Object.trigger_settings = bpy.props.IntProperty(name='trigger_settings', update = create_update_function("trigger_settings"))
+    trigger_flag_descriptions = {
+        'Disabled': "The trigger starts disarmed and never fires",
+        'IgnoreAI': "Only the local player's pod fires the trigger",
+        'SpeedCheck150': "Fires only when the pod is faster than 150",
+        'SkipLap1': "Does not fire on lap 1",
+        'SkipLap2': "Does not fire on lap 2",
+        'SkipLap3': "Does not fire on lap 3",
+    }
+    bpy.types.Object.trigger_id = bpy.props.IntProperty(name='Trigger Type', update = create_update_function("trigger_id"), description="What the trigger does (its type number in the game). Some types crash off their home planet: e.g. 501 (lava splash) needs Baroonda")
+    bpy.types.Object.trigger_settings = bpy.props.IntProperty(name='Settings', update = create_update_function("trigger_settings"), description="Extra flag bits stored with the trigger (bits 6-15). No known effect")
     for flag in dir(TriggerFlagEnum):
         if not flag.startswith("__"):
-            setattr(bpy.types.Object, flag, bpy.props.BoolProperty(name = flag, default=False, update = create_update_function(flag)))
-    bpy.types.Object.target = bpy.props.PointerProperty(type=bpy.types.Object)
+            setattr(bpy.types.Object, flag, bpy.props.BoolProperty(name = flag, default=False, update = create_update_function(flag), description = trigger_flag_descriptions.get(flag, "")))
+    bpy.types.Object.target = bpy.props.PointerProperty(type=bpy.types.Object, name="Target", description="The object the trigger acts on (e.g. the door it opens or the model it animates)")
    
     # MARK: UI State
     
     # visuals
-    bpy.types.Scene.visible = bpy.props.BoolProperty(name = 'visible', update = update_selected('visible'), default = False)
+    bpy.types.Scene.visible = bpy.props.BoolProperty(name = 'Visible', update = update_selected('visible'), default = False, description = "The selected meshes are drawn in game. A mesh that is neither Visible nor Collidable exports as both")
     
-    bpy.types.Scene.texture = bpy.props.PointerProperty(type = bpy.types.Image, name="texture", update = update_selected("texture", update_mat = True, update_tex = True))
+    bpy.types.Scene.texture = bpy.props.PointerProperty(type = bpy.types.Image, name="Texture", description="The selected meshes' texture. Exported at up to 128x128", update= update_selected("texture", update_mat = True, update_tex = True))
     bpy.types.Scene.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, description="Set base material color", update =update_selected("material_color", update_mat = True))
-    bpy.types.Scene.transparent = bpy.props.BoolProperty(name = 'transparent', default = False, update = update_selected("transparent", update_mat = True))
-    bpy.types.Scene.use_backface_culling = bpy.props.BoolProperty(name = 'use_backface_culling', default = False, update = update_selected("use_backface_culling", update_mat = True))
-    bpy.types.Scene.scroll_x = bpy.props.FloatProperty(name = 'scroll_x', default = 0.0, update = update_selected("scroll_x", update_mat = True))
-    bpy.types.Scene.scroll_y = bpy.props.FloatProperty(name = 'scroll_y', default = 0.0, update = update_selected("scroll_y", update_mat = True))
-    bpy.types.Scene.flip_x = bpy.props.BoolProperty(name = 'flip_x', default = False, update = update_selected("flip_x", update_mat = True))
-    bpy.types.Scene.flip_y = bpy.props.BoolProperty(name = 'flip_y', default = False, update = update_selected("flip_y", update_mat = True))
-    bpy.types.Scene.clip_x = bpy.props.BoolProperty(name = 'clip_x', default = False, update = update_selected("clip_x", update_mat = True))
-    bpy.types.Scene.clip_y = bpy.props.BoolProperty(name = 'clip_y', default = False, update = update_selected("clip_y", update_mat = True))
+    bpy.types.Scene.transparent = bpy.props.BoolProperty(name = 'Transparent', default = False, update = update_selected("transparent", update_mat = True), description = "Blend the texture's alpha (and vertex color alpha) with what is behind it")
+    bpy.types.Scene.use_backface_culling = bpy.props.BoolProperty(name = 'Backface Culling', default = False, update = update_selected("use_backface_culling", update_mat = True), description = "Hide faces seen from behind")
+    bpy.types.Scene.scroll_x = bpy.props.FloatProperty(name = 'Scroll X', default = 0.0, update = update_selected("scroll_x", update_mat = True), description = "Scroll the texture along X: seconds per full scroll, negative for the other direction, 0 for none")
+    bpy.types.Scene.scroll_y = bpy.props.FloatProperty(name = 'Scroll Y', default = 0.0, update = update_selected("scroll_y", update_mat = True), description = "Scroll the texture along Y: seconds per full scroll, negative for the other direction, 0 for none")
+    bpy.types.Scene.flip_x = bpy.props.BoolProperty(name = 'Mirror Y', default = False, update = update_selected("flip_x", update_mat = True), description = "Repeat the texture mirrored along Y (V) instead of tiling it. Stored as flip_x for older files")
+    bpy.types.Scene.flip_y = bpy.props.BoolProperty(name = 'Mirror X', default = False, update = update_selected("flip_y", update_mat = True), description = "Repeat the texture mirrored along X (U) instead of tiling it. Stored as flip_y for older files")
+    bpy.types.Scene.clip_x = bpy.props.BoolProperty(name = 'Clip Y', default = False, update = update_selected("clip_x", update_mat = True), description = "Stretch the texture's edge pixels along Y (V) instead of repeating it. Stored as clip_x for older files")
+    bpy.types.Scene.clip_y = bpy.props.BoolProperty(name = 'Clip X', default = False, update = update_selected("clip_y", update_mat = True), description = "Stretch the texture's edge pixels along X (U) instead of repeating it. Stored as clip_y for older files")
     
-    bpy.types.Scene.light_falloff = bpy.props.FloatProperty(name = 'falloff', min=0.0, max=10.0, update =save_settings, default=get_setting('light_falloff', 1.0))
-    bpy.types.Scene.ambient_light = bpy.props.FloatVectorProperty(name = 'Ambient Light', subtype='COLOR', min=0.0, max=1.0, description="Tweak visibility and shading in dark areas", update =save_settings, default=get_setting('ambient_light', (1.0, 1.0, 1.0)))
-    bpy.types.Scene.ambient_light_intensity = bpy.props.FloatProperty(name = 'ambient_light_intensity', min=0.0, max=1.0, update =save_settings, default=get_setting('ambient_light_intensity', 0.1))
+    bpy.types.Scene.light_falloff = bpy.props.FloatProperty(name = 'Falloff', description = "How fast point lights fade with distance when baking (the power of the distance)", min=0.0, max=10.0,update =save_settings, default=get_setting('light_falloff', 1.0))
+    bpy.types.Scene.ambient_light = bpy.props.FloatVectorProperty(name = 'Ambient Light', subtype='COLOR', min=0.0, max=1.0, description="The color added everywhere when baking, so unlit areas are not black", update =save_settings, default=get_setting('ambient_light', (1.0, 1.0, 1.0)))
+    bpy.types.Scene.ambient_light_intensity = bpy.props.FloatProperty(name = 'Ambient Strength', description = "How strong the ambient light is when baking", min=0.0, max=1.0, update =save_settings, default=get_setting('ambient_light_intensity', 0.1))
     
     # collision
-    bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'collision_visible', update =UpdateVisibleSelectable, default=True, description = "Show/hide all collidable mesh")
-    bpy.types.Scene.collision_selectable = bpy.props.BoolProperty(name = 'collision_selectable', update =UpdateVisibleSelectable, default=True, description = "Set all collidable mesh as selectable/unselectable")
-    bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'visuals_visible', update =UpdateVisibleSelectable, default=True, description = "Set all visible mesh as selectable/unselectable")
-    bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'visuals_selectable', update =UpdateVisibleSelectable, default=True, description = "Set all visible mesh as selectable/unselectable")
+    bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'Show Collision', update =UpdateVisibleSelectable, default=True, description = "Show or hide every collidable mesh in the viewport (does not change the export)")
+    bpy.types.Scene.collision_selectable = bpy.props.BoolProperty(name = 'Select Collision', update =UpdateVisibleSelectable, default=True, description = "Make every collidable mesh selectable or unselectable in the viewport")
+    bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'Show Visuals', update =UpdateVisibleSelectable, default=True, description = "Show or hide every visible mesh in the viewport (does not change the export)")
+    bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'Select Visuals', update =UpdateVisibleSelectable, default=True, description = "Make every visible mesh selectable or unselectable in the viewport")
     
-    bpy.types.Scene.collidable = bpy.props.BoolProperty(name = 'collidable', update = update_selected('collidable'), default = False)
-    bpy.types.Scene.collision_data = bpy.props.BoolProperty(name ='collision_data', update = update_selected('collision_data'), default = False)
+    bpy.types.Scene.collidable = bpy.props.BoolProperty(name = 'Collidable', update = update_selected('collidable'), default = False, description = "Pods collide with the selected meshes in game. A mesh that is neither Visible nor Collidable exports as both")
+    bpy.types.Scene.collision_data = bpy.props.BoolProperty(name ='Collision Data', update = update_selected('collision_data'), default = False, description = "Give the selected collision meshes surface flags, fog, pod lighting, load triggers and event triggers")
     
     # terrain
-    # Best-effort human-readable tooltips for the terrain surface flags. These
-    # abbreviations are cryptic in the UI; descriptions should be verified by a
-    # domain expert but are far more useful than a bare 4-char code.
+    # What each surface flag does, from the decomp (SW_RACER_RE src/Swr/swrRace.c,
+    # swrRace_UpdateSurfaceTag) and the museum_surfaces measurements (levels/README.md).
+    # Flags with no known reader in the decomp say so.
     surface_flag_descriptions = {
-        'ZOn': "Enable collision detection on this surface",
-        'ZOff': "Disable collision detection on this surface",
-        'Fast': "Speed-boost surface",
-        'Slow': "Speed-reducing surface",
-        'Swst': "Start/finish line surface",
-        'Slip': "Slippery (low-grip) surface",
-        'Dust': "Kicks up dust particles",
-        'Snow': "Snow surface",
-        'Wet': "Wet surface (water spray)",
-        'Ruff': "Rough surface (rumble / vibration)",
-        'Swmp': "Swamp surface",
-        'NSnw': "No snow particles on this surface",
-        'Mirr': "Mirror / reflective surface",
-        'Lava': "Lava (damaging) surface",
-        'Fall': "Fall / out-of-bounds surface (triggers respawn)",
-        'Soft': "Soft surface",
-        'NRsp': "No respawn from this surface",
-        'Flat': "Flat surface",
-        'Side': "Side / wall surface",
+        'ZOn': "Zero-g: the pod floats free of the ground until it touches a ZOff surface",
+        'ZOff': "Ends zero-g (ZOn)",
+        'Fast': "Speed boost (eases toward +200 speed)",
+        'Slow': "Slows the pod (speed x0.75)",
+        'Swst': "Heavy slowdown: speed eases toward x0.1 and boost is cancelled. Not a start line",
+        'Slip': "Slippery: grip x0.2",
+        'Dust': "Dust surface (effect not yet traced in the decomp)",
+        'Snow': "Snow surface (effect not yet traced in the decomp)",
+        'Wet': "Wet surface (effect not yet traced in the decomp)",
+        'Ruff': "Rough surface (effect not yet traced in the decomp)",
+        'Swmp': "Swamp: marks the pod as on swamp",
+        'NSnw': "No snow (effect not yet traced in the decomp)",
+        'Mirr': "Mirror: the surface reflects the pod (only with reflections turned on)",
+        'Lava': "Lava: cools the engines (heat drops)",
+        'Fall': "Fall: the pod respawns once it is within 30 units of this surface",
+        'Soft': "Soft: marks the pod as on a soft surface",
+        'NRsp': "No respawn (effect not yet traced in the decomp)",
+        'Flat': "Flat: AI pods only, has no effect on the player",
+        'Side': "Side: the pod tilts fully onto its side while on this surface",
     }
     for flag in dir(SurfaceEnum):
         if not flag.startswith("__"):
             setattr(bpy.types.Scene, flag, bpy.props.BoolProperty(name = flag, default=False, update = update_selected(flag), description = surface_flag_descriptions.get(flag, f"Terrain surface flag: {flag}")))
     
-    bpy.types.Scene.magnet = bpy.props.BoolProperty(name ='magnet', default=False, update = update_selected("magnet"), description = "Disable tilting and climbing")
-    bpy.types.Scene.strict_spline = bpy.props.BoolProperty(name ='strict_spline', default=False, update = update_selected("strict_spline"), description = "Make lap progress stricter")
-    bpy.types.Scene.elevation = bpy.props.BoolProperty(name ='elevation', default=False, update = update_selected("elevation"), description = "Prevent the pod getting stuck on overlapping collision surfaces")
+    bpy.types.Scene.magnet = bpy.props.BoolProperty(name ='Magnet', default=False, update = update_selected("magnet"), description = "Magnet: gravity follows the surface, so the pod sticks to walls, loops and ceilings")
+    bpy.types.Scene.strict_spline = bpy.props.BoolProperty(name ='Spline Fork', default=False, update = update_selected("strict_spline"), description = "Behavior bit 0x8: the mesh is shared between spline branches, which pauses spline progress on it. The game also sets this itself at load")
+    bpy.types.Scene.elevation = bpy.props.BoolProperty(name ='Full Raycast', default=False, update = update_selected("elevation"), description = "Full raycast: test the pod's ground against this mesh every frame instead of the track cached at load. Needed for collision that moves (animated platforms)")
     
     # lighting
-    bpy.types.Scene.lighting_light = bpy.props.PointerProperty(type=bpy.types.Light, name="lighting_light", update = update_selected("lighting_light"))
-    bpy.types.Scene.lighting_color = bpy.props.FloatVectorProperty(name="lighting_color", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0), min=0, max=1, description="Ambient Color", update = update_selected("lighting_color"))
-    bpy.types.Scene.lighting_invert = bpy.props.BoolProperty(name = 'lighting_invert', default=False, update = update_selected("lighting_invert"))
-    bpy.types.Scene.lighting_flicker = bpy.props.BoolProperty(name = 'lighting_flicker', default=False, update = update_selected("lighting_flicker"))
-    bpy.types.Scene.lighting_persistent = bpy.props.BoolProperty(name = 'lighting_persistent', default=False, update = update_selected("lighting_persistent"))
+    bpy.types.Scene.lighting_light = bpy.props.PointerProperty(type=bpy.types.Light, name="Light", update = update_selected("lighting_light"), description = "The light that lights the pod while it is on the selected meshes (its color and position are exported)")
+    bpy.types.Scene.lighting_color = bpy.props.FloatVectorProperty(name="Ambient Color", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0), min=0, max=1, description="The pod's ambient light color while it is on the selected meshes", update = update_selected("lighting_color"))
+    bpy.types.Scene.lighting_invert = bpy.props.BoolProperty(name = 'Point Light', default=False, update = update_selected("lighting_invert"), description = "Light flag 0x4: the game reads the light vector as a position (a point light) instead of a direction")
+    bpy.types.Scene.lighting_flicker = bpy.props.BoolProperty(name = 'Flicker', default=False, update = update_selected("lighting_flicker"), description = "Light flag 0x8, named flicker (its effect is not yet traced in the decomp)")
+    bpy.types.Scene.lighting_persistent = bpy.props.BoolProperty(name = 'Persist', default=False, update = update_selected("lighting_persistent"), description = "Light flag 0x10, named persist (its effect is not yet traced in the decomp)")
     
     # fog
-    bpy.types.Scene.fog_color = bpy.props.FloatVectorProperty(name="fog_color", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0), min=0, max=1, description="Fog color", update = update_selected("fog_color"))
-    bpy.types.Scene.fog_range_update = bpy.props.BoolProperty(name = 'fog_range_update', default=False, update = update_selected("fog_range_update"))
-    bpy.types.Scene.fog_color_update = bpy.props.BoolProperty(name = 'fog_color_update', default=False, update = update_selected("fog_color_update"))
-    bpy.types.Scene.fog_min = bpy.props.IntProperty(name="fog_min", default=1000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog min (distance at which fog begins)", subtype = 'DISTANCE', update = update_selected("fog_min"))
-    bpy.types.Scene.fog_max = bpy.props.IntProperty(name="fog_max", default=30000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Fog max (distance at which fog is fully opaque)", subtype = 'DISTANCE', update = update_selected("fog_max"))
-    bpy.types.Scene.fog_clear = bpy.props.BoolProperty(name = 'fog_clear', default=False, update = update_selected("fog_clear"))
-    bpy.types.Scene.skybox_show = bpy.props.BoolProperty(name ='skybox_show', default=False, update = update_selected("skybox_show"))
-    bpy.types.Scene.skybox_hide = bpy.props.BoolProperty(name ='skybox_hide', default=False, update = update_selected("skybox_hide"))
+    bpy.types.Scene.fog_color = bpy.props.FloatVectorProperty(name="Fog Color", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0), min=0, max=1, description="Fog color. It is also the background (sky) color", update = update_selected("fog_color"))
+    bpy.types.Scene.fog_range_update = bpy.props.BoolProperty(name = 'Set Range', default=False, update = update_selected("fog_range_update"), description = "When the pod touches the selected meshes, set the fog start and the draw distance")
+    bpy.types.Scene.fog_color_update = bpy.props.BoolProperty(name = 'Set Color', default=False, update = update_selected("fog_color_update"), description = "When the pod touches the selected meshes, turn fog on with this color")
+    bpy.types.Scene.fog_min = bpy.props.IntProperty(name="Fog Start", default=1000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Where fog starts. Not a plain distance: the game uses it as an N64 fog value and clamps it at 996", update = update_selected("fog_min"))
+    bpy.types.Scene.fog_max = bpy.props.IntProperty(name="Draw Distance", default=30000, min=1, max=30000, soft_min = 100, soft_max = 10000, description="Draw distance: fog is fully opaque here and nothing beyond is drawn", subtype = 'DISTANCE', update = update_selected("fog_max"))
+    bpy.types.Scene.fog_clear = bpy.props.BoolProperty(name = 'Clear Fog', default=False, update = update_selected("fog_clear"), description = "When the pod touches the selected meshes, turn fog off. This also resets the draw distance")
+    bpy.types.Scene.skybox_show = bpy.props.BoolProperty(name ='Show Skybox', default=False, update = update_selected("skybox_show"), description = "When the pod touches the selected meshes, show the skybox")
+    bpy.types.Scene.skybox_hide = bpy.props.BoolProperty(name ='Hide Skybox', default=False, update = update_selected("skybox_hide"), description = "When the pod touches the selected meshes, hide the skybox")
     
     # trigger
     bpy.types.Scene.target = bpy.props.PointerProperty(type=bpy.types.Object, update = update_selected('target'))
