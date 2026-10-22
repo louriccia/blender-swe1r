@@ -27,6 +27,7 @@ import webbrowser
 import bpy
 import mathutils
 import copy
+import numpy as np
 import shutil
 
 from .swe1r.model_list import *
@@ -295,83 +296,92 @@ def blend_multiply(a: float, b: float) -> float:
 def blend_overlay(a: float, b: float) -> float:
     return 2.0*a*b if a < 0.5 else 1.0-2.0*(1.0-a)*(1.0-b) 
 
-def calculate_point_light_contribution(light, vertex_position, vertex_normal, depsgraph, falloff_factor):
-    light_position = light.matrix_world.to_translation()
-    light_color =light.data.color
-    # Vector from the vertex to the light
-    light_direction = light_position - vertex_position
-    light_distance = light_direction.length
-    light_direction.normalize()
-    # Calculate the angle between the vertex normal and the light direction
-    angle_cos = vertex_normal.dot(light_direction)
-    # Check for occlusion using ray_cast
-    hit, location, normal, index, obj, matrix = bpy.context.scene.ray_cast(
-        depsgraph,
-        vertex_position + vertex_normal * 0.001,  # Move start point slightly off the surface
-        light_direction
-    )
-    if hit and (location - vertex_position).length < light_distance:
-        # If hit and the hit location is closer than the light, it's in shadow
-        return mathutils.Color((0, 0, 0))
-
-    # Calculate the contribution of the light with adjusted falloff
-    if angle_cos > 0:
-        return light_color * angle_cos / (light_distance ** falloff_factor)
-    else:
-        return mathutils.Color((0, 0, 0))
-
-def calculate_sun_light_contribution(light, vertex_position, vertex_normal, depsgraph):
-    # toward the sun: its world +Z (a sun shines along its -Z), so parents and any rotation mode count
-    light_direction = (light.matrix_world.to_3x3() @ mathutils.Vector((0, 0, 1))).normalized()
-    light_color = light.data.color
-
-    # Calculate the angle between the vertex normal and the light direction
-    angle_cos = vertex_normal.dot(light_direction)
-
-    # Check for occlusion using ray_cast
-    hit, location, normal, index, obj, matrix = bpy.context.scene.ray_cast(
-        depsgraph,
-        vertex_position + vertex_normal * 0.001,  # Move start point slightly off the surface
-        light_direction
-    )
-
-    if hit:
-        # If hit, it's in shadow
-        return mathutils.Color((0, 0, 0))
-
-    # Calculate the contribution of the light
-    if angle_cos > 0:
-        return light_color * angle_cos
-    else:
-        return mathutils.Color((0, 0, 0))
-
-def calculate_total_light_for_object(obj, falloff_factor=2.0, ambient_light_intensity=0.1, ambient_light_color=[0, 0, 0]):
-    mesh = obj.data
+def occluder_tree(objects):
+    """One BVH tree, in world space, of the meshes that cast shadows when baking. Built once per
+    bake: scene.ray_cast per vertex and light was most of the old bake's time."""
+    from mathutils.bvhtree import BVHTree
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    world_matrix = obj.matrix_world
+    verts, tris = [], []
+    offset = 0
+    for obj in objects:
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        try:
+            mesh.calc_loop_triangles()
+            co = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
+            mesh.vertices.foreach_get("co", co)
+            co = co.reshape(-1, 3)
+            matrix = np.array(obj.matrix_world)
+            co = co @ matrix[:3, :3].T + matrix[:3, 3]
+            loop_tris = np.empty(len(mesh.loop_triangles) * 3, dtype=np.int32)
+            mesh.loop_triangles.foreach_get("vertices", loop_tris)
+            verts.append(co)
+            tris.append(loop_tris.reshape(-1, 3) + offset)
+            offset += len(co)
+        finally:
+            evaluated.to_mesh_clear()
+    if not verts:
+        return None
+    return BVHTree.FromPolygons(np.concatenate(verts).tolist(), np.concatenate(tris).tolist())
 
-    # every vertex starts from the ambient light, scaled by its strength
-    ambient = mathutils.Color(ambient_light_color) * ambient_light_intensity
-    total_lights = {v.index: ambient.copy() for v in mesh.vertices}
+def bake_lights(scene):
+    """(kind, color, position or direction toward the light) of every point and sun light: the
+    kinds the bake uses (spot and area lights are ignored)."""
+    lights = []
+    for light in scene.objects:
+        if light.type != 'LIGHT' or light.data.type not in ('POINT', 'SUN'):
+            continue
+        color = np.array(light.data.color, dtype=np.float64)
+        if light.data.type == 'POINT':
+            lights.append(('POINT', color, np.array(light.matrix_world.to_translation())))
+        else:
+            # toward the sun: its world +Z (a sun shines along its -Z), so parents and any rotation mode count
+            direction = light.matrix_world.to_3x3() @ mathutils.Vector((0, 0, 1))
+            lights.append(('SUN', color, np.array(direction.normalized())))
+    return lights
 
+def calculate_total_light_for_object(obj, lights, tree, falloff_factor=1.0, ambient_light_intensity=0.1, ambient_light_color=(0, 0, 0)):
+    """Per vertex of obj: ambient light x strength, plus each light's color x cos(angle to the
+    normal), divided by distance^falloff for point lights; nothing from a light the vertex faces
+    away from or that geometry in tree hides. Returns an (n, 3) array."""
+    mesh = obj.data
+    n = len(mesh.vertices)
+    co = np.empty(n * 3, dtype=np.float64)
+    mesh.vertices.foreach_get("co", co)
+    normals = np.empty(n * 3, dtype=np.float64)
+    mesh.vertex_normals.foreach_get("vector", normals)
+    matrix = np.array(obj.matrix_world)
+    co = co.reshape(-1, 3) @ matrix[:3, :3].T + matrix[:3, 3]
     # normals transform by the inverse transpose, so non-uniform scale keeps them perpendicular
-    normal_matrix = world_matrix.to_3x3().inverted_safe().transposed()
+    normal_matrix = np.array(obj.matrix_world.to_3x3().inverted_safe().transposed())
+    normals = normals.reshape(-1, 3) @ normal_matrix.T
+    lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+    normals = np.divide(normals, lengths, out=np.zeros_like(normals), where=lengths > 0)
 
-    # Iterate over all lights in the scene
-    for light in bpy.context.scene.objects:
-        if light.type == 'LIGHT':
-            for vertex in mesh.vertices:
-                # Transform vertex coordinates and normal to world space
-                vertex_world_co = world_matrix @ vertex.co
-                vertex_normal_world = (normal_matrix @ vertex.normal).normalized()
-                if light.data.type == 'POINT':
-                    light_contribution = calculate_point_light_contribution(light, vertex_world_co, vertex_normal_world, depsgraph, falloff_factor)
-                    total_lights[vertex.index] = light_contribution + total_lights[vertex.index]
-                elif light.data.type == 'SUN':
-                    light_contribution = calculate_sun_light_contribution(light, vertex_world_co, vertex_normal_world, depsgraph)
-                    total_lights[vertex.index] = light_contribution + total_lights[vertex.index]
-
-    return total_lights
+    total = np.tile(np.array(ambient_light_color, dtype=np.float64) * ambient_light_intensity, (n, 1))
+    # rays start just off the surface, so a vertex doesn't shadow itself
+    origins = co + normals * 0.001
+    for kind, color, where in lights:
+        if kind == 'POINT':
+            to_light = where - co
+            distance = np.linalg.norm(to_light, axis=1)
+            direction = np.divide(to_light, distance[:, None], out=np.zeros_like(to_light), where=distance[:, None] > 0)
+        else:
+            direction = np.broadcast_to(where, co.shape)
+            distance = np.full(n, np.inf)
+        cos = np.einsum('ij,ij->i', normals, direction)
+        lit = cos > 0
+        if tree is not None:
+            for i in np.flatnonzero(lit):
+                limit = distance[i] if kind == 'POINT' else 1.0e9
+                if tree.ray_cast(origins[i], direction[i], limit)[0] is not None:
+                    lit[i] = False
+        if kind == 'POINT':
+            strength = np.where(lit, cos / np.power(np.maximum(distance, 1e-9), falloff_factor), 0.0)
+        else:
+            strength = np.where(lit, cos, 0.0)
+        total += strength[:, None] * color
+    return total
 
 # Single re-entrancy flag for the whole selection-sync cascade. Each setattr
 # below re-fires this same callback on the target object; a per-object guard

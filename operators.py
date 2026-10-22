@@ -24,6 +24,7 @@ import sys
 import importlib
 import traceback
 import uuid
+import numpy as np
 from bpy_extras.io_utils import ImportHelper
 from .swe1r.modelblock import SurfaceEnum, Model
 
@@ -460,18 +461,20 @@ class BakeVColors(bpy.types.Operator):
         if not meshes:
             self.report({'ERROR'}, "Select one or more Visible meshes to bake")
             return {'CANCELLED'}
+        scene = context.scene
+        lights = bake_lights(scene)
+        # shadows come from what the game draws: Visible meshes
+        tree = occluder_tree([obj for obj in scene.objects if obj.type == 'MESH' and obj.visible]) if lights else None
         for obj in meshes:
-            # Calculate the total light for each vertex of the selected object
-            total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
-               
+            total_lights = calculate_total_light_for_object(obj, lights, tree, scene.light_falloff, scene.ambient_light_intensity, scene.ambient_light)
+
             reset_vertex_colors(obj)
-            
-            color_layer = obj.data.vertex_colors.active.data   
-                
-            for poly in obj.data.polygons:
-                for p in range(len(poly.vertices)):
-                    color = total_lights[poly.vertices[p]]
-                    color_layer[poly.loop_indices[p]].color = [*color, 1.0]
+            color_layer = obj.data.vertex_colors.active.data
+            loop_verts = np.empty(len(obj.data.loops), dtype=np.int32)
+            obj.data.loops.foreach_get("vertex_index", loop_verts)
+            colors = np.ones((len(loop_verts), 4), dtype=np.float32)
+            colors[:, :3] = np.clip(total_lights[loop_verts], 0.0, 1.0)
+            color_layer.foreach_set("color", colors.ravel())
 
         bpy.ops.view3d.remake_materials()
         self.report({'INFO'}, f"Baked {len(meshes)} mesh{'es' if len(meshes) != 1 else ''}")
