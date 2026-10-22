@@ -26,11 +26,13 @@ def g(*values):
 
 # MARK: scene
 
-def new_track_scene(addon, model_id=1):
+def new_track_scene(addon, model_id=1, reset=True):
     """An empty scene holding a Trak model collection with Track and Skybox children, as
     view3d.new_model makes, plus the 24 game view layers (import makes those; new_model does not,
-    and without them every mesh exports on no layer)."""
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+    and without them every mesh exports on no layer). reset=False keeps the file's other data (a
+    level that gathered materials from imports first)."""
+    if reset:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.render.fps = 60
     model = bpy.data.collections.new("Level")

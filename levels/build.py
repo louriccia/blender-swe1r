@@ -42,16 +42,27 @@ def main():
     import bpy
     import lib
     addon = load_addon()
-    level = importlib.import_module(f"level_{args.level}")
-    model, expectations = level.build(addon)
+    try:
+        level = importlib.import_module(f"level_{args.level}")
+        model, expectations = level.build(addon)
+    except ModuleNotFoundError:
+        # a numbered part of a level split over several tracks: zoo_textures_2 -> level_zoo_textures
+        base, _, part = args.level.rpartition("_")
+        level = importlib.import_module(f"level_{base}")
+        model, expectations = level.build(addon, int(part))
     out = os.path.abspath(args.out)
     if not args.no_blend:
         os.makedirs(out, exist_ok=True)
         bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, f"{args.level}.blend"), compress=True)
     lib.export_level(addon, model, out, expectations)
-    if not args.no_blend:
-        # export bakes scale, splits and triangulates in place; keep the authoring file as built
-        pass
+    if hasattr(level, "verify"):
+        # Blender-side checks of the export (re-imports it, so after the .blend is saved)
+        problems = level.verify(addon, out, expectations)
+        for p in problems:
+            print(f"[levels] VERIFY FAIL {p}")
+        if problems:
+            sys.exit(1)
+        print(f"[levels] verified {args.level}")
     print(f"[levels] built {args.level} -> {out}")
 
 

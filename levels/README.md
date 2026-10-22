@@ -26,7 +26,9 @@ be in-game* (GodotFest 2025):
 | `museum_p2p` | done | A point-to-point track: open spline, one lap, finish at the dead end, the grid. |
 | `museum_animation` | done | A lift the pod rides (timing checked), plus rotation, scale and UV-scroll scenery. |
 | museum: zones | waiting | Load/unload zones wait for planet-independent custom tracks (see below). |
-| `zoo` | planned | Every stock texture and material setting, and stock props, labelled by id. |
+| `zoo_textures_1..4` | done | All 1573 stock textures that models use, on tiles labelled with their ids. |
+| `zoo_materials` | done | The texture format the add-on picks for each kind of image, and every material setting on one oriented texture. |
+| `zoo_props_1..4` | done | Every stock Part, Scen and Modl model, copied into a track on a labelled pedestal. |
 
 ## Running
 
@@ -35,6 +37,7 @@ python levels/run_level.py gym             # build, race once, check against lev
 python levels/run_level.py gym --races 2   # race twice (the second run checks repeatability)
 python levels/run_level.py gym --bless     # accept this run as the new baseline
 python levels/run_level.py gym --screenshot-s 3
+python levels/run_level.py all             # every level: about 30 minutes
 ```
 
 The script runs these steps:
@@ -88,9 +91,9 @@ comes from the game, not from reading code.
 exactly. Their effects, measured:
 
 - **Fast:** +92 speed bonus over the strip (it eases toward +200 at 25/s).
-- **Slow:** speed �0.75.
-- **Slip:** grip �0.2.
-- **Swst:** eases speed toward �0.1 and cancels boost. It is not a start-line marker.
+- **Slow:** speed ×0.75.
+- **Slip:** grip ×0.2.
+- **Swst:** eases speed toward ×0.1 and cancels boost. It is not a start-line marker.
 - **Lava:** engine heat drops by 47 over the strip.
 - **Pod flags:**
   - **Swmp, Soft, Side, Mirr:** set the pod's matching `ON_*` flag (Mirr only with reflections on).
@@ -140,7 +143,7 @@ exactly. Their effects, measured:
 
 - **`fog_color_update`:** turns fog on. The fog colour is also the background colour.
 - **`fog_min` is not a distance.** The game uses it as an N64-style fog value and clamps it at 996
-  (the literal 0x44790000). The add-on's 1�30000 range is misleading.
+  (the literal 0x44790000). The add-on's 1–30000 range is misleading.
 - **`fog_range_update`:** sets the draw distance from `fog_max`. **`fog_clear` also sets that bit**,
   so clearing fog resets the draw distance too.
 - **Lights:**
@@ -169,6 +172,30 @@ exactly. Their effects, measured:
   uses the track mesh the game cached under the spline at load. The platform's visual moves, but the
   pod rides where the platform was at load: a 4-unit swing on a 150-unit lift.
 
+## What the zoo showed
+
+- **Stock textures are referenced, not copied.** A material can use a stock texture by id: give it
+  an image the importer made (it carries the id, format, hashes and mip-chain notes) and export
+  writes the stock index. The four texture-zoo parts add only their own 3 textures to the block.
+  `scan_textures.py` writes each stock texture's size and format, which only the models record,
+  to `data/stock_textures.json`.
+- **Image formats the add-on picks** (`zoo_materials` re-imports its export to check them):
+
+  | Image | Format |
+  |---|---|
+  | 16 greys | I4 |
+  | 256 greys | I8 |
+  | 4 colours | CI4 |
+  | 200 or 1000 colours | CI8 |
+  | partial alpha | RGBA32 |
+  | 256×256 | 128×128 |
+
+  **A 100×40 image is resized, with filtering, to 128×64, not padded**, so its 4 colours become
+  many. It comes out CI8 and blurred.
+- **Stock models re-export from inside a track.** Every Part, Scen and Modl model comes through
+  with all its triangles, except ones the zoo's own scaling shrank below one game unit (those
+  collapse when vertices round to whole units).
+
 ## Facts every custom track runs into
 
 - **Vertex coordinates are int16 game units.** Keep geometry within ±32767 of its node; the gym
@@ -191,4 +218,6 @@ exactly. Their effects, measured:
 | `signs.py` | In-world text from the glyph atlas. |
 | `level_*.py` | One per level. `build(addon)` returns the model collection and the expectations. |
 | `check.py` | Telemetry → per-station measurements, then predictions and the baseline. |
+| `scan_textures.py` | Imports every stock model and lists each texture's size and format (for the zoo). |
+| `level.verify()` | Optional Blender-side check of a level's export (re-imports it); `build.py` fails on a problem. |
 | `baselines/*.json` | Blessed outcomes per station. Stations disturbed by a crash just before them aren't compared. |

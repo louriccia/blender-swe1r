@@ -137,3 +137,38 @@ def station_sign(course, station, lines, collection, mat, **kwargs):
     left = Vector((-fwd.y, fwd.x, 0))
     at = smp['pos'] + left * (smp['width'] / 2 + 200) + fwd * 100
     return sign(f"sign_{station}", lines, tuple(at), (-fwd.x, -fwd.y), collection, mat, **kwargs)
+
+
+def labels(name, items, collection, mat, char=45.0, color=(1.0, 1.0, 1.0), per_mesh=800):
+    """Many short labels without boards, merged into a few meshes (each under the add-on's 2048
+    triangle limit). items: (text, origin bottom centre, facing (x, y))."""
+    from mathutils import Vector
+    meshes, verts, faces, uvs, colors = [], [], [], [], []
+
+    def flush():
+        if faces:
+            meshes.append(lib.mesh_object(f"{name}_{len(meshes):02d}", list(verts), list(faces), list(uvs),
+                                          collection, mat, visible=True, collidable=False, colors=list(colors)))
+        verts.clear(), faces.clear(), uvs.clear(), colors.clear()
+
+    for text, origin, facing in items:
+        text = text.upper()
+        f = Vector((facing[0], facing[1], 0)).normalized()
+        right = Vector((-f.y, f.x, 0))
+        up = Vector((0, 0, 1))
+        x0 = -len(text) * char * 0.75 / 2
+        for i, ch in enumerate(text):
+            if ch == ' ':
+                continue
+            if len(faces) >= per_mesh:
+                flush()
+            p = Vector(origin) + right * (x0 + i * char * 0.75) + f * 2
+            start = len(verts)
+            verts.extend(tuple(c) for c in (p, p + right * char * 0.75, p + right * char * 0.75 + up * char,
+                                            p + up * char))
+            faces.append((start, start + 1, start + 2, start + 3))
+            uvs.extend(cell_uv(ch))
+            colors.extend([color] * 4)
+    flush()
+    mat.use_backface_culling = False
+    return meshes
