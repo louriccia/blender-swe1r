@@ -18,7 +18,7 @@ MAlt (the high detail pod) is not in the list: it is exported with its Podd.
 ### Pod anchors
 The game places a pod's engines, cockpit, cable, binder, exhausts and shadows itself, every frame, from a table in its executable with one row per racer. Where those parts sit in your model makes no difference: a pod that replaces Anakin's always has Anakin's engine spacing.
 
-So a new pod gets locked empties showing where the game will draw the pod it replaces: **Anchor Engine R**, **Anchor Engine L**, **Anchor Cockpit**, and arrows at **Anchor Exhaust R** and **Anchor Exhaust L** where the jet trails start. They move when you change **Replaces**.
+So a new pod gets locked empties showing where the game will draw the pod it replaces: **Anchor Engine R**, **Anchor Engine L**, **Anchor Cockpit**, arrows at **Anchor Exhaust R** and **Anchor Exhaust L** where the jet trails start, **Anchor Binder R** and **L** where the energy binder's beam ends, and **Anchor Cable Cockpit R/L** and **Anchor Cable Engine R/L** where each cable starts and ends. They move when you change **Replaces**. The binder and cable points move with their engine or cockpit in game (engine tilt, cockpit lag), so shape the engines and cockpit to meet them.
 
 Model each part around its anchor. Export writes each part's meshes relative to their anchor, keeping their position, rotation and parenting, so what you see in Blender is what the game shows. One Blender unit in a pod is 1.6 game units.
 

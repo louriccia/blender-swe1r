@@ -494,11 +494,17 @@ POD_ANCHORS = {
     'cockpit': ("Anchor Cockpit", 'SPHERE', 0.4),
     'exhaust_r': ("Anchor Exhaust R", 'SINGLE_ARROW', 0.6),
     'exhaust_l': ("Anchor Exhaust L", 'SINGLE_ARROW', 0.6),
+    'binder_r': ("Anchor Binder R", 'PLAIN_AXES', 0.25),
+    'binder_l': ("Anchor Binder L", 'PLAIN_AXES', 0.25),
+    'cable_cockpit_r': ("Anchor Cable Cockpit R", 'PLAIN_AXES', 0.2),
+    'cable_cockpit_l': ("Anchor Cable Cockpit L", 'PLAIN_AXES', 0.2),
+    'cable_engine_r': ("Anchor Cable Engine R", 'PLAIN_AXES', 0.2),
+    'cable_engine_l': ("Anchor Cable Engine L", 'PLAIN_AXES', 0.2),
 }
 
 def place_pod_anchors(collection):
     """Add or move a pod template's anchors to where the game draws the replaced pod's engines,
-    cockpit and exhausts. The game positions those parts itself (swe1r/pod_visual.py), so the
+    cockpit and exhausts, and the ends of its binder and cables. The game positions those parts itself (swe1r/pod_visual.py), so the
     anchors are locked: model each part around its anchor."""
     from .swe1r.pod_visual import pod_anchor_positions
     positions = pod_anchor_positions(collection.export_model)

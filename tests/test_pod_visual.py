@@ -26,6 +26,16 @@ class PodVisualTest(unittest.TestCase):
         self.assertAlmostEqual(a['engine_l'][0], -2.32 / 1.6)
         self.assertAlmostEqual(a['exhaust_r'][1], (5.22 - 3.5) / 1.6)
 
+    def test_binder_and_cable_anchors(self):
+        # Anakin: binder 0.55 inward from each engine; cables from cockpit + (+-0.98, 2.18, 0) to
+        # engine + (0, -0.98, 0.76) (PoddAnimateVariousThings, swrRace_BuildStretchedQuad)
+        a = load().pod_anchor_positions(2)
+        self.assertAlmostEqual(a['binder_r'][0] * 1.6, 2.32 - 0.55)
+        self.assertAlmostEqual(a['binder_l'][0] * 1.6, -(2.32 - 0.55))
+        self.assertAlmostEqual(a['cable_cockpit_l'][0] * 1.6, -0.98)
+        self.assertAlmostEqual(a['cable_cockpit_r'][1] * 1.6, -4.44 + 2.18)
+        self.assertAlmostEqual(a['cable_engine_r'][2] * 1.6, -0.44 + 0.76)
+
     def test_unknown_model(self):
         self.assertIsNone(load().pod_anchor_positions(1))
 

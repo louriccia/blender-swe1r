@@ -66,17 +66,35 @@ POD_BLENDER_SCALE = 0.016 / 0.01
 
 def pod_anchor_positions(podd_id):
     """{anchor: (x, y, z) in template Blender units} for the pod replacing Podd model podd_id:
-    the engines, cockpit and exhausts, where the game draws them. None if the id has no row."""
+    where the game draws its engines, cockpit and exhausts, and the ends of its energy binder and
+    cables (in the pod's frame, without the game's engine tilt and cockpit lag). None if the id has
+    no row.
+
+    Binder (PoddAnimateVariousThings 0x471760): each engine's position plus the row's binder offset
+    in the engine's frame, its x negated on the right engine. Cables (swrRace_BuildStretchedQuad
+    0x46f0e0, called with x sign +1 for the right cable, slot 10, and -1 for the left, slot 11):
+    from the cockpit plus the row's cockpit cable offset to the engine plus its engine cable
+    offset, both x-signed."""
     row = POD_VISUAL.get(int(podd_id))
     if row is None:
         return None
     s = 1.0 / POD_BLENDER_SCALE
     ex, ey, ez = row['engine']
     xx, xy, xz = row['exhaust']
+    bx, by, bz = row['binder']
+    cx, cy, cz = row['cable_cockpit']
+    kx, ky, kz = row['cable_engine']
+    px, py, pz = row['cockpit']
     return {
         'engine_r': (ex * s, ey * s, ez * s),
         'engine_l': (-ex * s, ey * s, ez * s),
         'cockpit': tuple(c * s for c in row['cockpit']),
         'exhaust_r': ((ex + xx) * s, (ey + xy) * s, (ez + xz) * s),
         'exhaust_l': ((-ex - xx) * s, (ey + xy) * s, (ez + xz) * s),
+        'binder_r': ((ex - bx) * s, (ey + by) * s, (ez + bz) * s),
+        'binder_l': ((-ex + bx) * s, (ey + by) * s, (ez + bz) * s),
+        'cable_cockpit_r': ((px + cx) * s, (py + cy) * s, (pz + cz) * s),
+        'cable_cockpit_l': ((px - cx) * s, (py + cy) * s, (pz + cz) * s),
+        'cable_engine_r': ((ex + kx) * s, (ey + ky) * s, (ez + kz) * s),
+        'cable_engine_l': ((-ex - kx) * s, (ey + ky) * s, (ez + kz) * s),
     }
