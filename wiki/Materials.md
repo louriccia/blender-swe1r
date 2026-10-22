@@ -1,6 +1,6 @@
 The **Material** panel sets the selected meshes' texture and how the game draws it: blend mode, color, culling, scrolling, mirroring and clipping.
 
-It is under **Mesh > Visuals** and only shows while **Visible** is on. Changes apply to the first material of every selected mesh.
+It is a section under **Visible** in the **Selected** panel and only shows while **Visible** is on. Changes apply to the first material of every selected mesh.
 
 ## Before the settings
 - **One material per mesh: export splits it.** A selected mesh has more than one material. Export will split it into one mesh per material. **Split mesh by material** does that now for the active mesh.
@@ -69,7 +69,7 @@ Repeats the texture mirrored, along **x** or **y**, instead of tiling it.
 Stops the texture repeating along **x** or **y**: beyond the edge of the texture, its edge pixels are stretched.
 
 ## Reset
-The arrow in the panel header sets the blend to **Opaque** and sets Hide to **Off** and resets Scroll, Mirror and Clip on the selected meshes. It leaves the texture and Color alone.
+The reset arrow in the section's title row sets the blend to **Opaque** and sets Hide to **Off** and resets Scroll, Mirror and Clip on the selected meshes. It leaves the texture and Color alone.
 
 ## Gotchas
 - New textures may need a game restart to show.

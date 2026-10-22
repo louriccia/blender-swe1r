@@ -369,6 +369,16 @@ def register():
     bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'Show Collision', update =UpdateVisibleSelectable, default=True, description = "Show or hide every collidable mesh in the viewport (does not change the export)")
     bpy.types.Scene.collision_selectable = bpy.props.BoolProperty(name = 'Select Collision', update =UpdateVisibleSelectable, default=True, description = "Make every collidable mesh selectable or unselectable in the viewport")
     bpy.types.Scene.visuals_visible = bpy.props.BoolProperty(name = 'Show Visuals', update =UpdateVisibleSelectable, default=True, description = "Show or hide every visible mesh in the viewport (does not change the export)")
+    # the Selected panel's sections: open or closed, remembered between sessions
+    bpy.types.Scene.lights_expanded = bpy.props.BoolProperty(name = 'lights_expanded', update = save_settings, default = get_setting('lights_expanded', False))
+    bpy.types.Scene.textures_expanded = bpy.props.BoolProperty(name = 'textures_expanded', update = save_settings, default = get_setting('textures_expanded', False))
+    bpy.types.Scene.flipbook_expanded = bpy.props.BoolProperty(name = 'flipbook_expanded', update = save_settings, default = get_setting('flipbook_expanded', False))
+    bpy.types.Scene.flags_expanded = bpy.props.BoolProperty(name = 'flags_expanded', update = save_settings, default = get_setting('flags_expanded', False))
+    bpy.types.Scene.fog_expanded = bpy.props.BoolProperty(name = 'fog_expanded', update = save_settings, default = get_setting('fog_expanded', False))
+    bpy.types.Scene.lighting_expanded = bpy.props.BoolProperty(name = 'lighting_expanded', update = save_settings, default = get_setting('lighting_expanded', False))
+    bpy.types.Scene.trigger_expanded = bpy.props.BoolProperty(name = 'trigger_expanded', update = save_settings, default = get_setting('trigger_expanded', False))
+    bpy.types.Scene.event_triggers_expanded = bpy.props.BoolProperty(name = 'event_triggers_expanded', update = save_settings, default = get_setting('event_triggers_expanded', False))
+    bpy.types.Scene.animation_expanded = bpy.props.BoolProperty(name = 'animation_expanded', update = save_settings, default = get_setting('animation_expanded', False))
     bpy.types.Scene.visuals_selectable = bpy.props.BoolProperty(name = 'Select Visuals', update =UpdateVisibleSelectable, default=True, description = "Make every visible mesh selectable or unselectable in the viewport")
     
     bpy.types.Scene.collidable = bpy.props.BoolProperty(name = 'Collidable', update = update_selected('collidable'), default = False, description = "Pods collide with the selected meshes in game. In a track, a mesh that is neither Visible nor Collidable exports as both; in other models, as Visible")
@@ -451,6 +461,15 @@ def unregister():
     del bpy.types.Scene.collision_selectable
     del bpy.types.Scene.visuals_visible
     del bpy.types.Scene.visuals_selectable
+    del bpy.types.Scene.lights_expanded
+    del bpy.types.Scene.textures_expanded
+    del bpy.types.Scene.flipbook_expanded
+    del bpy.types.Scene.flags_expanded
+    del bpy.types.Scene.fog_expanded
+    del bpy.types.Scene.lighting_expanded
+    del bpy.types.Scene.trigger_expanded
+    del bpy.types.Scene.event_triggers_expanded
+    del bpy.types.Scene.animation_expanded
     del bpy.types.Scene.visible
     del bpy.types.Scene.collidable
     

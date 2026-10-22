@@ -22,7 +22,7 @@ These three toggles set light flag bits:
 - **Flicker** (0x8): the game copies this bit into its lighting state. What it changes on screen is not traced in the decomp.
 - **Persist** (0x10): the light also becomes the game's base light. When the pod later moves onto a mesh without lighting data, the game returns to the last **Persist** light. A light without **Persist** applies only until the pod moves to another mesh.
 
-The reset arrow in the panel header clears the light, the ambient color and the three toggles on the selected meshes.
+The reset arrow in the section's title row clears the light, the ambient color and the three toggles on the selected meshes.
 
 ## Limits and gotchas
 - Lighting changes when the pod moves onto a mesh with different collision data, not every frame.

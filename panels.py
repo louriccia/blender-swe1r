@@ -494,6 +494,8 @@ class SWR_PT_export(SWRPanel, bpy.types.Panel):
         row.prop(context.scene, "is_export_model", text="Model", icon='MESH_CUBE', toggle=True)
         row.prop(context.scene, "is_export_texture", text="Texture", icon='MATERIAL', toggle=True)
         row.prop(context.scene, "is_export_spline", text="Spline", icon='CURVE_BEZCURVE', toggle=True)
+        layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
+        layout.prop(context.scene, "is_export_debug", text = "Write model debug dump (.txt)")
 
         row = layout.row()
         row.scale_y = 1.5
@@ -507,24 +509,12 @@ class SWR_PT_export(SWRPanel, bpy.types.Panel):
         elif context.scene.is_export_texture:
             hint(layout, "New textures may need a game restart")
 
-class SWR_PT_export_advanced(SWRPanel, bpy.types.Panel):
-    bl_label = "Advanced"
-    bl_idname = "SWR_PT_export_advanced"
-    bl_parent_id = "SWR_PT_export"
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(context.scene, "is_export_separate", text = "Save copy to individual .bin file(s)")
-        layout.prop(context.scene, "is_export_debug", text = "Write model debug dump (.txt)")
-
 
 # MARK: Tools
 class SWR_PT_tools(SWRPanel, bpy.types.Panel):
     bl_label = "Tools"
     bl_idname = "SWR_PT_tools"
     bl_order = 3
-    bl_options = {'DEFAULT_CLOSED'}
     help_page = "Tools"
 
     def draw_header(self, context):
@@ -539,17 +529,15 @@ class SWR_PT_tools(SWRPanel, bpy.types.Panel):
 
         layout.operator("object.generate_material_assets", text="Export Asset Library", icon='ASSET_MANAGER')
 
-class SWR_PT_display(SWRPanel, bpy.types.Panel):
-    bl_label = "Display"
-    bl_idname = "SWR_PT_display"
-    bl_parent_id = "SWR_PT_tools"
-    help_page = "Display"
-
-    def draw(self, context):
-        layout = self.layout
+        box = layout.box()
+        row = box.row()
+        row.label(text = "Display")
+        sub = row.row()
+        sub.alignment = 'RIGHT'
+        help_button(sub, "Display")
         for label, icon, prop, selectable, visible in [("Visuals", 'MATERIAL_DATA', "visible", "visuals_selectable", "visuals_visible"),
                                                        ("Collision", 'MOD_PHYSICS', "collidable", "collision_selectable", "collision_visible")]:
-            row = layout.row(align = True)
+            row = box.row(align = True)
             row.label(text = label, icon = icon)
             row.prop(context.scene, selectable, toggle = True, text = "", icon = 'RESTRICT_SELECT_OFF' if getattr(context.scene, selectable) else 'RESTRICT_SELECT_ON')
             row.prop(context.scene, visible, toggle = True, text = "", icon = 'HIDE_OFF' if getattr(context.scene, visible) else 'HIDE_ON')
@@ -576,121 +564,95 @@ class SWR_UL_load_zones(bpy.types.UIList):
             row.label(text=item.name)
 
 
-# MARK: Mesh
-class SWR_PT_mesh(SWRPanel, bpy.types.Panel):
-    bl_label = "Mesh"
-    bl_idname = "SWR_PT_mesh"
-    bl_order = 4
+# MARK: Selected
+# The Selected panel: boxed sections with a clickable title, a reset arrow while the selection
+# differs from the defaults, the "?" to the section's wiki page, and an expand arrow. Which
+# sections are open is remembered between sessions (utils.SETTINGS_KEYS).
+def section_header(context, layout, expanded, name, icon, help_page = None, reset_operator = None, reset_default = None):
+    row = layout.row()
+    subrow = row.row()
+    subrow.alignment = 'LEFT'
+    subrow.prop(context.scene, expanded, text = name, emboss = False, icon = icon)
+    subrow = row.row()
+    subrow.alignment = 'RIGHT'
+    if reset_operator and not getattr(context.scene, reset_default, True):
+        subrow.operator(reset_operator, text = '', emboss = False, icon = 'LOOP_BACK')
+    if help_page:
+        help_button(subrow, help_page)
+    is_open = getattr(context.scene, expanded)
+    subrow.prop(context.scene, expanded, icon = 'DOWNARROW_HLT' if is_open else 'RIGHTARROW', text = '', emboss = False)
+    return is_open
 
-    @classmethod
-    def poll(cls, context):
-        return bool(selected_meshes(context))
+def section(context, layout, expanded, name, icon, draw, **header):
+    box = layout.box()
+    if section_header(context, box, expanded, name, icon, **header):
+        draw(box, context)
 
-    def draw_header(self, context):
-        self.layout.label(icon='MESH_DATA')
+def title(layout, name, icon, help_page):
+    """The heading of an object's settings (a trigger, spline, light, node)."""
+    row = layout.row()
+    row.label(text = name, icon = icon)
+    sub = row.row()
+    sub.alignment = 'RIGHT'
+    help_button(sub, help_page)
 
-    def draw(self, context):
-        meshes = selected_meshes(context)
-        text = meshes[0].name if len(meshes) == 1 else f"{len(meshes)} meshes selected"
-        self.layout.label(text = text)
-        if context.scene.indeterminates:
-            hint(self.layout, "* the selection has mixed values")
+def is_trigger(obj):
+    return obj is not None and obj.type == 'EMPTY' and obj.empty_display_type == 'CUBE'
 
-class MeshSubPanel(SWRPanel):
-    bl_parent_id = "SWR_PT_mesh"
+def draw_vertex_colors(layout, context):
+    layout.prop(context.scene, 'light_falloff', text = 'Falloff', slider = True)
+    row = layout.row()
+    row.label(text = 'Ambient Light')
+    row.prop(context.scene, 'ambient_light', text='')
+    layout.prop(context.scene, 'ambient_light_intensity', text = 'Ambient Strength', slider = True)
+    row = layout.row()
+    row.scale_y = 1.5
+    row.operator('view3d.bake_vcolors', text='Bake')
 
-class SWR_PT_visuals(MeshSubPanel, bpy.types.Panel):
-    bl_label = "Visuals"
-    bl_idname = "SWR_PT_visuals"
-    help_page = "Visuals"
-    reset_operator = 'view3d.reset_visuals'
-    reset_default = 'is_visuals_default'
-
-    def draw_header(self, context):
-        self.layout.prop(context.scene, 'visible', text = is_indeterminate("visible"))
-
-    def draw(self, context):
-        if not context.scene.visible:
-            hint(self.layout, "Not drawn in game")
-
-class VisualsSubPanel(SWRPanel):
-    bl_parent_id = "SWR_PT_visuals"
-
-    @classmethod
-    def poll(cls, context):
-        return context.scene.visible
-
-class SWR_PT_vertex_colors(VisualsSubPanel, bpy.types.Panel):
-    bl_label = "Vertex Colors"
-    bl_idname = "SWR_PT_vertex_colors"
-    bl_options = {'DEFAULT_CLOSED'}
-    help_page = "Vertex-Colors"
-    reset_operator = 'view3d.reset_v_color'
-    reset_default = 'is_v_lighting_default'
-
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(context.scene, 'light_falloff', text = 'Falloff', slider = True)
+def draw_material(layout, context):
+    meshes = selected_meshes(context)
+    slot_counts = [len(m.material_slots) for m in meshes]
+    if max(slot_counts) > 1:
+        layout.label(text = "One material per mesh: export splits it", icon = 'ERROR')
         row = layout.row()
-        row.label(text = 'Ambient Light')
-        row.prop(context.scene, 'ambient_light', text='')
-        layout.prop(context.scene, 'ambient_light_intensity', text = 'Ambient Strength', slider = True)
-        row = layout.row()
-        row.scale_y = 1.5
-        row.operator('view3d.bake_vcolors', text='Bake')
+        row.enabled = context.active_object in meshes and len(context.active_object.material_slots) > 1
+        row.operator("view3d.split_by_material", text = "Split mesh by material")
+        return
+    if min(slot_counts) == 0:
+        layout.operator('view3d.remake_materials', text = "Add material", icon = 'ADD')
+        return
 
-class SWR_PT_material(VisualsSubPanel, bpy.types.Panel):
-    bl_label = "Material"
-    bl_idname = "SWR_PT_material"
-    help_page = "Materials"
-    reset_operator = 'view3d.reset_texture'
-    reset_default = 'is_texture_default'
-
-    def draw(self, context):
-        layout = self.layout
-        meshes = selected_meshes(context)
-        slot_counts = [len(m.material_slots) for m in meshes]
-        if max(slot_counts) > 1:
-            layout.label(text = "One material per mesh: export splits it", icon = 'ERROR')
-            row = layout.row()
-            row.enabled = context.active_object in meshes and len(context.active_object.material_slots) > 1
-            row.operator("view3d.split_by_material", text = "Split mesh by material")
-            return
-        if min(slot_counts) == 0:
-            layout.operator('view3d.remake_materials', text = "Add material", icon = 'ADD')
-            return
-
-        in_sky = any(c.collection_type == '1' for m in meshes for c in m.users_collection)
-        modes = {m.material_slots[0].material.blend_mode for m in meshes if m.material_slots[0].material is not None}
-        if in_sky:
-            hint(layout, "Blend Mode: Sky (automatic in a", "Skybox collection)")
-        else:
-            row = layout.row()
-            row.prop(context.scene, "blend_mode", text = "Blend" + ("*" if len(modes) > 1 else ""))
+    in_sky = any(c.collection_type == '1' for m in meshes for c in m.users_collection)
+    modes = {m.material_slots[0].material.blend_mode for m in meshes if m.material_slots[0].material is not None}
+    if in_sky:
+        hint(layout, "Blend Mode: Sky (automatic in a", "Skybox collection)")
+    else:
         row = layout.row()
-        row.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
-        # only Tinted, Glow and Flat Color (and some Custom setups) draw with Color
-        row.enabled = bool(modes & {'TINTED', 'GLOW', 'FLAT', 'SHADOW', 'CUSTOM'})
-        culls = {m.material_slots[0].material.cull_mode for m in meshes if m.material_slots[0].material is not None}
-        layout.prop(context.scene, 'cull_mode', text = "Hide" + ("*" if len(culls) > 1 else ""))
-        row = layout.row(align=True)
-        row.prop(context.scene, "texture", text = "", placeholder = is_indeterminate("texture", "Mixed"))
-        row.operator("view3d.open_image", text="", icon='FILEBROWSER')
-        if not context.scene.texture:
-            return
-        row = layout.row()
-        row.label(text = 'Scroll')
-        row.prop(context.scene, 'scroll_x', text = f'x{is_indeterminate("scroll_x")}')
-        row.prop(context.scene, 'scroll_y', text = f'y{is_indeterminate("scroll_y")}')
-        # flip_y/clip_y are the X (U) axis, flip_x/clip_x the Y (V) axis (see Material.make)
-        row = layout.row()
-        row.label(text = 'Mirror')
-        row.prop(context.scene, 'flip_y', text = f'x{is_indeterminate("flip_y")}')
-        row.prop(context.scene, 'flip_x', text = f'y{is_indeterminate("flip_x")}')
-        row = layout.row()
-        row.label(text = 'Clip')
-        row.prop(context.scene, 'clip_y', text = f'x{is_indeterminate("clip_y")}')
-        row.prop(context.scene, 'clip_x', text = f'y{is_indeterminate("clip_x")}')
+        row.prop(context.scene, "blend_mode", text = "Blend" + ("*" if len(modes) > 1 else ""))
+    row = layout.row()
+    row.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
+    # only Tinted, Glow and Flat Color (and some Custom setups) draw with Color
+    row.enabled = bool(modes & {'TINTED', 'GLOW', 'FLAT', 'SHADOW', 'CUSTOM'})
+    culls = {m.material_slots[0].material.cull_mode for m in meshes if m.material_slots[0].material is not None}
+    layout.prop(context.scene, 'cull_mode', text = "Hide" + ("*" if len(culls) > 1 else ""))
+    row = layout.row(align=True)
+    row.prop(context.scene, "texture", text = "", placeholder = is_indeterminate("texture", "Mixed"))
+    row.operator("view3d.open_image", text="", icon='FILEBROWSER')
+    if not context.scene.texture:
+        return
+    row = layout.row()
+    row.label(text = 'Scroll')
+    row.prop(context.scene, 'scroll_x', text = f'x{is_indeterminate("scroll_x")}')
+    row.prop(context.scene, 'scroll_y', text = f'y{is_indeterminate("scroll_y")}')
+    # flip_y/clip_y are the X (U) axis, flip_x/clip_x the Y (V) axis (see Material.make)
+    row = layout.row()
+    row.label(text = 'Mirror')
+    row.prop(context.scene, 'flip_y', text = f'x{is_indeterminate("flip_y")}')
+    row.prop(context.scene, 'flip_x', text = f'y{is_indeterminate("flip_x")}')
+    row = layout.row()
+    row.label(text = 'Clip')
+    row.prop(context.scene, 'clip_y', text = f'x{is_indeterminate("clip_y")}')
+    row.prop(context.scene, 'clip_x', text = f'y{is_indeterminate("clip_x")}')
 
 class SWR_UL_flipbook_frames(bpy.types.UIList):
     """A material's flipbook frames, in play order"""
@@ -700,390 +662,298 @@ class SWR_UL_flipbook_frames(bpy.types.UIList):
         row.label(text = str(index + 1))
         row.prop(item, 'image', text = '')
 
-class SWR_PT_flipbook(SWRPanel, bpy.types.Panel):
-    bl_label = "Flipbook"
-    bl_idname = "SWR_PT_flipbook"
-    bl_parent_id = "SWR_PT_material"
-    bl_options = {'DEFAULT_CLOSED'}
-    help_page = "Flipbooks"
+def draw_flipbook(layout, context):
+    material = context.active_object.material_slots[0].material
+    if len(selected_meshes(context)) > 1:
+        hint(layout, f"Editing {material.name}", "(the active mesh's material)")
+    row = layout.row()
+    row.template_list("SWR_UL_flipbook_frames", "", material, "flipbook_frames", material, "flipbook_index", rows = 4)
+    col = row.column(align = True)
+    col.operator("view3d.flipbook_add_files", text = "", icon = 'FILEBROWSER')
+    col.operator("view3d.flipbook_frame", text = "", icon = 'ADD').action = 'ADD'
+    col.operator("view3d.flipbook_frame", text = "", icon = 'REMOVE').action = 'REMOVE'
+    col.separator()
+    col.operator("view3d.flipbook_frame", text = "", icon = 'TRIA_UP').action = 'UP'
+    col.operator("view3d.flipbook_frame", text = "", icon = 'TRIA_DOWN').action = 'DOWN'
+    col.separator()
+    col.operator("view3d.flipbook_frame", text = "", icon = 'X').action = 'CLEAR'
+    if not len(material.flipbook_frames):
+        hint(layout, "No flipbook. Add frames to animate", "this material's texture")
+        return
+    row = layout.row()
+    row.prop(material, 'flipbook_frame_time', text = "Frame Time")
+    row.prop(material, 'flipbook_loop', text = "Loop")
+    frames = len(material.flipbook_frames)
+    hint(layout, f"{frames} frame{'s' if frames != 1 else ''}, {frames * material.flipbook_frame_time:.2f} s per cycle",
+         "Blender shows the material's own texture")
 
-    @classmethod
-    def poll(cls, context):
-        obj = context.active_object
-        return context.scene.visible and obj is not None and obj.type == 'MESH' and len(obj.material_slots) == 1 \
-            and obj.material_slots[0].material is not None
+def draw_surface_flags(layout, context):
+    gameplay = ["Fast", "Slow", "Swst", "Slip", "Lava", "ZOn", "ZOff", "Fall", "NRsp"]
+    effects = ["Dust", "Wet", "Swmp", "Snow", "NSnw", "Mirr", "Side"]
+    feedback = ["Ruff", "Soft", "Flat"]
+    labels = SURFACE_FLAG_LABELS
 
-    def draw(self, context):
-        layout = self.layout
-        material = context.active_object.material_slots[0].material
-        if len(selected_meshes(context)) > 1:
-            hint(layout, f"Editing {material.name}", "(the active mesh's material)")
-        row = layout.row()
-        row.template_list("SWR_UL_flipbook_frames", "", material, "flipbook_frames", material, "flipbook_index", rows = 4)
-        col = row.column(align = True)
-        col.operator("view3d.flipbook_add_files", text = "", icon = 'FILEBROWSER')
-        col.operator("view3d.flipbook_frame", text = "", icon = 'ADD').action = 'ADD'
-        col.operator("view3d.flipbook_frame", text = "", icon = 'REMOVE').action = 'REMOVE'
-        col.separator()
-        col.operator("view3d.flipbook_frame", text = "", icon = 'TRIA_UP').action = 'UP'
-        col.operator("view3d.flipbook_frame", text = "", icon = 'TRIA_DOWN').action = 'DOWN'
-        col.separator()
-        col.operator("view3d.flipbook_frame", text = "", icon = 'X').action = 'CLEAR'
-        if not len(material.flipbook_frames):
-            hint(layout, "No flipbook. Add frames to animate", "this material's texture")
-            return
-        row = layout.row()
-        row.prop(material, 'flipbook_frame_time', text = "Frame Time")
-        row.prop(material, 'flipbook_loop', text = "Loop")
-        frames = len(material.flipbook_frames)
-        hint(layout, f"{frames} frame{'s' if frames != 1 else ''}, {frames * material.flipbook_frame_time:.2f} s per cycle",
-             "Blender shows the material's own texture")
+    row = layout.row()
+    col = row.column()
+    hint(col, "Gameplay")
+    for flag in gameplay:
+        col.prop(context.scene, flag, text = f"{labels.get(flag, flag)}{is_indeterminate(flag)}")
+    hint(col, "Overrides")
+    col.prop(context.scene, "magnet", text = f"Magnet{is_indeterminate('magnet')}")
+    col.prop(context.scene, "elevation", text = f"Full Raycast{is_indeterminate('elevation')}")
+    col.prop(context.scene, "strict_spline", text = f"Spline Fork{is_indeterminate('strict_spline')}")
 
-class SWR_PT_collision(MeshSubPanel, bpy.types.Panel):
-    bl_label = "Collision"
-    bl_idname = "SWR_PT_collision"
-    help_page = "Collision"
-    reset_operator = 'view3d.reset_collidable'
-    reset_default = 'is_collision_default'
+    col = row.column()
+    hint(col, "Effects")
+    for flag in effects:
+        col.prop(context.scene, flag, text = f"{labels.get(flag, flag)}{is_indeterminate(flag)}")
+    hint(col, "Feedback")
+    for flag in feedback:
+        col.prop(context.scene, flag, text = f"{labels.get(flag, flag)}{is_indeterminate(flag)}")
 
-    def draw_header(self, context):
-        self.layout.prop(context.scene, 'collidable', text = is_indeterminate("collidable"))
+def draw_fog(layout, context):
+    hint(layout, "Set when the pod touches these")
+    # the game reads the fog start with the color (fog flag 0x1) and the draw distance alone (0x2)
+    row = layout.row()
+    row.column().prop(context.scene, 'fog_color_update', text = f'Set fog{is_indeterminate("fog_color_update")}')
+    col = row.column()
+    col.prop(context.scene, 'fog_color', text = "")
+    col.prop(context.scene, 'fog_min', text = f'Start{is_indeterminate("fog_min")}', slider = True)
+    col.enabled = context.scene.fog_color_update and not context.scene.fog_clear
 
-    def draw(self, context):
-        layout = self.layout
-        if not context.scene.collidable:
-            hint(layout, "Pods pass through it")
-        elif not context.scene.collision_data:
-            layout.prop(context.scene, "collision_data", text = f"Add surface flags, fog, etc.{is_indeterminate('collision_data')}", icon = "ADD")
+    row = layout.row()
+    row.column().prop(context.scene, 'fog_range_update', text = f'Set draw{is_indeterminate("fog_range_update")}')
+    col = row.column()
+    col.prop(context.scene, 'fog_max', text = f'Distance{is_indeterminate("fog_max")}', slider = True)
+    col.enabled = context.scene.fog_range_update
 
-class CollisionSubPanel(SWRPanel):
-    bl_parent_id = "SWR_PT_collision"
-    bl_options = {'DEFAULT_CLOSED'}
+    layout.prop(context.scene, 'fog_clear', text = f'Clear Fog{is_indeterminate("fog_clear")}', icon = 'SHADERFX')
+    row = layout.row()
+    row.prop(context.scene, 'skybox_show', text = f'Show Skybox{is_indeterminate("skybox_show")}', icon = 'HIDE_OFF')
+    row.prop(context.scene, 'skybox_hide', text = f'Hide Skybox{is_indeterminate("skybox_hide")}', icon = 'HIDE_ON')
 
-    @classmethod
-    def poll(cls, context):
-        return context.scene.collidable and context.scene.collision_data
+def draw_pod_lighting(layout, context):
+    hint(layout, "Lights the pod while on these")
+    layout.prop(context.scene, 'lighting_light', text = "", placeholder = is_indeterminate("lighting_light", "Mixed"))
+    layout.prop(context.scene, 'lighting_color', text = f'Ambient Color{is_indeterminate("lighting_color")}')
+    row = layout.row(align = True)
+    row.prop(context.scene, 'lighting_flicker', text = f'Flicker{is_indeterminate("lighting_flicker")}', toggle = True)
+    row.prop(context.scene, 'lighting_invert', text = f'Point{is_indeterminate("lighting_invert")}', toggle = True)
+    row.prop(context.scene, 'lighting_persistent', text = f'Persist{is_indeterminate("lighting_persistent")}', toggle = True)
 
-class SWR_PT_surface_flags(CollisionSubPanel, bpy.types.Panel):
-    bl_label = "Surface Flags"
-    bl_idname = "SWR_PT_surface_flags"
-    help_page = "Surface-Flags"
-    reset_operator = 'view3d.reset_terrain'
-    reset_default = 'is_terrain_default'
+def draw_load_zones(layout, context):
+    hint(layout, "Click a zone to cycle: unchanged,", "load on touch, unload on touch")
+    layout.template_list("SWR_UL_load_zones", "", context.scene, "load_trigger", context.scene, "load_trigger_index", rows=4)
+    row = layout.row()
+    row.enabled = len(context.selected_objects) == 1
+    row.operator("view3d.preview_load", text = "Preview", icon = 'HIDE_OFF')
 
-    def draw(self, context):
-        gameplay = ["Fast", "Slow", "Swst", "Slip", "Lava", "ZOn", "ZOff", "Fall", "NRsp"]
-        effects = ["Dust", "Wet", "Swmp", "Snow", "NSnw", "Mirr", "Side"]
-        feedback = ["Ruff", "Soft", "Flat"]
-        labels = SURFACE_FLAG_LABELS
+def draw_event_triggers(layout, context):
+    meshes = selected_meshes(context)
+    triggers = [child for mesh in meshes for child in mesh.children if is_trigger(child)]
+    if triggers:
+        col = layout.column(align = True)
+        for trigger in triggers:
+            col.label(text = f"{trigger.name}: {type_label(trigger.trigger_id)}", icon = 'CUBE')
+    else:
+        hint(layout, "No triggers on these meshes")
 
-        row = self.layout.row()
-        col = row.column()
-        hint(col, "Gameplay")
-        for flag in gameplay:
-            col.prop(context.scene, flag, text = f"{labels.get(flag, flag)}{is_indeterminate(flag)}")
-        hint(col, "Overrides")
-        col.prop(context.scene, "magnet", text = f"Magnet{is_indeterminate('magnet')}")
-        col.prop(context.scene, "elevation", text = f"Full Raycast{is_indeterminate('elevation')}")
-        col.prop(context.scene, "strict_spline", text = f"Spline Fork{is_indeterminate('strict_spline')}")
-
-        col = row.column()
-        hint(col, "Effects")
-        for flag in effects:
-            col.prop(context.scene, flag, text = f"{labels.get(flag, flag)}{is_indeterminate(flag)}")
-        hint(col, "Feedback")
-        for flag in feedback:
-            col.prop(context.scene, flag, text = f"{labels.get(flag, flag)}{is_indeterminate(flag)}")
-
-class SWR_PT_fog(CollisionSubPanel, bpy.types.Panel):
-    bl_label = "Fog & Skybox"
-    bl_idname = "SWR_PT_fog"
-    help_page = "Fog-and-Skybox"
-    reset_operator = 'view3d.reset_fog'
-    reset_default = 'is_fog_default'
-
-    def draw(self, context):
-        layout = self.layout
-        hint(layout, "Set when the pod touches these")
-        # the game reads the fog start with the color (fog flag 0x1) and the draw distance alone (0x2)
-        row = layout.row()
-        row.column().prop(context.scene, 'fog_color_update', text = f'Set fog{is_indeterminate("fog_color_update")}')
-        col = row.column()
-        col.prop(context.scene, 'fog_color', text = "")
-        col.prop(context.scene, 'fog_min', text = f'Start{is_indeterminate("fog_min")}', slider = True)
-        col.enabled = context.scene.fog_color_update and not context.scene.fog_clear
-
-        row = layout.row()
-        row.column().prop(context.scene, 'fog_range_update', text = f'Set draw{is_indeterminate("fog_range_update")}')
-        col = row.column()
-        col.prop(context.scene, 'fog_max', text = f'Distance{is_indeterminate("fog_max")}', slider = True)
-        col.enabled = context.scene.fog_range_update
-
-        layout.prop(context.scene, 'fog_clear', text = f'Clear Fog{is_indeterminate("fog_clear")}', icon = 'SHADERFX')
-        row = layout.row()
-        row.prop(context.scene, 'skybox_show', text = f'Show Skybox{is_indeterminate("skybox_show")}', icon = 'HIDE_OFF')
-        row.prop(context.scene, 'skybox_hide', text = f'Hide Skybox{is_indeterminate("skybox_hide")}', icon = 'HIDE_ON')
-
-class SWR_PT_pod_lighting(CollisionSubPanel, bpy.types.Panel):
-    bl_label = "Pod Lighting"
-    bl_idname = "SWR_PT_pod_lighting"
-    help_page = "Pod-Lighting"
-    reset_operator = 'view3d.reset_lighting'
-    reset_default = 'is_lighting_default'
-
-    def draw(self, context):
-        layout = self.layout
-        hint(layout, "Lights the pod while on these")
-        layout.prop(context.scene, 'lighting_light', text = "", placeholder = is_indeterminate("lighting_light", "Mixed"))
-        layout.prop(context.scene, 'lighting_color', text = f'Ambient Color{is_indeterminate("lighting_color")}')
-        row = layout.row(align = True)
-        row.prop(context.scene, 'lighting_flicker', text = f'Flicker{is_indeterminate("lighting_flicker")}', toggle = True)
-        row.prop(context.scene, 'lighting_invert', text = f'Point{is_indeterminate("lighting_invert")}', toggle = True)
-        row.prop(context.scene, 'lighting_persistent', text = f'Persist{is_indeterminate("lighting_persistent")}', toggle = True)
-
-class SWR_PT_load_zones(CollisionSubPanel, bpy.types.Panel):
-    bl_label = "Load Zones"
-    bl_idname = "SWR_PT_load_zones"
-    help_page = "Load-Zones"
-    reset_operator = 'view3d.reset_loading'
-    reset_default = 'is_loading_default'
-
-    def draw(self, context):
-        layout = self.layout
-        hint(layout, "Click a zone to cycle: unchanged,", "load on touch, unload on touch")
-        layout.template_list("SWR_UL_load_zones", "", context.scene, "load_trigger", context.scene, "load_trigger_index", rows=4)
-        row = layout.row()
-        row.enabled = len(context.selected_objects) == 1
-        row.operator("view3d.preview_load", text = "Preview", icon = 'HIDE_OFF')
-
-class SWR_PT_event_triggers(CollisionSubPanel, bpy.types.Panel):
-    bl_label = "Event Triggers"
-    bl_idname = "SWR_PT_event_triggers"
-    help_page = "Triggers"
-
-    def draw(self, context):
-        layout = self.layout
-        meshes = selected_meshes(context)
-        triggers = [child for mesh in meshes for child in mesh.children if is_trigger(child)]
-        if triggers:
-            col = layout.column(align = True)
-            for trigger in triggers:
-                col.label(text = f"{trigger.name}: {type_label(trigger.trigger_id)}", icon = 'CUBE')
+def draw_trigger(layout, context):
+    trigger = context.active_object
+    row = layout.row(align = True)
+    row.prop(trigger, 'trigger_type', text = '')
+    number = row.row(align = True)
+    number.scale_x = 0.7
+    number.prop(trigger, 'trigger_id', text = '')
+    entry = TRIGGER_TYPES.get(trigger.trigger_id)
+    if entry is not None:
+        hint(layout, *textwrap.wrap(entry[1], 38))
+    for warning in type_warnings(trigger.trigger_id):
+        if warning == "Needs a Target" and trigger.target is not None:
+            continue
+        serious = warning.startswith(("Crash", "Can crash", "Keep out", "Explodes", "Needs", "Not a known"))
+        col = layout.column(align = True)
+        for i, line in enumerate(textwrap.wrap(warning, 36)):
+            col.label(text = line, icon = ('ERROR' if serious else 'INFO') if i == 0 else 'BLANK1')
+    row = layout.row()
+    col = row.column()
+    col.prop(trigger, "Disabled", text = 'Disabled')
+    col.prop(trigger, "IgnoreAI", text = 'Ignore AI')
+    col.prop(trigger, "SpeedCheck150", text = '>150 Speed')
+    col = row.column()
+    col.prop(trigger, "SkipLap1", text = 'Skip Lap 1')
+    col.prop(trigger, "SkipLap2", text = 'Skip Lap 2')
+    col.prop(trigger, "SkipLap3", text = 'Skip Lap 3')
+    layout.prop(trigger, 'target')
+    if trigger.parent is None or trigger.parent.type != 'MESH':
+        layout.label(text = "Parent this to a collidable mesh", icon = 'ERROR')
+    if trigger_tilted(trigger.matrix_world):
+        if trigger.trigger_id in PLANE_TRIGGER_TYPES:
+            hint(layout, "Tilt about local Y tilts the plane;", "roll about local X doesn't count")
         else:
-            hint(layout, "No triggers on these meshes")
-        layout.operator("view3d.add_trigger", text = "Add event trigger", icon = 'ADD')
+            hint(layout, "The game's zone stays upright: tilt", "only narrows it, roll does nothing")
+    layout.prop(trigger, 'trigger_settings', text = 'Settings')
 
+def draw_spline(layout, context):
+    spline = context.active_object.data.splines.active
+    main = find_main_path(context.active_object.data.splines)
+    row = layout.row()
+    row.column().operator("curve.select_first_spline_point", text = "Select spawn", icon = "SELECT_SET")
+    column = row.column()
+    column.enabled = main is not None and main.use_cyclic_u and context.mode == 'EDIT_CURVE'
+    column.operator("view3d.reconstruct_spline", text = "Set spawn", icon = "TRACKING")
+    if not column.enabled:
+        hint(layout, "Set spawn: a cyclic main path, in Edit Mode")
+    layout.operator("view3d.invert_spline", text = "Invert", icon='ARROW_LEFTRIGHT')
+    row = layout.row()
+    row.prop(spline, 'use_cyclic_u', text = "Cyclic")
+    if context.space_data is not None and context.space_data.type == 'VIEW_3D':
+        row.prop(context.space_data.overlay, "show_curve_normals", text = "Show direction")
+    if not spline.use_cyclic_u:
+        hint(layout, "Not cyclic: point-to-point track")
 
-# MARK: Trigger
-def is_trigger(obj):
-    return obj is not None and obj.type == 'EMPTY' and obj.empty_display_type == 'CUBE'
+def draw_light(layout, context):
+    light = context.active_object.data
+    layout.prop(light, "color", text = "Color")
+    layout.prop(light, 'LStr', text = 'Light Streak')
+    hint(layout, "Pod lights are set on collision:", "Selected > Collidable > Pod Lighting")
 
-class SWR_PT_trigger(SWRPanel, bpy.types.Panel):
-    bl_label = "Event Trigger"
-    bl_idname = "SWR_PT_trigger"
-    bl_order = 5
-    help_page = "Triggers"
+def draw_node(layout, context):
+    obj = context.active_object
+    layout.prop(obj, 'swr_node_type', text = "Type")
+    node_type = obj.swr_node_type
+    children = sorted((c for c in obj.children), key = lambda c: c.name)
+    if node_type == 'SELECTOR':
+        layout.prop(obj, 'swr_selected_child', text = "Draws child")
+    elif node_type == 'LOD':
+        col = layout.column(align = True)
+        for i in range(8):
+            col.prop(obj, 'swr_lod_distances', index = i, text = f"Child {i + 1} from" if i else "Child 1 from")
+        hint(layout, "The replacement renderer always", "draws the first child")
+    elif node_type == 'CAMERA':
+        layout.prop(obj, 'swr_face_camera')
+        layout.prop(obj, 'swr_follow_model')
+    if node_type in ('SELECTOR', 'LOD') and children:
+        hint(layout, "Children, in order (by name):")
+        col = layout.column(align = True)
+        for i, child in enumerate(children):
+            col.label(text = f"{i}: {child.name}" if node_type == 'SELECTOR' else f"{i + 1}: {child.name}", icon = 'DOT')
 
-    @classmethod
-    def poll(cls, context):
-        return is_trigger(context.active_object)
+def draw_animation(layout, context):
+    obj = context.active_object
+    hold = utils.hold_key_frame(obj)
+    frames = [k.co[0] for f in utils.transform_fcurves(obj)
+              for i, k in enumerate(f.keyframe_points)
+              if hold is None or not (i == len(f.keyframe_points) - 1 and utils.is_hold_key(f, hold))]
+    fps = context.scene.render.fps
+    hint(layout, f"{obj.name}: keys {min(frames) / fps:.2f} to {max(frames) / fps:.2f} s")
+    layout.prop(obj, 'anim_loop')
+    row = layout.row()
+    row.prop(obj, 'anim_loop_transition')
+    row.enabled = obj.anim_loop
+    if obj.anim_loop and obj.anim_loop_transition:
+        col = layout.column(align = True)
+        col.label(text = "Smooth Wrap freezes the animation", icon = 'ERROR')
+        col.label(text = "at its first loop in game")
+    layout.prop(obj, 'anim_loop_length', text = "Loop Length (0: last key)")
+    hint(layout, "Tracks play their animations by", "themselves; other models when the", "game or a trigger starts them")
 
-    def draw_header(self, context):
-        self.layout.label(icon='CUBE')
+def draw_mesh(layout, context):
+    scene = context.scene
+    # Visuals: drawn in game
+    parent_box = layout.box()
+    row = parent_box.row()
+    row.scale_y = 1.5
+    row.prop(scene, 'visible', text = f'Visible{is_indeterminate("visible")}')
+    sub = row.row()
+    sub.alignment = 'RIGHT'
+    if not scene.is_visuals_default:
+        sub.operator('view3d.reset_visuals', text = '', emboss = False, icon = 'LOOP_BACK')
+    help_button(sub, "Visuals")
+    if scene.visible:
+        section(context, parent_box, 'lights_expanded', 'Vertex Colors', 'VPAINT_HLT', draw_vertex_colors,
+                help_page = "Vertex-Colors", reset_operator = 'view3d.reset_v_color', reset_default = 'is_v_lighting_default')
+        box = parent_box.box()
+        if section_header(context, box, 'textures_expanded', 'Material', 'MATERIAL', help_page = "Materials",
+                          reset_operator = 'view3d.reset_texture', reset_default = 'is_texture_default'):
+            draw_material(box, context)
+            obj = context.active_object
+            if obj is not None and obj.type == 'MESH' and len(obj.material_slots) == 1 and obj.material_slots[0].material is not None:
+                section(context, box, 'flipbook_expanded', 'Flipbook', 'RENDER_ANIMATION', draw_flipbook, help_page = "Flipbooks")
+    else:
+        hint(parent_box, "Not drawn in game")
 
-    def draw(self, context):
-        layout = self.layout
-        trigger = context.active_object
-        row = layout.row(align = True)
-        row.prop(trigger, 'trigger_type', text = '')
-        number = row.row(align = True)
-        number.scale_x = 0.7
-        number.prop(trigger, 'trigger_id', text = '')
-        entry = TRIGGER_TYPES.get(trigger.trigger_id)
-        if entry is not None:
-            hint(layout, *textwrap.wrap(entry[1], 38))
-        for warning in type_warnings(trigger.trigger_id):
-            if warning == "Needs a Target" and trigger.target is not None:
-                continue
-            serious = warning.startswith(("Crash", "Can crash", "Keep out", "Explodes", "Needs", "Not a known"))
-            col = layout.column(align = True)
-            for i, line in enumerate(textwrap.wrap(warning, 36)):
-                col.label(text = line, icon = ('ERROR' if serious else 'INFO') if i == 0 else 'BLANK1')
-        row = layout.row()
-        col = row.column()
-        col.prop(trigger, "Disabled", text = 'Disabled')
-        col.prop(trigger, "IgnoreAI", text = 'Ignore AI')
-        col.prop(trigger, "SpeedCheck150", text = '>150 Speed')
-        col = row.column()
-        col.prop(trigger, "SkipLap1", text = 'Skip Lap 1')
-        col.prop(trigger, "SkipLap2", text = 'Skip Lap 2')
-        col.prop(trigger, "SkipLap3", text = 'Skip Lap 3')
-        layout.prop(trigger, 'target')
-        if trigger.parent is None or trigger.parent.type != 'MESH':
-            layout.label(text = "Parent this to a collidable mesh", icon = 'ERROR')
-        if trigger_tilted(trigger.matrix_world):
-            if trigger.trigger_id in PLANE_TRIGGER_TYPES:
-                hint(layout, "Tilt about local Y tilts the plane;", "roll about local X doesn't count")
-            else:
-                hint(layout, "The game's zone stays upright: tilt", "only narrows it, roll does nothing")
-        layout.prop(trigger, 'trigger_settings', text = 'Settings')
+    # Collision: what pods touch
+    parent_box = layout.box()
+    row = parent_box.row()
+    row.scale_y = 1.5
+    row.prop(scene, 'collidable', text = f"Collidable{is_indeterminate('collidable')}")
+    sub = row.row()
+    sub.alignment = 'RIGHT'
+    if scene.collidable and not scene.is_collision_default:
+        sub.operator("view3d.reset_collidable", text = "", emboss = False, icon = 'LOOP_BACK')
+    help_button(sub, "Collision")
+    if not scene.collidable:
+        hint(parent_box, "Pods pass through it")
+    elif not scene.collision_data:
+        parent_box.prop(scene, "collision_data", text = f"Add surface flags, fog, etc.{is_indeterminate('collision_data')}", icon = "ADD")
+    else:
+        section(context, parent_box, 'flags_expanded', 'Surface Flags', 'AUTO', draw_surface_flags,
+                help_page = "Surface-Flags", reset_operator = 'view3d.reset_terrain', reset_default = 'is_terrain_default')
+        section(context, parent_box, 'fog_expanded', 'Fog & Skybox', 'FORCE_FORCE', draw_fog,
+                help_page = "Fog-and-Skybox", reset_operator = 'view3d.reset_fog', reset_default = 'is_fog_default')
+        section(context, parent_box, 'lighting_expanded', 'Pod Lighting', 'LIGHT_SUN', draw_pod_lighting,
+                help_page = "Pod-Lighting", reset_operator = 'view3d.reset_lighting', reset_default = 'is_lighting_default')
+        section(context, parent_box, 'trigger_expanded', 'Load Zones', 'MOD_BUILD', draw_load_zones,
+                help_page = "Load-Zones", reset_operator = 'view3d.reset_loading', reset_default = 'is_loading_default')
+        section(context, parent_box, 'event_triggers_expanded', 'Event Triggers', 'CUBE', draw_event_triggers,
+                help_page = "Triggers")
+        row = parent_box.row()
+        row.enabled = len(context.selected_objects) == 1
+        row.operator("view3d.add_trigger", text = "Add event trigger", icon = 'ADD')
 
+    if scene.indeterminates:
+        hint(layout, "*Selection contains mixed values")
 
-# MARK: Spline
-class SWR_PT_spline(SWRPanel, bpy.types.Panel):
-    bl_label = "Spline"
-    bl_idname = "SWR_PT_spline"
-    bl_order = 6
-    help_page = "Splines"
-
-    @classmethod
-    def poll(cls, context):
-        obj = context.active_object
-        return obj is not None and obj.type == 'CURVE' and obj.data.splines.active is not None
-
-    def draw_header(self, context):
-        self.layout.label(icon='CURVE_BEZCURVE')
-
-    def draw(self, context):
-        layout = self.layout
-        spline = context.active_object.data.splines.active
-        main = find_main_path(context.active_object.data.splines)
-        row = layout.row()
-        row.column().operator("curve.select_first_spline_point", text = "Select spawn", icon = "SELECT_SET")
-        column = row.column()
-        column.enabled = main is not None and main.use_cyclic_u and context.mode == 'EDIT_CURVE'
-        column.operator("view3d.reconstruct_spline", text = "Set spawn", icon = "TRACKING")
-        if not column.enabled:
-            hint(layout, "Set spawn: a cyclic main path, in Edit Mode")
-        layout.operator("view3d.invert_spline", text = "Invert", icon='ARROW_LEFTRIGHT')
-        row = layout.row()
-        row.prop(spline, 'use_cyclic_u', text = "Cyclic")
-        if context.space_data is not None and context.space_data.type == 'VIEW_3D':
-            row.prop(context.space_data.overlay, "show_curve_normals", text = "Show direction")
-        if not spline.use_cyclic_u:
-            hint(layout, "Not cyclic: point-to-point track")
-
-
-# MARK: Light
-class SWR_PT_light(SWRPanel, bpy.types.Panel):
-    bl_label = "Light"
-    bl_idname = "SWR_PT_light"
-    bl_order = 7
-    help_page = "Lights"
-
-    @classmethod
-    def poll(cls, context):
-        obj = context.active_object
-        return obj is not None and obj.type == 'LIGHT'
-
-    def draw_header(self, context):
-        self.layout.label(icon='LIGHT')
-
-    def draw(self, context):
-        layout = self.layout
-        light = context.active_object.data
-        layout.prop(light, "color", text = "Color")
-        layout.prop(light, 'LStr', text = 'Light Streak')
-        hint(layout, "Pod lights are set on collision:", "Mesh > Collision > Pod Lighting")
-
-
-# MARK: Node
-class SWR_PT_node(SWRPanel, bpy.types.Panel):
-    bl_label = "Node"
-    bl_idname = "SWR_PT_node"
-    bl_order = 9
-    help_page = "Nodes"
-
-    @classmethod
-    def poll(cls, context):
-        obj = context.active_object
-        # trigger boxes and pod anchors are empties with panels of their own
-        return obj is not None and obj.type == 'EMPTY' and not is_trigger(obj) and not obj.get('pod_anchor')
-
-    def draw_header(self, context):
-        self.layout.label(icon='EMPTY_AXIS')
-
-    def draw(self, context):
-        layout = self.layout
-        obj = context.active_object
-        layout.prop(obj, 'swr_node_type', text = "Type")
-        node_type = obj.swr_node_type
-        children = sorted((c for c in obj.children), key = lambda c: c.name)
-        if node_type == 'SELECTOR':
-            layout.prop(obj, 'swr_selected_child', text = "Draws child")
-        elif node_type == 'LOD':
-            col = layout.column(align = True)
-            for i in range(8):
-                col.prop(obj, 'swr_lod_distances', index = i, text = f"Child {i + 1} from" if i else "Child 1 from")
-            hint(layout, "The replacement renderer always", "draws the first child")
-        elif node_type == 'CAMERA':
-            layout.prop(obj, 'swr_face_camera')
-            layout.prop(obj, 'swr_follow_model')
-        if node_type in ('SELECTOR', 'LOD') and children:
-            hint(layout, "Children, in order (by name):")
-            col = layout.column(align = True)
-            for i, child in enumerate(children):
-                col.label(text = f"{i}: {child.name}" if node_type == 'SELECTOR' else f"{i + 1}: {child.name}", icon = 'DOT')
-
-# MARK: Animation
-class SWR_PT_animation(SWRPanel, bpy.types.Panel):
-    bl_label = "Animation"
-    bl_idname = "SWR_PT_animation"
-    bl_order = 8
-    help_page = "Animation"
-
-    @classmethod
-    def poll(cls, context):
-        return bool(utils.transform_fcurves(context.active_object))
+class SWR_PT_selected(SWRPanel, bpy.types.Panel):
+    bl_label = "Selected"
+    bl_idname = "SWR_PT_selected"
+    bl_order = 4
 
     def draw_header(self, context):
-        self.layout.label(icon='ANIM')
+        self.layout.label(icon='RESTRICT_SELECT_OFF')
 
     def draw(self, context):
         layout = self.layout
         obj = context.active_object
-        hold = utils.hold_key_frame(obj)
-        frames = [k.co[0] for f in utils.transform_fcurves(obj)
-                  for i, k in enumerate(f.keyframe_points)
-                  if hold is None or not (i == len(f.keyframe_points) - 1 and utils.is_hold_key(f, hold))]
-        fps = context.scene.render.fps
-        hint(layout, f"{obj.name}: keys {min(frames) / fps:.2f} to {max(frames) / fps:.2f} s")
-        layout.prop(obj, 'anim_loop')
-        row = layout.row()
-        row.prop(obj, 'anim_loop_transition')
-        row.enabled = obj.anim_loop
-        if obj.anim_loop and obj.anim_loop_transition:
-            col = layout.column(align = True)
-            col.label(text = "Smooth Wrap freezes the animation", icon = 'ERROR')
-            col.label(text = "at its first loop in game")
-        layout.prop(obj, 'anim_loop_length', text = "Loop Length (0: last key)")
-        hint(layout, "Tracks play their animations by", "themselves; other models when the", "game or a trigger starts them")
+        if selected_meshes(context):
+            draw_mesh(layout, context)
+        elif is_trigger(obj):
+            title(layout, "Event Trigger", 'CUBE', "Triggers")
+            draw_trigger(layout, context)
+        elif obj is not None and obj.type == 'CURVE' and obj.data.splines.active is not None:
+            title(layout, "Spline", 'CURVE_BEZCURVE', "Splines")
+            draw_spline(layout, context)
+        elif obj is not None and obj.type == 'LIGHT':
+            title(layout, "Light", 'LIGHT', "Lights")
+            draw_light(layout, context)
+        elif obj is not None and obj.type == 'EMPTY' and not obj.get('pod_anchor'):
+            title(layout, "Node", 'EMPTY_AXIS', "Nodes")
+            draw_node(layout, context)
+        elif obj is None or not context.selected_objects:
+            hint(layout, "Select an object or spline to edit", "its properties")
+            return
+        if utils.transform_fcurves(obj):
+            section(context, layout, 'animation_expanded', 'Animation', 'ANIM', draw_animation, help_page = "Animation")
 
 panel_classes = (
     SWR_PT_info,
     SWR_PT_import,
     SWR_PT_export,
-    SWR_PT_export_advanced,
     SWR_PT_tools,
-    SWR_PT_display,
     SWR_UL_load_zones,
-    SWR_PT_mesh,
-    SWR_PT_visuals,
-    SWR_PT_vertex_colors,
-    SWR_PT_material,
     SWR_UL_flipbook_frames,
-    SWR_PT_flipbook,
-    SWR_PT_collision,
-    SWR_PT_surface_flags,
-    SWR_PT_fog,
-    SWR_PT_pod_lighting,
-    SWR_PT_load_zones,
-    SWR_PT_event_triggers,
-    SWR_PT_trigger,
-    SWR_PT_spline,
-    SWR_PT_light,
-    SWR_PT_animation,
-    SWR_PT_node,
+    SWR_PT_selected,
 )
 
 def register():

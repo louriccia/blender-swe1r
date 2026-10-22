@@ -1,6 +1,6 @@
 The **Surface Flags** panel sets what a collision surface does to a pod while the pod is on it.
 
-The panel appears once a mesh is **Collidable** and has data added (see [Collision](Collision)). Tick any number of flags. Hover a flag for a short description. The reset arrow in the header clears every flag on the selected meshes.
+The section appears once a mesh is **Collidable** and has data added (see [Collision](Collision)). Tick any number of flags. Hover a flag for a short description. The reset arrow in its title row clears every flag on the selected meshes.
 
 The game reads these flags from the mesh directly under the pod, every frame. Effects that "ease" move toward their target over time, so a short strip has a smaller effect than a long one.
 

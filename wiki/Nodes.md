@@ -1,4 +1,4 @@
-The game builds every model from a tree of nodes. In Blender, empties are those nodes, and the **Node** panel sets what kind each one exports as. It shows for the active empty (trigger boxes and pod anchors have panels of their own).
+The game builds every model from a tree of nodes. In Blender, empties are those nodes, and the **Selected** panel sets what kind each one exports as. It shows the node settings for the active empty (trigger boxes have their own settings, and pod anchors have none).
 
 ## Type
 - **Automatic** (the default for new empties): kept as a transform node when it is animated, a trigger's target or holds a header slot; otherwise merged into its parent, its transform baked into the meshes under it.

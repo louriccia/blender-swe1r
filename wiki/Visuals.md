@@ -1,11 +1,11 @@
-The **Visuals** panel sets whether the selected meshes are drawn in game, and holds the [Vertex Colors](Vertex-Colors) and [Materials](Materials) panels that control how they look.
+The **Visible** part of the **Selected** panel sets whether the selected meshes are drawn in game, and holds the [Vertex Colors](Vertex-Colors) and [Material](Materials) sections that control how they look.
 
-It appears under **Mesh** when one or more meshes are selected. Every change applies to all selected meshes. A `*` after a label means the selected meshes have different values.
+It appears when one or more meshes are selected. Every change applies to all selected meshes. A `*` after a label means the selected meshes have different values.
 
 ## Visible
-The checkbox in the panel header. When it is on, the mesh is drawn in game. When it is off, the panel shows "Not drawn in game" and hides the Vertex Colors and Material panels.
+The big checkbox at the top. When it is on, the mesh is drawn in game. When it is off, the panel shows "Not drawn in game" and hides the Vertex Colors and Material sections.
 
-A mesh can be visible, collidable, or both. Collision is set in the [Collision](Collision) panel. A mesh that is neither is not left out of the export:
+A mesh can be visible, collidable, or both. Collision is set with **Collidable** (see [Collision](Collision)). A mesh that is neither is not left out of the export:
 - in a track (Trak), it exports as both visible and collidable;
 - in any other model type, it exports as visible.
 
@@ -20,7 +20,7 @@ The viewport follows the same combiner, so what you see in Material Preview is a
 - [Materials](Materials): blend mode, texture, color, culling, scroll, mirror and clip.
 
 ## Reset
-While a selected mesh's settings differ from the defaults, a reset arrow appears in the header. It sets the vertex colors back to white and resets the material settings (blend to Opaque, Hide to Off, Scroll, Mirror and Clip). It leaves the texture and Color alone.
+While a selected mesh's settings differ from the defaults, a reset arrow appears beside **Visible**. It sets the vertex colors back to white and resets the material settings (blend to Opaque, Hide to Off, Scroll, Mirror and Clip). It leaves the texture and Color alone.
 
 ## Gotchas
 - One material per mesh. A mesh with more than one material is split on export; the Material panel offers to split it now.

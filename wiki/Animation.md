@@ -1,4 +1,4 @@
-The **Animation** panel shows when the active object has location, rotation or scale keys. It sets how the game plays them.
+The **Animation** section of the **Selected** panel shows when the active object has location, rotation or scale keys. It sets how the game plays them.
 
 ## What gets exported
 Keyframe an object's **location**, **rotation** or **scale** in Blender as usual. Export turns each into one of the game's animations on that object's node:

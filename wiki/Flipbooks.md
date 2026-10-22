@@ -1,6 +1,6 @@
 A flipbook animates a material's texture: the game swaps it through a list of frames, like the stock lava, sparks, energy binders and the Baroonda beach.
 
-The **Flipbook** panel is under **Mesh > Visuals > Material** and edits the active mesh's material. It starts closed.
+The **Flipbook** section is inside the **Material** section (**Selected > Visible > Material**) and edits the active mesh's material. Click its title to open it.
 
 ## Frames
 The list holds the frames in play order. Each frame is a Blender image.

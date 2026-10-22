@@ -1,4 +1,4 @@
-The **Light** panel sets a Blender light's color and whether it exports as a light streak. It appears when the active object is a light.
+The **Selected** panel sets a Blender light's color and whether it exports as a light streak. It appears when the active object is a light.
 
 ## Color
 The light's color, the same setting as in Blender's Light properties. It is used in two places:
@@ -21,4 +21,4 @@ Importing a track with light streaks adds one point light named `lightstreak` fo
 - The game's light streak table holds 40 positions; more than 40 is untested.
 - A light streak light is still a point light in Blender, so [Bake](Vertex-Colors) counts it. If you don't want it in the vertex colors, bake before adding it, or make it a spot or area light: Bake ignores those, and the streak only uses the position.
 
-Pod lights are set on the collision mesh, not here: see **Mesh > Collision > [Pod Lighting](Pod-Lighting)**.
+Pod lights are set on the collision mesh, not here: see **Selected > Collidable > [Pod Lighting](Pod-Lighting)**.

@@ -16,7 +16,7 @@ Tick **Set draw** and set **Distance**: the far clip. Nothing beyond it is drawn
 ## Show Skybox / Hide Skybox
 **Show Skybox** and **Hide Skybox** show or hide the skybox when the pod touches the mesh. Tick only one: if both are ticked, Show wins.
 
-The reset arrow in the panel header clears all of these settings on the selected meshes.
+The reset arrow in the section's title row clears all of these settings on the selected meshes.
 
 ## Limits and gotchas
 - **Start is clamped at 996.** Treat it as "how much fog", not "how far away".

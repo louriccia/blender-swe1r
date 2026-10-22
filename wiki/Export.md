@@ -11,6 +11,6 @@ The first time a `.bin` file is overwritten, the add-on saves the original next 
 ## What export changes in your scene
 To write the game's format, export splits meshes that have more than one material, applies scale and triangulates. Undo with **Ctrl+Z** if you want the scene back as it was.
 
-## Advanced
+## Extra files
 - **Save copy to individual .bin file(s)**: also writes the exported model and spline to their own files. Textures are not saved separately.
 - **Write model debug dump (.txt)**: a readable dump of the exported model, for troubleshooting.
