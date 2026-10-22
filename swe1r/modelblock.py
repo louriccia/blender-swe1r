@@ -5126,11 +5126,23 @@ def unmake_mesh_in_frame(obj, parent, model, matrix):
     if is_identity(matrix):
         return Mesh(parent, model).unmake(obj)
     data = obj.data
+    mirrored = matrix.determinant() < 0
+    lit = (obj.visible or not obj.collidable) and object_uses_normals(obj)
     data.transform(matrix)
+    if mirrored:
+        # a mirroring transform reverses the winding: keep the faces' front side where it was
+        data.flip_normals()
+    if lit:
+        # Model.unmake wrote the normal bytes before the vertices moved: write them again, turned
+        unmake_vertex_normals(data)
     try:
         return Mesh(parent, model).unmake(obj)
     finally:
+        if mirrored:
+            data.flip_normals()
         data.transform(matrix.inverted())
+        if lit:
+            unmake_vertex_normals(data)
 
 def deep_unmake(obj, parent, model, target_map, skybox = False, keep = False, carry = None):
     """The exported nodes and meshes for obj and its descendants, to be added under parent.
@@ -5568,9 +5580,11 @@ class Model():
                     raise ValueError(f"Max faces reached in {obj.name} {len(faces)}/2048")
         
         # get all target objects
-        # every trigger target, whatever the trigger's id (0 included): Model.unmake resolves each
-        # trigger's target through this map
-        target_map = {b_obj.target.name: None for b_obj in objects if b_obj.target}
+        # every trigger's target, whatever the trigger's id (0 included): Model.unmake resolves each
+        # trigger's target through this map. Only triggers (CUBE empties, CollisionTrigger.unmake):
+        # the panel's target field also sets `target` on selected meshes.
+        target_map = {b_obj.target.name: None for b_obj in objects
+                      if b_obj.target and b_obj.type == 'EMPTY' and b_obj.empty_display_type == 'CUBE'}
         self.shared_target_ids = {str(key) for b_obj in objects for key in b_obj.get('shared_children', {}).values()}
         self.shared_nodes = {}
         

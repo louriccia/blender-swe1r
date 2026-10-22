@@ -50,6 +50,8 @@ def animate(obj, path, values, period_s=PERIOD_S):
 def build(addon):
     model, track, sky = lib.new_track_scene(addon)
     bpy.context.scene.render.fps = FPS
+    # key times are frames; the add-on turns them into seconds with the scene's fps at export
+    assert bpy.context.scene.render.fps == FPS and bpy.context.scene.render.fps_base == 1.0
     road_mat = lib.material(addon, "anim_road", lib.checker_image("anim_checker"))
     white_mat = lib.material(addon, "anim_white", lib.flat_image("anim_white", (1, 1, 1, 1)))
     scroll_mat = lib.material(addon, "anim_scroll", lib.checker_image("anim_scroll_checker",

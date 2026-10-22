@@ -27,7 +27,8 @@ from run import find_blender  # noqa: E402
 GAME_DIR = os.environ.get("SWE1R_GAME_DIR",
                           r"C:\Program Files (x86)\Steam\steamapps\common\Star Wars Episode I Racer")
 RACER_RE = os.environ.get("SWR_RACER_RE", os.path.join(os.path.dirname(REPO), "SWR_wt_levels"))
-LEVELS_IN_GAME = "assets/levels"     # custom_tracks_dir, relative to the game folder
+LEVELS_IN_GAME = "assets/levels_test"   # custom_tracks_dir, relative to the game folder; this script
+                                        # owns it and empties it before each level
 FIXED_HZ = 60
 
 

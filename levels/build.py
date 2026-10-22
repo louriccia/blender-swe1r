@@ -42,10 +42,10 @@ def main():
     import bpy
     import lib
     addon = load_addon()
-    try:
+    if importlib.util.find_spec(f"level_{args.level}") is not None:
         level = importlib.import_module(f"level_{args.level}")
         model, expectations = level.build(addon)
-    except ModuleNotFoundError:
+    else:
         # a numbered part of a level split over several tracks: zoo_textures_2 -> level_zoo_textures
         base, _, part = args.level.rpartition("_")
         level = importlib.import_module(f"level_{base}")

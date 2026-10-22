@@ -44,7 +44,8 @@ The script runs these steps:
 
 1. **Build.** `build.py` runs in headless Blender. It writes `levels/out/gym/`: the three block
    files, `gym.blend` (open it to see how the level is made) and `expectations.json`.
-2. **Deploy.** It copies the blocks to `<game>/assets/levels/gym/`.
+2. **Deploy.** It copies the blocks to `<game>/assets/levels_test/gym/`. The script owns that
+   folder and empties it for each level, so keep your own tracks elsewhere.
 3. **Race.** It runs SW_RACER_RE's `scripts/run_tests.py` on them:
    - the autopilot drives one lap;
    - the simulation step is fixed at 1/60 s, so runs repeat;
