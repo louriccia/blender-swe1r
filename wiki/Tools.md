@@ -1,4 +1,4 @@
-The **Tools** panel starts a new model from scratch and builds a Blender asset library of the game's materials. It also holds the [Display](Display) panel. It starts closed.
+The **Tools** panel starts a new model from scratch and builds a Blender asset library of the game's materials. It also holds the [Display](Display) box.
 
 ## New
 Pick a model type in the dropdown, then click **+**. The add-on adds an empty model collection named "New *Type* Model" and makes it the active collection, so new objects go into it.

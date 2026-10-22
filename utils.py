@@ -254,6 +254,9 @@ SETTINGS_KEYS = [
     'import_folder', 'import_type', 'import_model', 'export_folder', 'new_type',
     'is_export_model', 'is_export_texture', 'is_export_spline', 'is_export_separate', 'is_export_debug',
     'light_falloff', 'ambient_light', 'ambient_light_intensity',
+    # the Selected panel's open sections
+    'lights_expanded', 'textures_expanded', 'flipbook_expanded', 'flags_expanded', 'fog_expanded',
+    'lighting_expanded', 'trigger_expanded', 'event_triggers_expanded', 'animation_expanded',
 ]
 
 def save_settings(self, context):
@@ -264,6 +267,7 @@ def save_settings(self, context):
             continue
         value = getattr(context.scene, key)
         settings[key] = value if isinstance(value, (str, int, float, bool)) else list(value)
+    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, 'w') as f:
         json.dump(settings, f)
 

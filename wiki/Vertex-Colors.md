@@ -2,7 +2,7 @@ The **Vertex Colors** panel bakes the scene's Blender lights into the selected m
 
 Tracks have no lighting in game: flat white geometry stays flat white. The vertex colors are the shading. For a material the add-on makes, the game multiplies the texture by the vertex color, so baked shadows darken the texture.
 
-The panel is under **Mesh > Visuals** and only shows while **Visible** is on. It starts closed.
+It is a section under **Visible** in the **Selected** panel and only shows while **Visible** is on. Click its title to open it.
 
 ## Falloff
 How fast point lights fade with distance. A point light's contribution is divided by the distance to the light raised to this power. 0 means no fade; the default is 1.
@@ -25,7 +25,7 @@ For each vertex it starts from Ambient Light and adds:
 A vertex gets nothing from a light that faces away from it, or when a **Visible** mesh lies between it and the light (shadows). Collision-only meshes don't cast shadows, since the game doesn't draw them.
 
 ## Reset
-The arrow in the panel header sets the selected meshes' vertex colors back to white.
+The reset arrow in the section's title row sets the selected meshes' vertex colors back to white.
 
 ## Limits
 - Only point and sun lights count. Spot and area lights are ignored.

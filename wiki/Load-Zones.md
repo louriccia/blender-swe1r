@@ -17,7 +17,7 @@ The list shows the 24 zones. Click the icon next to a zone to cycle through thre
 
 The click sets the state on every selected mesh. A `*` after a zone name means the selected meshes disagree on that zone.
 
-The reset arrow in the panel header sets every zone back to unchanged on the selected meshes.
+The reset arrow in the section's title row sets every zone back to unchanged on the selected meshes.
 
 ## Preview
 Select a single mesh and click **Preview** to see the effect in the viewport. In the working view layer, the meshes in each zone this mesh loads are shown, and the meshes in each zone it unloads are hidden.

@@ -1,6 +1,6 @@
-The **Display** panel shows, hides and selects all visual meshes or all collision meshes at once, so you can work on one without the other in the way.
+The **Display** box shows, hides and selects all visual meshes or all collision meshes at once, so you can work on one without the other in the way.
 
-It is inside the [Tools](Tools) panel. It has a row for **Visuals** (meshes that are [Visible](Visuals)) and a row for **Collision** (meshes that are [Collidable](Collision)).
+It is in the [Tools](Tools) panel. It has a row for **Visuals** (meshes that are [Visible](Visuals)) and a row for **Collision** (meshes that are [Collidable](Collision)).
 
 ## The buttons on each row
 - **Arrow (selectable):** makes every mesh of that kind selectable or unselectable in the viewport.
