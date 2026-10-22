@@ -2,125 +2,148 @@
   "climb": {
     "climbs": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": true
   },
   "drop100": {
     "airborne": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0
   },
   "drop300": {
     "airborne": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0
   },
   "drop600": {
     "airborne": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0
   },
   "gap200": {
     "airborne": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0
   },
   "gap400": {
     "airborne": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0
   },
   "gap600": {
     "airborne": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 1
   },
   "gate11": {
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "gate14": {
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "gate20": {
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "gate30": {
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "gate60": {
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "slope10": {
     "climbs": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "slope15": {
     "climbs": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "slope20": {
     "climbs": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "slope30": {
     "climbs": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": true
   },
   "slope35": {
     "climbs": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": true
   },
   "slope40": {
     "climbs": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": true
   },
   "slope45": {
     "climbs": true,
     "explodes": 1,
+    "fired": [],
     "respawns": 1,
     "slows": true
   },
   "slope5": {
     "climbs": true,
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "start": {
     "explodes": 0,
+    "fired": [],
     "hover": 5.0,
     "respawns": 0,
     "wall_radius": 5.0
   },
   "turn_bank20": {
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": false
   },
   "turn_flat": {
     "explodes": 0,
+    "fired": [],
     "respawns": 0,
     "slows": true
   }

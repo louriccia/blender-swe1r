@@ -1,0 +1,12 @@
+{
+  "hall_a": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "hall_b": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  }
+}

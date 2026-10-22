@@ -1,7 +1,10 @@
 """A track laid out as a sequence of segments, sampled along its centre line.
 
-The course starts at the origin heading +X (spline point 0: the start line and grid, SW_RACER_RE
-swrObjJdge_GetSpawnTransform 0x465840) and turns left (counter-clockwise). Each segment knows its
+The course starts at the origin heading +X and turns left (counter-clockwise). A loop's spline
+point 0, the start line, is at the origin; the grid is on the closing straight behind it (SW_RACER_RE
+swrObjJdge_GetSpawnTransform 0x465840). A point-to-point course starts with an apron for the grid,
+and its spline runs from the start line to the end of the road, where the race finishes
+(swrSpline_Build 0x47f6f0: no point before point 0). Each segment knows its
 length, how its height and bank change along it, its road width, whether it has road under it
 (a gap for jumps) and the station it belongs to. Distances, heights and widths are game units.
 """
@@ -49,11 +52,16 @@ def arc(radius, degrees, station, bank=0.0, ease=0.25, **kwargs):
 
 
 class Course:
-    def __init__(self, segments, origin=(0.0, 0.0)):
-        """origin: where the start line is. Collision and visual vertices are int16 game units
+    def __init__(self, segments, origin=(0.0, 0.0), start_s=None, overrun=0.0):
+        """origin: where the course starts. start_s: for a point-to-point course, the start line's
+        distance along it (past the grid apron); None for a loop, whose start line is the origin.
+        overrun: road past a point-to-point finish (the spline's end), for the pod to slow on.
+        Collision and visual vertices are int16 game units
         (SW_RACER_RE src/types.h swrModel_Mesh), so a course must stay within +-32767."""
         self.segments = segments
         self.origin = Vector(origin)
+        self.start_s = start_s
+        self.overrun = overrun
         self.samples = []   # dicts: s, pos (Vector), heading, bank, width, solid, station, seg
         s, pos, heading, z = 0.0, Vector(origin), 0.0, 0.0
         for index, seg in enumerate(segments):
@@ -152,12 +160,21 @@ class Course:
         return max(xs)
 
     def spline_points(self, spacing=500.0):
-        points, next_s = [], 0.0
+        """Spline points every `spacing`: a loop's from the origin round to just before it, a
+        point-to-point course's from the start line to the end of the road."""
+        points, next_s = [], self.start_s or 0.0
+        end = self.length - self.overrun
         for smp in self.samples:
-            if smp['s'] >= next_s - 1e-6 and smp['s'] < self.length - spacing / 2:
+            if smp['s'] >= next_s - 1e-6 and smp['s'] < end - spacing / 2:
                 points.append(tuple(smp['pos']))
                 next_s = smp['s'] + spacing
+        if self.start_s is not None:
+            points.append(tuple(self.frame(end)['pos']))
         return points
+
+    def spline(self, model_collection, name="spline"):
+        """The track spline: closed for a loop, open (point-to-point) otherwise."""
+        return lib.spline(name, self.spline_points(), model_collection, cyclic=self.start_s is None)
 
     def describe(self):
         """The centre line every STEP for expectations.json: [s, x, y, z, station]."""
@@ -189,4 +206,31 @@ def exhibit_loop(exhibits, gap=300.0, tail=(), radius=2500.0, close=2000.0):
     assert course.extent() < 32000, f"course reaches {course.extent():.0f}, past the int16 vertex range"
     dist, heading_err, z_err = course.closure_error()
     assert dist < 1 and abs(heading_err) < 0.01 and abs(z_err) < 1, course.closure_error()
+    return course
+
+
+APRON = 600.0       # road behind a point-to-point start line: the grid is 100+ back (GetSpawnTransform)
+RUNOUT = 1500.0     # flat road before a point-to-point finish: check.py takes the cruising speed there
+OVERRUN = 2000.0    # road past the finish: a pod that ran off the dead end fell and respawned
+                    # before the race ended (museum_p2p)
+
+
+def exhibit_line(exhibits, gap=300.0, tail=(), radius=2500.0):
+    """A point-to-point course: a grid apron, the exhibits [(name, length)] in a row with plain
+    road ("between") after each, folded once by a 180 turn to stay inside the int16 vertex range,
+    then the tail segments and a flat run-out ("finish") to the end of the road, where the race
+    ends. Centred on the origin."""
+    total = sum(length + gap for _, length in exhibits) + sum(seg.length for seg in tail) + RUNOUT
+    bottom, top = [straight(APRON, "grid"), straight(1000, "start")], []
+    side = bottom
+    for name, length in exhibits:
+        side.append(straight(length, name))
+        side.append(straight(gap, "between"))
+        if side is bottom and sum(seg.length for seg in bottom) > (total + APRON + 1000) / 2:
+            side = top
+    (top if top else bottom).extend(list(tail) + [straight(RUNOUT, "finish"), straight(OVERRUN, "overrun")])
+    a = sum(seg.length for seg in bottom)
+    segs = bottom + ([arc(radius, 180, "turn")] + top if top else [])
+    course = Course(segs, origin=(-a / 2, -radius if top else 0.0), start_s=APRON, overrun=OVERRUN)
+    assert course.extent() < 32000, f"course reaches {course.extent():.0f}, past the int16 vertex range"
     return course

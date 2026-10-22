@@ -95,7 +95,7 @@ def build(addon, part=1):
 
     columns = math.ceil(len(wanted) / 4)            # both sides of both straights
     length = columns * PITCH + PITCH
-    course = C.exhibit_loop([("hall_a", length), ("hall_b", length)], gap=600.0)
+    course = C.exhibit_line([("hall_a", length), ("hall_b", length)], gap=600.0)
     for objs in course.road(track, road_mat).values():
         for obj in objs:
             lib.shade(obj)
@@ -142,7 +142,7 @@ def build(addon, part=1):
     signs.labels(f"zp{part}_labels", labels, track, sign_mat, char=40.0)
     signs.station_sign(course, "hall_a", [f"PROPS PART {part}/{PARTS}", f"MODELS {wanted[0]['index']}-{wanted[-1]['index']}"],
                        track, sign_mat)
-    lib.spline("spline", course.spline_points(), model)
+    course.spline(model)
     return model, {"level": f"zoo_props_{part}", "length": round(course.length, 1), "centerline": course.describe(),
                    "stations": [{"name": n, "s": list(course.station_range(n)), "measure": [], "predict": {},
                                  "source": "visual"} for n in ("hall_a", "hall_b")],

@@ -2,6 +2,7 @@
   "lift": {
     "explodes": 0,
     "fired": [],
+    "period": null,
     "respawns": 0,
     "rise_rate": null,
     "swing": 4.5
@@ -9,9 +10,34 @@
   "lift_fr": {
     "explodes": 0,
     "fired": [],
+    "period": null,
     "respawns": 0,
     "rise_rate": 150.0,
     "swing": 152.7
+  },
+  "lift_hold": {
+    "explodes": 0,
+    "fired": [],
+    "period": 4.05,
+    "respawns": 1,
+    "rise_rate": 150.0,
+    "swing": 640.6
+  },
+  "lift_once": {
+    "explodes": 0,
+    "fired": [],
+    "period": null,
+    "respawns": 0,
+    "rise_rate": null,
+    "swing": 4.1
+  },
+  "lift_smooth": {
+    "explodes": 0,
+    "fired": [],
+    "period": null,
+    "respawns": 0,
+    "rise_rate": null,
+    "swing": 2.6
   },
   "pulse": {
     "explodes": 0,
@@ -19,6 +45,11 @@
     "respawns": 0
   },
   "scroll": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "spinner": {
     "explodes": 0,
     "fired": [],
     "respawns": 0

@@ -1,0 +1,27 @@
+{
+  "facing": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "lod": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "sel_1": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "sel_all": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "sel_none": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  }
+}

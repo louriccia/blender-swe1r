@@ -24,11 +24,13 @@ be in-game* (GodotFest 2025):
 | `museum_environment` | done | Per-surface fog colour, fog start, draw distance and light flags: the bytes, and what the camera does. |
 | `museum_splines` | done | An alternate path that splits off and joins (raced with AI pods). |
 | `museum_p2p` | done | A point-to-point track: open spline, one lap, finish at the dead end, the grid. |
-| `museum_animation` | done | A lift the pod rides (timing checked), plus rotation, scale and UV-scroll scenery. |
+| `museum_animation` | done | Lifts the pod rides (timing, Loop, Loop Length and Smooth Wrap checked), plus rotation, scale and UV-scroll scenery. |
+| `museum_nodes` | done | Every node type: selectors drawing one child, all or none, an LOD selector, a camera-facing quad. |
 | museum: zones | waiting | Load/unload zones wait for planet-independent custom tracks (see below). |
 | `zoo_textures_1..4` | done | All 1573 stock textures that models use, on tiles labelled with their ids. |
-| `zoo_materials` | done | The texture format the add-on picks for each kind of image, and every material setting on one oriented texture. |
+| `zoo_materials` | done | The texture format the add-on picks for each kind of image, every material setting (flipbook included) and every Blend Mode preset on one oriented texture. |
 | `zoo_props_1..4` | done | Every stock Part, Scen and Modl model, copied into a track on a labelled pedestal. |
+| `zoo_pod` | done | A pod from the template (parts, binder and cable anchors, trails, shadows, glow), raced in place of Anakin's. |
 
 ## Running
 
@@ -47,7 +49,10 @@ The script runs these steps:
 2. **Deploy.** It copies the blocks to `<game>/assets/levels_test/gym/`. The script owns that
    folder and empties it for each level, so keep your own tracks elsewhere.
 3. **Race.** It runs SW_RACER_RE's `scripts/run_tests.py` on them:
-   - the autopilot drives one lap;
+   - the autopilot drives one lap. Most levels are point-to-point (an open spline,
+     `course.exhibit_line`): the race ends at the end of the last wing, with no drive back to the
+     line. `hello` stays a loop, and so does `museum_splines`, whose forks need AI pods (a
+     point-to-point grid puts half of them at the far end);
    - the simulation step is fixed at 1/60 s, so runs repeat;
    - telemetry is recorded at 20 Hz.
 4. **Check.** It runs `check.py`.
@@ -59,6 +64,12 @@ What it needs:
 - **A `dinput.dll` from SW_RACER_RE branch `feat/level-telemetry`.** That branch adds these test
   runner options: `telemetry_hz`, `screenshot_s` and `fixed_dt_hz`.
 - **Blender 5.x.**
+
+**Pod levels** (`zoo_pod`) aren't tracks: pods always load from `data/lev01`. The script backs up
+the game's `out_modelblock.bin` and `out_textureblock.bin` (`.bak`), writes the pod's over them,
+races 20 s of the stock Boonta Training Course with screenshots, and puts the stock files back
+(checked byte for byte), even when the race fails. `check.py` doesn't run: it passes when the race
+ran and the pod drove off.
 
 To race a level by hand, copy `levels/out/<level>/out_*.bin` into a folder under
 `<game>/assets/custom_tracks/`.
@@ -174,6 +185,16 @@ exactly. Their effects, measured:
 - **Animated collision needs the "elevation" flag (full raycast).** Without it, the pod's ground ray
   uses the track mesh the game cached under the spline at load. The platform's visual moves, but the
   pod rides where the platform was at load: a 4-unit swing on a 150-unit lift.
+- **Loop off** plays the animation once from the race start: by the time the pod gets there the lift
+  is still. **Loop Length** longer than the keys holds the last pose until then: the 4 s lift climbs
+  every 4.0 s. Once, at the bottom of a cycle, the pod lost the ground under it and fell; the cause
+  isn't known.
+- **Smooth Wrap (0x40) freezes the animation.** Loading sets the blend's speed to 0
+  (`swrModel.c:566`), and the first wrap divides by it. The add-on warns about it.
+
+**Nodes** (`museum_nodes`): selectors, the LOD selector and the camera-facing node re-import with
+their settings. In game a selector draws the child set, and the LOD selector draws its first child
+(the replacement renderer doesn't switch by distance).
 
 ## What the zoo showed
 
@@ -202,7 +223,7 @@ exactly. Their effects, measured:
 ## Facts every custom track runs into
 
 - **Vertex coordinates are int16 game units.** Keep geometry within ±32767 of its node; the gym
-  centres its loop on the origin for this reason.
+  centres its track on the origin for this reason.
 - **Only about 52 new textures fit.** The add-on stops at 1700 and the stock block has 1648. The gym
   uses 3. Signs share one 128×128 glyph atlas, and vertex colours tint it.
 - **Tracks have no lighting by default.** Bake shading into the vertex colours (`lib.shade`), or
@@ -217,7 +238,7 @@ exactly. Their effects, measured:
 | File | What it does |
 |---|---|
 | `lib.py` | Scene setup, meshes, materials, vertex shading, the spline, and export to a custom-track folder. |
-| `course.py` | Lays a track out as segments: straights, ramps, banked arcs, gaps and cliffs. Closes the loop and gives every station's extent. |
+| `course.py` | Lays a track out as segments: straights, ramps, banked arcs, gaps and cliffs, as a loop or point to point (`exhibit_line`), and gives every station's extent. |
 | `signs.py` | In-world text from the glyph atlas. |
 | `level_*.py` | One per level. `build(addon)` returns the model collection and the expectations. |
 | `check.py` | Telemetry → per-station measurements, then predictions and the baseline. |

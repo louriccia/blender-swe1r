@@ -106,7 +106,7 @@ def build(addon):
     road_mat = lib.material(addon, "triggers_road", lib.checker_image("triggers_checker"))
     white_mat = lib.material(addon, "triggers_white", lib.flat_image("triggers_white", (1, 1, 1, 1)))
     sign_mat = lib.material(addon, "triggers_signs", signs.atlas_image())
-    course = C.exhibit_loop([(e["name"], LENGTH) for e in EXHIBITS], gap=400.0)
+    course = C.exhibit_line([(e["name"], LENGTH) for e in EXHIBITS], gap=400.0)
 
     names = {e["name"] for e in EXHIBITS}
     colors = {n: ((0.75, 0.85, 1.0) if n in names else (0.85, 0.85, 0.85)) for n in {s['station'] for s in course.samples}}
@@ -152,6 +152,6 @@ def build(addon):
                                     "center": [round(v, 1) for v in trig.location / lib.GAME],
                                     "width": width, "height": 200}})
 
-    lib.spline("spline", course.spline_points(), model)
+    course.spline(model)
     return model, {"level": "museum_triggers", "length": round(course.length, 1),
                    "centerline": course.describe(), "stations": entries, "lap": {"finishes": True}}

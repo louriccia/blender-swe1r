@@ -3,7 +3,7 @@
     levels/build.py --level zoo_textures_<part>      (part 1..PARTS)
 
 The 1573 textures (levels/data/stock_textures.json, from scan_textures.py) don't fit one track:
-vertices are int16, so a loop of tiles has to stay within +-32767. Each part shows a slice of
+vertices are int16, so a track of tiles has to stay within +-32767. Each part shows a slice of
 them, in id order, on walls either side of both straights, three rows high, the id under each tile.
 
 The tiles reference the stock textures: the images come from importing a model that uses each one,
@@ -89,7 +89,7 @@ def build(addon, part=1):
     per_column = 4 * ROWS               # a column position on each straight, both walls, ROWS high
     columns = math.ceil(len(wanted) / per_column)
     length = columns * PITCH + PITCH
-    course = C.exhibit_loop([("hall_a", length), ("hall_b", length)], gap=600.0)
+    course = C.exhibit_line([("hall_a", length), ("hall_b", length)], gap=600.0)
     for objs in course.road(track, road_mat).values():
         for obj in objs:
             lib.shade(obj)
@@ -125,7 +125,7 @@ def build(addon, part=1):
     signs.labels(f"zoo{part}_labels", labels, track, sign_mat, char=45.0)
     signs.station_sign(course, "hall_a", [f"TEXTURES {wanted[0]}-{wanted[-1]}", f"PART {part}/{PARTS}"],
                        track, sign_mat)
-    lib.spline("spline", course.spline_points(), model)
+    course.spline(model)
     return model, {"level": f"zoo_textures_{part}", "length": round(course.length, 1),
                    "centerline": course.describe(),
                    "stations": [{"name": n, "s": list(course.station_range(n)), "measure": [], "predict": {},
