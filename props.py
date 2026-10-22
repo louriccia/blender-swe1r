@@ -1,5 +1,5 @@
 import bpy
-from .utils import get_anim_loop, set_anim_loop, update_export_model, save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
+from .utils import get_anim_loop, set_anim_loop, update_export_model, save_settings, get_setting, model_types, import_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
 from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
 from .swe1r.trigger_types import TRIGGER_TYPES, type_label
@@ -171,11 +171,15 @@ class MY_ListItem(bpy.types.PropertyGroup):
 def register():
     bpy.utils.register_class(SWR_FlipbookFrame)
     bpy.types.Scene.import_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=save_settings, default = get_setting('import_folder', ""), description="Select the lev01 folder in Star Wars Episode I Racer/data/lev01 (or any folder containing the .bin files)")
+    # a saved MAlt (1) choice from before it was hidden falls back to All
+    saved_import_type = str(get_setting('import_type', '0'))
+    if saved_import_type not in [t[0] for t in import_types]:
+        saved_import_type = '0'
     bpy.types.Scene.import_type = bpy.props.EnumProperty(
-        items=model_types,
+        items=import_types,
         name="Model Type",
         description="Filter model selection by model type",
-        default=get_setting('import_type', 0), 
+        default=saved_import_type, 
         update=update_model_dropdown
     )
     
@@ -191,7 +195,7 @@ def register():
     )
     
     bpy.types.Scene.import_model = bpy.props.EnumProperty(
-        items=import_model_items(model_types[int(get_setting('import_type', 0))][1]),
+        items=import_model_items(model_types[int(saved_import_type)][1]),
         name="Model",
         description="Select a model to import",
         default=0, #get_setting('import_model', 0), 
