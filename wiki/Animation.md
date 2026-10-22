@@ -23,6 +23,8 @@ With Loop on, blend back to the start instead of jumping to it. **Leave it off: 
 ## Loop Length
 Seconds before the animation starts over. **0** means right after its last key, and a length shorter than the keys is raised to that. A longer length holds the last pose until then: stock characters give every limb the same length so they stay in step even when one limb's keys end early.
 
+Blender's Cycles modifier loops at the last key, not at a Loop Length. So when the Loop Length runs past the keys, the add-on puts a key at the Loop Length that repeats the last pose: Blender then holds and loops the way the game does, and a puppet's limbs stay in step in the timeline too. The key moves when you change Loop Length, goes when you turn Loop off, and isn't exported. The panel's key range leaves it out.
+
 ## Imported animations
 Import sets Loop, Smooth Wrap and Loop Length from the game's own values. Left as they are, the animation exports exactly as it came in.
 

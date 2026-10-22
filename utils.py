@@ -558,6 +558,50 @@ def set_anim_loop(self, value):
         else:
             for mod in [m for m in fcurve.modifiers if m.type == 'CYCLES']:
                 fcurve.modifiers.remove(mod)
+    sync_hold_key(self)
+
+# A Loop Length past the last key holds the last pose until then in game (swrModel_AnimationUpdateTime
+# loops at the duration; past the last key the interpolators return its value). Blender's Cycles
+# modifier loops at the last key instead, so a key repeating the last pose is put at the Loop Length:
+# Blender then plays what the game does (stock puppets' limbs stay in step). Export leaves it out.
+HOLD_KEY = 'anim_hold_frame'
+
+def is_hold_key(fcurve, frame):
+    """True when the fcurve's last key is the hold key at `frame`: there, and repeating the key before."""
+    kps = fcurve.keyframe_points
+    return (len(kps) >= 2 and abs(kps[-1].co[0] - frame) < 1e-3 and abs(kps[-1].co[1] - kps[-2].co[1]) < 1e-6)
+
+def hold_key_frame(obj):
+    """The frame of the object's hold key, or None."""
+    frame = obj.get(HOLD_KEY)
+    return float(frame) if frame is not None else None
+
+def sync_hold_key(obj):
+    """Put the hold key where the Loop settings say (or remove it): at Loop Length, on every
+    transform curve, when Loop is on and the length runs past the last key."""
+    frame = hold_key_frame(obj)
+    fcurves = transform_fcurves(obj)
+    if frame is not None:
+        for fcurve in fcurves:
+            if is_hold_key(fcurve, frame):
+                fcurve.keyframe_points.remove(fcurve.keyframe_points[-1])
+                fcurve.update()
+        del obj[HOLD_KEY]
+    if not fcurves or not get_anim_loop(obj):
+        return
+    scene = bpy.context.scene
+    frame = obj.anim_loop_length * scene.render.fps / scene.render.fps_base
+    last = max((k.co[0] for f in fcurves for k in f.keyframe_points), default = None)
+    if last is None or frame <= last + 1e-3:
+        return
+    for fcurve in fcurves:
+        key = fcurve.keyframe_points.insert(frame, fcurve.keyframe_points[-1].co[1], options = {'FAST'})
+        key.interpolation = 'LINEAR'
+        fcurve.update()
+    obj[HOLD_KEY] = frame
+
+def update_anim_loop_length(self, context):
+    sync_hold_key(self)
 
 def find_model_collection(context):
     """The Model collection (collection_type 'MODEL') the user is working in: the active
