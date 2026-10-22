@@ -1,5 +1,5 @@
 import bpy
-from .utils import update_export_model, save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
+from .utils import get_anim_loop, set_anim_loop, update_export_model, save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
 from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
 from .swe1r.trigger_types import TRIGGER_TYPES, type_label
@@ -242,6 +242,11 @@ def register():
     for flag in dir(TriggerFlagEnum):
         if not flag.startswith("__"):
             setattr(bpy.types.Object, flag, bpy.props.BoolProperty(name = flag, default=False, update = create_update_function(flag), description = trigger_flag_descriptions.get(flag, "")))
+    # Animation panel: the game's flags for the object's animations (SW_RACER_RE src/types_enums.h
+    # swrModel_AnimationFlags, src/Swr/swrModel.c swrModel_LoadAnimation)
+    bpy.types.Object.anim_loop = bpy.props.BoolProperty(name="Loop", get=get_anim_loop, set=set_anim_loop, description="Start the animation over when it reaches its end (flag 0x10). Off: it plays once and stops. Stored as Cycles modifiers on the object's curves, so Blender's timeline loops it too")
+    bpy.types.Object.anim_loop_transition = bpy.props.BoolProperty(name="Smooth Wrap", default=False, description="When it loops, blend back to the start instead of jumping (flag 0x40)")
+    bpy.types.Object.anim_loop_length = bpy.props.FloatProperty(name="Loop Length", default=0.0, min=0.0, soft_max=60.0, unit='TIME_ABSOLUTE', precision=3, description="Seconds before the animation starts over. 0, or anything shorter than the keys: right after the last key. Longer holds the last pose until then (stock puppets share one length across their limbs)")
     bpy.types.Object.target = bpy.props.PointerProperty(type=bpy.types.Object, name="Target", description="The object the trigger acts on (e.g. the door it opens or the model it animates)")
    
     # MARK: UI State

@@ -20,3 +20,4 @@
 - [Triggers](Triggers)
 - [Splines](Splines)
 - [Lights](Lights)
+- [Animation](Animation)

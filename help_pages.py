@@ -42,6 +42,7 @@ HELP_PAGES = {
     "Triggers": "Event triggers: types, flags, targets and the per-planet crash table",
     "Splines": "The racing line: start point, laps, point-to-point tracks and forks",
     "Lights": "Light streaks",
+    "Animation": "Animate objects: keys, looping and loop length",
 }
 
 

@@ -4562,9 +4562,20 @@ def get_animations(obj, model, entity):
 
         stored = 'rotation_quaternion' if kind == 'rotation' else path
         durations = obj.get(f'anim_durations_{stored}')
-        anim = Anim(entity, model).unmake(times, poses, stored, loop = loop,
-                                          flags = obj.get(f'anim_flags_{stored}'),
-                                          durations = list(durations) if durations is not None else None)
+        durations = list(durations) if durations is not None else None
+        flags = obj.get(f'anim_flags_{stored}')
+        # Loop is the Cycles modifier (the Animation panel's Loop), not the stored flag, so it can be
+        # turned off. Smooth Wrap follows the panel once set, or for a new animation.
+        if flags is not None:
+            flags = int(flags) & ~0x10
+        if obj.is_property_set('anim_loop_transition') or flags is None:
+            flags = (flags or 0) & ~0x40 | (0x40 if loop and obj.anim_loop_transition else 0)
+        length = obj.anim_loop_length if obj.is_property_set('anim_loop_length') else 0.0
+        if length > 0:
+            chosen = (durations[1] if flags is not None and int(flags) & 0x20 else durations[0]) if durations else None
+            if chosen is None or abs(chosen - length) > 1e-4:
+                durations = [length, length]
+        anim = Anim(entity, model).unmake(times, poses, stored, loop = loop, flags = flags, durations = durations)
         index = obj.get(f'anim_index_{stored}')
         if anim is not None and index is not None and index >= 0:
             anim.index = int(index)
@@ -4785,14 +4796,22 @@ class Anim(DataStruct):
 
         if target is None:
             return
+        # the Animation panel's settings, from the game's flags and loop length (a material's UV
+        # scroll has none; import adds the Cycles modifiers itself, below)
+        if isinstance(target, bpy.types.Object):
+            target.anim_loop_transition = bool(self.flag2 & 0x40)
+            duration = self.float5 if self.flag2 & 0x20 else self.float4
+            span = self.keyframe_times[-1] - self.keyframe_times[0] if self.keyframe_times else 0
+            target.anim_loop_length = duration if abs(duration - span) > 1e-4 else 0.0
         #make linear
-        if not target.animation_data or not target.animation_data.action: 
+        if not target.animation_data or not target.animation_data.action:
             return
         bag = anim_utils.action_get_channelbag_for_slot(target.animation_data.action, target.animation_data.action_slot)
         if not bag:
             return
         for fcurve in bag.fcurves:
-            if self.loop and self.model.type == '7':
+            # a looping animation gets a Cycles modifier: that is what Loop shows and export reads
+            if self.loop:
                 ensure_cycles_first(fcurve)
             for keyframe in fcurve.keyframe_points:
                 keyframe.interpolation = 'LINEAR'

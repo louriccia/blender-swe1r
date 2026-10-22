@@ -23,3 +23,4 @@ Every panel in the add-on's sidebar has a **?** button in its header that opens 
 - [Triggers](Triggers): event triggers
 - [Splines](Splines): the racing line
 - [Lights](Lights): light streaks
+- [Animation](Animation): keys, looping and loop length

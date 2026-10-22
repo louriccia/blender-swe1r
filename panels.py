@@ -980,6 +980,33 @@ class SWR_PT_light(SWRPanel, bpy.types.Panel):
         hint(layout, "Pod lights are set on collision:", "Mesh > Collision > Pod Lighting")
 
 
+# MARK: Animation
+class SWR_PT_animation(SWRPanel, bpy.types.Panel):
+    bl_label = "Animation"
+    bl_idname = "SWR_PT_animation"
+    bl_order = 8
+    help_page = "Animation"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(utils.transform_fcurves(context.active_object))
+
+    def draw_header(self, context):
+        self.layout.label(icon='ANIM')
+
+    def draw(self, context):
+        layout = self.layout
+        obj = context.active_object
+        frames = [k.co[0] for f in utils.transform_fcurves(obj) for k in f.keyframe_points]
+        fps = context.scene.render.fps
+        hint(layout, f"{obj.name}: keys {min(frames) / fps:.2f} to {max(frames) / fps:.2f} s")
+        layout.prop(obj, 'anim_loop')
+        row = layout.row()
+        row.prop(obj, 'anim_loop_transition')
+        row.enabled = obj.anim_loop
+        layout.prop(obj, 'anim_loop_length', text = "Loop Length (0: last key)")
+        hint(layout, "Tracks play their animations by", "themselves; other models when the", "game or a trigger starts them")
+
 panel_classes = (
     SWR_PT_info,
     SWR_PT_import,
@@ -1003,6 +1030,7 @@ panel_classes = (
     SWR_PT_trigger,
     SWR_PT_spline,
     SWR_PT_light,
+    SWR_PT_animation,
 )
 
 def register():
