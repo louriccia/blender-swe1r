@@ -33,6 +33,8 @@ import numpy as np
 from mathutils import Color, Vector, Euler, Quaternion
 from . import utils
 from .help_pages import HELP_PAGES, help_url
+from .swe1r.trigger_types import TRIGGER_TYPES, type_label, type_warnings
+import textwrap
 
 
 classes = []
@@ -808,7 +810,7 @@ class SWR_PT_event_triggers(CollisionSubPanel, bpy.types.Panel):
         if triggers:
             col = layout.column(align = True)
             for trigger in triggers:
-                col.label(text = f"{trigger.name}  (type {trigger.trigger_id})", icon = 'CUBE')
+                col.label(text = f"{trigger.name}: {type_label(trigger.trigger_id)}", icon = 'CUBE')
         else:
             hint(layout, "No triggers on these meshes")
         layout.operator("view3d.add_trigger", text = "Add event trigger", icon = 'ADD')
@@ -834,9 +836,21 @@ class SWR_PT_trigger(SWRPanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         trigger = context.active_object
-        row = layout.row()
-        row.prop(trigger, 'trigger_id', text = 'Type')
-        row.prop(trigger, 'trigger_settings', text = 'Settings')
+        row = layout.row(align = True)
+        row.prop(trigger, 'trigger_type', text = '')
+        number = row.row(align = True)
+        number.scale_x = 0.7
+        number.prop(trigger, 'trigger_id', text = '')
+        entry = TRIGGER_TYPES.get(trigger.trigger_id)
+        if entry is not None:
+            hint(layout, *textwrap.wrap(entry[1], 38))
+        for warning in type_warnings(trigger.trigger_id):
+            if warning == "Needs a Target" and trigger.target is not None:
+                continue
+            serious = warning.startswith(("Crash", "Can crash", "Keep out", "Explodes", "Needs", "Not a known"))
+            col = layout.column(align = True)
+            for i, line in enumerate(textwrap.wrap(warning, 36)):
+                col.label(text = line, icon = ('ERROR' if serious else 'INFO') if i == 0 else 'BLANK1')
         row = layout.row()
         col = row.column()
         col.prop(trigger, "Disabled", text = 'Disabled')
@@ -849,6 +863,7 @@ class SWR_PT_trigger(SWRPanel, bpy.types.Panel):
         layout.prop(trigger, 'target')
         if trigger.parent is None or trigger.parent.type != 'MESH':
             layout.label(text = "Parent this to a collidable mesh", icon = 'ERROR')
+        layout.prop(trigger, 'trigger_settings', text = 'Settings')
 
 
 # MARK: Spline

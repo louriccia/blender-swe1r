@@ -28,7 +28,7 @@ The game does not test the box you see. Seen from above, the zone is a strip wit
 Types 102 and 104 are different: they fire when the pod crosses the vertical plane through the trigger's centre, facing along local X, within the cube's width and height.
 
 ## Type
-**Type** is the trigger's type number: what it does. Names come from the game's code and the test track that tried each type. "Every frame" means it fires on every frame the pod is inside; "once" means it fires, then disarms itself.
+**Type** is what the trigger does. Pick it from the dropdown, or type the number in the field beside it; a number not in the list shows as **Other**. Below them the panel says what the type does and warns about crashes, traps and a missing Target. Names come from the game's code and the test track that tried each type. "Every frame" means it fires on every frame the pod is inside; "once" means it fires, then disarms itself.
 
 | Type | Name | What it does | Target | Fires |
 |---|---|---|---|---|
