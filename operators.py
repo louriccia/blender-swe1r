@@ -295,7 +295,7 @@ class ResetTexture(bpy.types.Operator):
             mats = [slot.material for slot in obj.material_slots]
             if not len(mats) or mats[0] is None: continue
             mats[0].use_backface_culling = False
-            mats[0].transparent = False
+            mats[0].blend_mode = 'OPAQUE'
             mats[0].scroll_x = False
             mats[0].scroll_y = False
             mats[0].flip_x = False
