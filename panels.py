@@ -980,6 +980,44 @@ class SWR_PT_light(SWRPanel, bpy.types.Panel):
         hint(layout, "Pod lights are set on collision:", "Mesh > Collision > Pod Lighting")
 
 
+# MARK: Node
+class SWR_PT_node(SWRPanel, bpy.types.Panel):
+    bl_label = "Node"
+    bl_idname = "SWR_PT_node"
+    bl_order = 9
+    help_page = "Nodes"
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        # trigger boxes and pod anchors are empties with panels of their own
+        return obj is not None and obj.type == 'EMPTY' and not is_trigger(obj) and not obj.get('pod_anchor')
+
+    def draw_header(self, context):
+        self.layout.label(icon='EMPTY_AXIS')
+
+    def draw(self, context):
+        layout = self.layout
+        obj = context.active_object
+        layout.prop(obj, 'swr_node_type', text = "Type")
+        node_type = obj.swr_node_type
+        children = sorted((c for c in obj.children), key = lambda c: c.name)
+        if node_type == 'SELECTOR':
+            layout.prop(obj, 'swr_selected_child', text = "Draws child")
+        elif node_type == 'LOD':
+            col = layout.column(align = True)
+            for i in range(8):
+                col.prop(obj, 'swr_lod_distances', index = i, text = f"Child {i + 1} from" if i else "Child 1 from")
+            hint(layout, "The replacement renderer always", "draws the first child")
+        elif node_type == 'CAMERA':
+            layout.prop(obj, 'swr_face_camera')
+            layout.prop(obj, 'swr_follow_model')
+        if node_type in ('SELECTOR', 'LOD') and children:
+            hint(layout, "Children, in order (by name):")
+            col = layout.column(align = True)
+            for i, child in enumerate(children):
+                col.label(text = f"{i}: {child.name}" if node_type == 'SELECTOR' else f"{i + 1}: {child.name}", icon = 'DOT')
+
 # MARK: Animation
 class SWR_PT_animation(SWRPanel, bpy.types.Panel):
     bl_label = "Animation"
@@ -1031,6 +1069,7 @@ panel_classes = (
     SWR_PT_spline,
     SWR_PT_light,
     SWR_PT_animation,
+    SWR_PT_node,
 )
 
 def register():

@@ -3988,10 +3988,13 @@ class Group20582(Node):
         empty = super().make(parent, collection)
         empty['floats'] = self.floats
         return empty
+    # a new LOD selector gets the stock pod-part distances (46 stock LOD selectors use them)
+    DEFAULT_FLOATS = (0.0, 40.0, 60.0, 100.0, 1000000.0, -1.0, -1.0, -1.0, 0.0, 0.0, 0.0)
+
     def unmake(self, node):
         super().unmake(node)
         self.node_type = 20582
-        self.floats = node['floats']
+        self.floats = list(node.get('floats', Group20582.DEFAULT_FLOATS))
         return self
     def write(self, buffer, cursor):
         cursor = super().write(buffer, cursor)
