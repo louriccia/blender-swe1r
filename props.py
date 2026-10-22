@@ -207,6 +207,7 @@ def register():
             ("5", "Cable", "The Podd's Cable"),
             ("6", "Jet Trails", "The Podd's jet trails: each mesh trails from the nearest exhaust anchor"),
             ("7", "Shadows", "The Podd's shadows: each mesh goes under the nearest engine or cockpit anchor"),
+            ("8", "Engine Glow", "The Podd's engine glow: a mesh here gives the glow its material; left empty, the stock glow"),
         ],
         name = "Collection Type",
         description="The type of collection",

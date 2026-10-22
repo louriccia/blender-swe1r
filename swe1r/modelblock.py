@@ -28,6 +28,7 @@ import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt16BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture, compute_image_hash, compute_hash, needed_pixel_bytes, format_map
 from .pod_visual import pod_anchor_positions
+from .pod_parts import STOCK_GLOW, STOCK_CABLE, STOCK_GLOW_MATERIAL, STOCK_CABLE_MATERIAL
 from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt
 
 def find_existing_light(objects, color, location, rotation):
@@ -5715,6 +5716,9 @@ class Model():
 
     def _unmake(self, collection, texture_export, textureblock):
         self.export_collection = collection
+        # Blender data made only for the export (a pod template's stock parts), removed afterwards
+        # by remove_temp_data
+        self.temp_data = []
         self.textureblock = textureblock
         self.image_map = {}
         self.type = collection.export_type
@@ -6005,9 +6009,68 @@ class Model():
                 # slot 62 is drawn with its culling reversed, like the left engine
                 assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, frame @ obj.matrix_world, flip_winding = node.header == [62]) for obj in objs], node, self)
             
+            def stock_material(spec, name):
+                """A temporary material with a stock part's whole setup (pod_parts.py)."""
+                image = None
+                if spec['texture'] is not None:
+                    tex = spec['texture']
+                    # a stock texture is referenced by id: any image carrying it (an import's,
+                    # or a placeholder of its size) exports as that id (MaterialTexture.unmake)
+                    image = next((img for img in bpy.data.images if img.get('id') == tex['id'] and tuple(img.size) == tuple(tex['size'])), None)
+                    if image is None:
+                        image = bpy.data.images.new(f"swe1r_stock_texture_{tex['id']}", *tex['size'], alpha = True)
+                        image['id'] = tex['id']
+                        image['format'] = tex['format']
+                        image['internal_hash'] = compute_image_hash(image)
+                        self.temp_data.append(image)
+                material = Material(None, None).make(tex_name = image.name if image else None, mat_name = name)
+                for key, word in zip(SHADER_WORD_KEYS, spec['words']):
+                    material[key] = str(word)
+                material['unk1'] = spec['unk1']
+                material['combiner_cycle_type'] = spec['cycle']
+                material['shader_tail'] = list(spec['tail'])
+                material['format'] = spec['format']
+                if spec['texture'] is not None:
+                    material['texture_fields'] = spec['texture']['fields']
+                material.material_color = spec['color']
+                material.use_backface_culling = bool(spec['format'] & 0x8)
+                self.temp_data.append(material)
+                return material
+
+            def stock_part(part, material):
+                """A temporary mesh object with a stock part's geometry (file units) and material."""
+                mesh = bpy.data.meshes.new("swe1r_stock_part")
+                mesh.from_pydata([[c * self.scale for c in v] for v in part['verts']], [], part['faces'])
+                uv = mesh.uv_layers.new(name = "UVMap")
+                for i, coords in enumerate(part['uvs']):
+                    uv.data[i].uv = coords
+                colors = mesh.vertex_colors.new(name = "colors")
+                for i, color in enumerate(part['colors']):
+                    colors.data[i].color = color
+                mesh.materials.append(material)
+                obj = bpy.data.objects.new("swe1r_stock_part", mesh)
+                bpy.context.scene.collection.objects.link(obj)
+                obj.visible = True
+                obj.collidable = False
+                self.temp_data.extend([obj, mesh])
+                return obj
+
+            def part_material(collection_type, spec, name):
+                """The material for a stock part: the first material of a mesh in the collection,
+                else the stock one; None without the collection (the part is left out)."""
+                child = next((c for c in collection.children if c.collection_type == collection_type), None)
+                if child is None:
+                    return None
+                for obj in get_all_objects_in_collection(child):
+                    if obj.type == 'MESH' and len(obj.material_slots) and obj.material_slots[0].material is not None:
+                        return obj.material_slots[0].material
+                return stock_material(spec, name)
+
             def create_air_stream(mesh, top_header, bottom_header):
                 air_a = NodeTransformedWithPivot(None, self, 53349, header = [top_header])
                 air_b = Group53350(None, self, 53350)
+                # stock: the glow turns to face the camera (orientation 1)
+                air_b.track_position = 1
                 link_nodes(air_a, [air_b])
                 air_c = NodeTransformedWithPivot(None, self, 53349, header = [bottom_header])
                 link_nodes(air_b, [air_c])
@@ -6044,8 +6107,12 @@ class Model():
             podd_binder1 = NodeTransformedWithPivot(None, self, 53349, header = [6])
             podd_binder2 = NodeTransformedWithPivot(None, self, 53349, header = [7])
             link_nodes(podd_binder1, [podd_binder2])
-            podd_airsream_right = create_air_stream([], 67, 69)
-            podd_airsream_left = create_air_stream([], 68, 70)
+            # the engine glow: the stock quad with the Engine Glow collection's material (or the stock
+            # one); none without the collection, as templates made before it had none
+            glow_material = part_material('8', STOCK_GLOW_MATERIAL, "swe1r_stock_glow")
+            glow = [stock_part(STOCK_GLOW, glow_material)] if glow_material is not None else []
+            podd_airsream_right = create_air_stream(glow, 67, 69)
+            podd_airsream_left = create_air_stream([stock_part(STOCK_GLOW, glow_material)] if glow else [], 68, 70)
             
             
             podd_engine_r = None
@@ -6077,11 +6144,14 @@ class Model():
                     link_nodes(podd_cockpit, cockpit.children)
                     cockpit.header = [16]
                 elif child_collection.collection_type == '5':
-                    cable_mesh = [obj for obj in get_all_objects_in_collection(child_collection) if obj.type == 'MESH']
+                    # the game stretches the cable from cockpit to engine and, up close, draws its
+                    # own tube instead (pod_parts.py), so the stock strip is written with the
+                    # collection's material (or the stock black one)
+                    cable_material = part_material('5', STOCK_CABLE_MATERIAL, "swe1r_stock_cable")
                     podd_cable1 = NodeTransformedWithPivot(None, self, 53349, header = [10])
                     podd_cable2 = NodeTransformedWithPivot(None, self, 53349, header = [11])
-                    assign_objs_to_node_by_type([Mesh(podd_cable1, self).unmake(obj) for obj in cable_mesh], podd_cable1, self)
-                    assign_objs_to_node_by_type([Mesh(podd_cable2, self).unmake(obj) for obj in cable_mesh], podd_cable2, self)
+                    assign_objs_to_node_by_type([Mesh(podd_cable1, self).unmake(stock_part(STOCK_CABLE, cable_material))], podd_cable1, self)
+                    assign_objs_to_node_by_type([Mesh(podd_cable2, self).unmake(stock_part(STOCK_CABLE, cable_material))], podd_cable2, self)
             
             
             link_nodes(podd_a_node, [podd_shadows_node, podd_b_node])
@@ -6181,6 +6251,21 @@ class Model():
         self.header.unmake(collection)
 
         return self
+
+    def remove_temp_data(self):
+        for item in getattr(self, 'temp_data', []):
+            try:
+                if isinstance(item, bpy.types.Object):
+                    bpy.data.objects.remove(item)
+                elif isinstance(item, bpy.types.Mesh):
+                    bpy.data.meshes.remove(item)
+                elif isinstance(item, bpy.types.Material):
+                    bpy.data.materials.remove(item)
+                elif isinstance(item, bpy.types.Image):
+                    bpy.data.images.remove(item)
+            except ReferenceError:
+                pass
+        self.temp_data = []
 
     def sort_animations(self):
         """Imported animations back in their stock list order, new ones after them.

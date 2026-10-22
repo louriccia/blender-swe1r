@@ -6,7 +6,7 @@ Pick a model type in the dropdown, then click **+**. The add-on adds an empty mo
 | Type | What New adds |
 |---|---|
 | Trak (track) | **Track** and **Skybox** collections, and a `spline` curve object |
-| Podd (pod) | **Right Engine**, **Left Engine**, **Cockpit**, **Cable**, **Jet Trails** and **Shadows** collections, and anchors (see below) |
+| Podd (pod) | **Right Engine**, **Left Engine**, **Cockpit**, **Cable**, **Jet Trails**, **Shadows** and **Engine Glow** collections, and anchors (see below) |
 | Modl, Part, Pupp, Scen | The collection only |
 
 The new collection replaces the first game model of its type on export. A message names that model. Change it with **Replaces** in the [Export](Export) panel.
@@ -24,11 +24,12 @@ Model each part around its anchor. Export writes each part's meshes relative to 
 
 ### Jet trails and shadows
 - **Jet Trails**: each mesh trails from the nearer exhaust arrow. Model a short tube pointing back (−Y) from the arrow, about half a Blender unit long, like the stock ones: the game stretches it with speed, scrolls its texture and may set its color.
+- **Cable** and **Engine Glow**: the game reshapes both every frame (it stretches the cable from the cockpit to each engine and, up close, draws its own tube; it scales the glow by the pod's glow size and speed and sets its color from engine heat), so only their material is yours to choose. Put any mesh in the collection to give the cable or glow that mesh's material; leave the collection empty for the stock black cable or the stock glow; delete the collection for no cable or no glow. The glow is faint in normal driving, as on stock pods.
 - **Shadows**: each mesh goes on the ground under the nearest engine or cockpit anchor; only its outline matters (it is laid flat on the ground). Give it the **Shadow** blend (see [Materials](Materials)): it draws Color where the texture is transparent, so a texture with a soft transparent blob gives the stock look. The right engine's shadow also sets how wide the pod is for collisions with other pods.
 
 ### Limits
 - The new spline has a single point. A track spline needs 3 to 255 points: see [Splines](Splines).
-- Pods built from the template export without LODs, animations, engine glow or a far-away model, and with an empty high detail MAlt model. Imported pods export in full.
+- Pods built from the template export without LODs, animations or a far-away model, and with an empty high detail MAlt model. Imported pods export in full.
 - AI racers don't draw the pod model: they use a separate low detail model (a Part), so a new pod only shows on your own racer.
 - New adds no meshes or materials. Model them in Blender, or append them from another file.
 

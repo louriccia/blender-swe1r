@@ -30,5 +30,22 @@ class PodVisualTest(unittest.TestCase):
         self.assertIsNone(load().pod_anchor_positions(1))
 
 
+class PodPartsTest(unittest.TestCase):
+    def test_stock_parts(self):
+        spec = importlib.util.spec_from_file_location("pod_parts", os.path.join(ADDON_DIR, "swe1r", "pod_parts.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        for part in (m.STOCK_GLOW, m.STOCK_CABLE):
+            corners = 3 * len(part['faces'])
+            self.assertEqual(len(part['uvs']), corners)
+            self.assertEqual(len(part['colors']), corners)
+            self.assertTrue(all(0 <= i < len(part['verts']) for face in part['faces'] for i in face))
+        # stock aabbs (Anakin, Podd 2): glow x -100..100, z 0..100; cable x 0..10, y -100..0
+        xs = [v[0] for v in m.STOCK_GLOW['verts']]
+        self.assertEqual((min(xs), max(xs)), (-100, 100))
+        ys = [v[1] for v in m.STOCK_CABLE['verts']]
+        self.assertEqual((min(ys), max(ys)), (-100, 0))
+
+
 if __name__ == "__main__":
     unittest.main()
