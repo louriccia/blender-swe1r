@@ -11,11 +11,12 @@ GOG: `GOG Galaxy\Games\STAR WARS Racer\data\lev01`
 
 ## Type
 Filters the Model list:
-- **MAlt / Podd**: the pods (high and low detail)
+- **Podd**: the pods
+- **MAlt**: a pod's high-detail parts, exported together with its Podd
 - **Modl**: special effects
 - **Part**: props and parts
 - **Pupp**: animated characters (racers, Watto, pit droids…)
-- **Scen**: cutscenes (unused on PC)
+- **Scen**: animated scenes
 - **Trak**: tracks
 
 ## Model
