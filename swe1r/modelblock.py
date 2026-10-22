@@ -27,6 +27,7 @@ import math
 import mathutils
 from .general import RGB3Bytes, FloatPosition, FloatVector, DataStruct, RGBA4Bytes, ShortPosition, FloatMatrix, writeFloatBE, writeInt32BE, writeString, writeUInt32BE, writeUInt8, readString, readInt32BE, readUInt16BE, readUInt32BE, readUInt8, readFloatBE
 from .textureblock import Texture, compute_image_hash, compute_hash, needed_pixel_bytes, format_map
+from .pod_visual import pod_anchor_positions
 from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt
 
 def find_existing_light(objects, color, location, rotation):
@@ -5223,15 +5224,18 @@ def restore_mesh_group_flags(group):
 def is_identity(matrix, tolerance = 1e-6):
     return all(abs(matrix[i][j] - (1.0 if i == j else 0.0)) <= tolerance for i in range(4) for j in range(4))
 
-def unmake_mesh_in_frame(obj, parent, model, matrix):
+def unmake_mesh_in_frame(obj, parent, model, matrix, flip_winding = False):
     """Mesh(parent).unmake(obj) with obj's vertices moved by matrix first.
 
     A mesh that does not become a node of its own is written in its parent node's space, which
     the game draws with that node's matrix (SW_RACER_RE swrModel_Mesh has no transform). Its own
     location/rotation/scale, and those of plain empties above it that are flattened away, would
     otherwise be lost, so they go into the vertices. The data is restored afterwards.
+
+    flip_winding writes the faces wound the other way, for a node the game draws with its culling
+    reversed; normals (lit meshes) keep pointing out, as they are written before the flip.
     """
-    if is_identity(matrix):
+    if is_identity(matrix) and not flip_winding:
         return Mesh(parent, model).unmake(obj)
     data = obj.data
     mirrored = matrix.determinant() < 0
@@ -5243,9 +5247,13 @@ def unmake_mesh_in_frame(obj, parent, model, matrix):
     if lit:
         # Model.unmake wrote the normal bytes before the vertices moved: write them again, turned
         unmake_vertex_normals(data)
+    if flip_winding:
+        data.flip_normals()
     try:
         return Mesh(parent, model).unmake(obj)
     finally:
+        if flip_winding:
+            data.flip_normals()
         if mirrored:
             data.flip_normals()
         data.transform(matrix.inverted())
@@ -5807,6 +5815,11 @@ class Model():
             root = deep_unmake(imported_root, None, self, target_map, keep = True)[0]
 
         elif self.type == '4': #PODD
+            # The game draws each part where a table in its exe says (swe1r/pod_visual.py), for the
+            # pod being replaced: a part's meshes are written relative to that point, so they show
+            # in game where they sit around the part's anchor in Blender.
+            anchors = pod_anchor_positions(self.id) or {}
+
             def create_podd_component(mesh, type):
                 comp_a = NodeTransformedWithPivot(None, self, 53349)
                 comp_b = NodeTransformed(None, self, 53348)
@@ -5816,8 +5829,14 @@ class Model():
                 link_nodes(comp_a, [comp_b])
                 comp_d = Group20580(None, self, 20580)
                 link_nodes(comp_b, [comp_d])
-                if len(mesh):
-                    assign_objs_to_node_by_type([Mesh(None, self).unmake(obj) for obj in mesh], comp_d, self)
+                frame = mathutils.Matrix.Translation(mathutils.Vector(anchors.get(type, (0, 0, 0)))).inverted()
+                meshes = [obj for obj in mesh if obj.type == 'MESH']
+                # the game draws the left engine (slot 2) with its culling reversed (swrRace_Init
+                # sets flags_5 bit 0 on slots 2/4/14/62; dinput_hook/renderer_hook.cpp flips the
+                # cull face on it), so its faces are wound the other way to show the right side
+                flip = type == 'engine_l'
+                if len(meshes):
+                    assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, frame @ obj.matrix_world, flip_winding = flip) for obj in meshes], comp_d, self)
                 return comp_a
             
             def create_air_stream(mesh, top_header, bottom_header):
@@ -5887,15 +5906,13 @@ class Model():
                     link_nodes(podd_71_node, [cockpit])
                     podd_cockpit = NodeTransformedWithPivot(None, self, 53349, header = [5])
                     link_nodes(podd_cockpit, cockpit.children)
-                    link_nodes(podd_a_node, [podd_cockpit])
                     cockpit.header = [16]
                 elif child_collection.collection_type == '5':
-                    cable_mesh = get_all_objects_in_collection(child_collection)
+                    cable_mesh = [obj for obj in get_all_objects_in_collection(child_collection) if obj.type == 'MESH']
                     podd_cable1 = NodeTransformedWithPivot(None, self, 53349, header = [10])
                     podd_cable2 = NodeTransformedWithPivot(None, self, 53349, header = [11])
                     assign_objs_to_node_by_type([Mesh(podd_cable1, self).unmake(obj) for obj in cable_mesh], podd_cable1, self)
                     assign_objs_to_node_by_type([Mesh(podd_cable2, self).unmake(obj) for obj in cable_mesh], podd_cable2, self)
-                    link_nodes(podd_a_node, [podd_cable1, podd_cable2])
             
             
             link_nodes(podd_a_node, [podd_shadows_node, podd_b_node])

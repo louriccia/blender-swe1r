@@ -1,5 +1,5 @@
 import bpy
-from .utils import save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
+from .utils import update_export_model, save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
 from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
 from .swe1r.trigger_types import TRIGGER_TYPES, type_label
@@ -134,7 +134,8 @@ def register():
         items = export_model_items,
         name = "Model",
         description = "The game model this collection replaces on export",
-        default = 0
+        default = 0,
+        update = update_export_model,
     )
     
     bpy.types.Collection.export_type = bpy.props.EnumProperty(

@@ -212,6 +212,8 @@ class NewModelOperator(bpy.types.Operator):
             
         main_collection.export_type = type
         main_collection.export_model = str(valid_models[0]['index'])
+        if type_name == 'Podd':
+            place_pod_anchors(main_collection)
 
         context.scene.collection.children.link(main_collection)
         # the game's visibility zones; without them every mesh exports in no zone and is never drawn
