@@ -381,15 +381,19 @@ class TriggerFlag(DataStruct):
     
     def make(self, obj):
         obj.trigger_settings = self.settings
+        # the flags are registered Object properties (props.py, the panel's toggles): an
+        # obj['Disabled'] custom property is a different value in Blender 5 (set_material_prop)
         for attr in self.flags:
-            obj[attr] = getattr(self, attr)
-    
+            set_material_prop(obj, attr, bool(getattr(self, attr)))
+
     def unmake(self, obj):
         # trigger_settings is a registered property, never an ID property named 'settings'
         self.settings = obj.trigger_settings
+        # flags set in the panel, or the custom properties older imports wrote. Reading only the
+        # custom ones exported every flag the panel set as 0: Disabled and SkipLap triggers fired
+        # in game (levels/level_museum_triggers.py)
         for attr in self.flags:
-            if attr in obj:
-                setattr(self, attr, obj[attr])
+            setattr(self, attr, bool(get_material_prop(obj, attr)))
         return self
     
     def write(self, buffer, cursor):

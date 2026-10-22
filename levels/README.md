@@ -19,7 +19,9 @@ be in-game* (GodotFest 2025):
 |---|---|---|
 | `hello` | done | The smallest track that races: a flat loop. Proves the from-scratch export path. |
 | `gym` | done | The pod's physical limits: slopes, jumps, drops, gate widths, turns. |
-| `museum` | planned | Every surface flag, trigger type, zone, fog/light setting, animation and spline feature. |
+| `museum_surfaces` | done | Every surface flag and special flag: exact bits reach the game, and their effect. |
+| `museum_triggers` | done | Every trigger type and flag: what fires, when, and what it does. |
+| museum: environment, animation, splines | planned | Fog/light/skybox, animation types, spline splits and joins. Zones wait on planet-independent custom tracks. |
 | `zoo` | planned | Every stock texture and material setting, and stock props, labelled by id. |
 
 ## Running
@@ -75,6 +77,60 @@ comes from the game, not from reading code.
 - The pod is airborne more than 30 units above the ground.
 - It crashes when its speed is above 325 and drops by more than 140 in one frame
   (`swrRace_DeathSpeedMin` / `swrRace_DeathSpeedDrop`).
+
+## What the museum showed
+
+**Surfaces** (`museum_surfaces`): all 23 surface and special flag bits set in Blender reach the game
+exactly. Their effects, measured:
+
+- **Fast:** +92 speed bonus over the strip (it eases toward +200 at 25/s).
+- **Slow:** speed ×0.75.
+- **Slip:** grip ×0.2.
+- **Swst:** eases speed toward ×0.1 and cancels boost. It is not a start-line marker.
+- **Lava:** engine heat drops by 47 over the strip.
+- **Pod flags:**
+  - **Swmp, Soft, Side, Mirr:** set the pod's matching `ON_*` flag (Mirr only with reflections on).
+  - **Magnet, elevation:** set `MAGNET` and `FULL_RAYCAST`.
+  - **ZOn:** sets zero-g.
+  - **Flat:** never sets anything on a human pod (it is AI only).
+- **Fall:** respawns only once the pod is within 30 of the surface. Pods fall slowly, so a Fall pad
+  300 down a pit is flown straight over.
+
+**Triggers** (`museum_triggers`):
+- **Flags behave as the decomp says:**
+  - **0x1** disarms the trigger.
+  - **0x2** needs speed above 150.
+  - **0x4 / 0x8 / 0x10** skip laps 1 / 2 / 3.
+  - **0x20** fires for the local pod only.
+- **A trigger only works on the mesh it is parented to.** The game tests only the triggers of the
+  collision mesh under the pod.
+- **Some triggers fire every frame the pod is inside them:** types without a handler (0, 107),
+  101/307 doors, and 106/203 fire. The destructible, animation, 104 and 108 types fire once, then
+  disarm themselves.
+- **Loading a track changes some trigger flags.**
+  - 100, 202 and 212 get 0x2.
+  - 105, 203, 312 and 314 get 0x20.
+  - **213 and 306 get 0x24, so they never fire on lap 1.**
+- **104 explodes the pod.**
+- **900 resets the pod onto the spline at its own progress, at speed 0.** Put on the racing line, it
+  resets the pod into itself every frame, and the pod is stuck. Keep it out of bounds, as stock
+  tracks do.
+- **Trigger effects use per-planet models** (`swrObjTrig_LoadAndInitializeTriggerModels`). A trigger
+  whose effect slot the track's planet doesn't load can crash the game. **501 (lava splash) crashes
+  everywhere except Baroonda.**
+
+  | Planet | Effect slots loaded |
+  |---|---|
+  | 0 Tatooine | 0 rocksmall, 1 rockbig, 2 balloon |
+  | 1 Ando Prime | 0 shards, 1 rockbig, 2 flag tip, 3/4 flag wave |
+  | 2 Aquilaris | 0 big fish, 1 rockgiant |
+  | 3 Ord Ibanna | none |
+  | 4 Baroonda | 0 treesmash, 1 rockash, 2 flame, 3 rockgiant, 5 lava |
+  | 5 Mon Gazza | 0 dozer, 2 flame |
+  | 6 Oovo IV | 0 rockzero |
+  | 7 Malastare | 0 methane |
+
+  314 uses slot 0, 501 slot 5, 213 slot 3 and 306 slot 1.
 
 ## Facts every custom track runs into
 

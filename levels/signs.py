@@ -124,3 +124,16 @@ def sign(name, lines, origin, facing, collection, mat, char=60.0, color=(1.0, 0.
                           colors=colors)
     mat.use_backface_culling = False
     return obj
+
+
+def station_sign(course, station, lines, collection, mat, **kwargs):
+    """A sign at the start of a course station, beside the road on the left, facing the pod."""
+    from mathutils import Vector
+    import math
+    s0, _ = course.station_range(station)
+    smp = course.frame(s0)
+    h = smp['heading']
+    fwd = Vector((math.cos(h), math.sin(h), 0))
+    left = Vector((-fwd.y, fwd.x, 0))
+    at = smp['pos'] + left * (smp['width'] / 2 + 200) + fwd * 100
+    return sign(f"sign_{station}", lines, tuple(at), (-fwd.x, -fwd.y), collection, mat, **kwargs)

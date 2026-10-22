@@ -162,3 +162,30 @@ class Course:
         """The centre line every STEP for expectations.json: [s, x, y, z, station]."""
         return [[round(smp['s'], 1), round(smp['pos'].x, 1), round(smp['pos'].y, 1),
                  round(smp['pos'].z, 1), smp['station']] for smp in self.samples]
+
+
+def exhibit_loop(exhibits, gap=300.0, tail=(), radius=2500.0, close=2000.0):
+    """A stadium loop with the exhibits [(name, length)] in a row along both straights, plain road
+    ("between") after each, then the tail segments, and a closing straight ("grid") before the line.
+    Centred on the origin (vertices are int16)."""
+    bottom, top = [straight(1000, "start")], []
+    half = sum(length + gap for _, length in exhibits) / 2
+    side = bottom
+    for name, length in exhibits:
+        side.append(straight(length, name))
+        side.append(straight(gap, "between"))
+        if side is bottom and sum(seg.length for seg in bottom) > half:
+            side = top
+    top += list(tail)
+    a = sum(seg.length for seg in bottom)
+    used = sum(seg.length for seg in top)
+    if used > a + close:
+        bottom.append(straight(used - a - close, "between"))
+        a = used - close
+    top.append(straight(a + close - used, "between"))
+    segs = bottom + [arc(radius, 180, "turn")] + top + [arc(radius, 180, "turn_home"), straight(close, "grid")]
+    course = Course(segs, origin=(-(a - close) / 2, -radius))
+    assert course.extent() < 32000, f"course reaches {course.extent():.0f}, past the int16 vertex range"
+    dist, heading_err, z_err = course.closure_error()
+    assert dist < 1 and abs(heading_err) < 0.01 and abs(z_err) < 1, course.closure_error()
+    return course

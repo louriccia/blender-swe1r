@@ -1,0 +1,192 @@
+{
+  "after_zoff": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "dust": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 64
+  },
+  "elevation": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 16,
+    "surf": 0
+  },
+  "fall": {
+    "airborne": false,
+    "explodes": 0,
+    "fired": [],
+    "respawns": 2,
+    "spec": 0,
+    "surf": 0
+  },
+  "fast": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 4
+  },
+  "flat": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 131072
+  },
+  "lava": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 8192
+  },
+  "magnet": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 32,
+    "surf": 0
+  },
+  "mirr": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 4096
+  },
+  "nrsp": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 65536
+  },
+  "nsnw": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 2048
+  },
+  "plain": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "recover": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "ruff": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 512
+  },
+  "side": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 536870912
+  },
+  "skybox_hide": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 2,
+    "surf": 0
+  },
+  "skybox_show": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 4,
+    "surf": 0
+  },
+  "slip": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 32
+  },
+  "slow": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 8
+  },
+  "snow": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 128
+  },
+  "soft": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 32768
+  },
+  "strict_spline": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 8,
+    "surf": 0
+  },
+  "swmp": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 1024
+  },
+  "swst": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 16
+  },
+  "wet": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 256
+  },
+  "zoff": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 2
+  },
+  "zon": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 1
+  }
+}
