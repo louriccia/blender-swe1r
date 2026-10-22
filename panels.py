@@ -670,7 +670,7 @@ class SWR_PT_material(VisualsSubPanel, bpy.types.Panel):
         row = layout.row()
         row.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
         # only Tinted, Glow and Flat Color (and some Custom setups) draw with Color
-        row.enabled = bool(modes & {'TINTED', 'GLOW', 'FLAT', 'CUSTOM'})
+        row.enabled = bool(modes & {'TINTED', 'GLOW', 'FLAT', 'SHADOW', 'CUSTOM'})
         layout.prop(context.scene, 'use_backface_culling', text = f'Backface Culling{is_indeterminate("use_backface_culling")}')
         row = layout.row(align=True)
         row.prop(context.scene, "texture", text = "", placeholder = is_indeterminate("texture", "Mixed"))
