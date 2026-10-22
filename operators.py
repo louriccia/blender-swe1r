@@ -452,10 +452,15 @@ class BakeVColors(bpy.types.Operator):
     bl_idname = "view3d.bake_vcolors"
     bl_label = "Bake Vertex Colors"
     bl_description = "Bake the scene's lights into the selected meshes' vertex colors (track lighting is baked; the game only lights pods)"
-    
+    bl_options = {'REGISTER', 'UNDO'}
+
     def execute(self, context):
-        selected_objects = context.selected_objects
-        for obj in selected_objects:
+        # only visible meshes have vertex colors to bake into
+        meshes = [obj for obj in context.selected_objects if obj.type == 'MESH' and obj.visible]
+        if not meshes:
+            self.report({'ERROR'}, "Select one or more Visible meshes to bake")
+            return {'CANCELLED'}
+        for obj in meshes:
             # Calculate the total light for each vertex of the selected object
             total_lights = calculate_total_light_for_object(obj, context.scene.light_falloff, context.scene.ambient_light_intensity, context.scene.ambient_light)
                
@@ -469,7 +474,7 @@ class BakeVColors(bpy.types.Operator):
                     color_layer[poly.loop_indices[p]].color = [*color, 1.0]
 
         bpy.ops.view3d.remake_materials()
-
+        self.report({'INFO'}, f"Baked {len(meshes)} mesh{'es' if len(meshes) != 1 else ''}")
         return {"FINISHED"}
 
 class SplitByMaterial(bpy.types.Operator):
@@ -568,6 +573,11 @@ class AddTrigger(bpy.types.Operator):
             center = sum((mesh.matrix_world @ v.co for v in verts), mathutils.Vector()) / len(verts)
         else:
             center = mesh.matrix_world.to_translation()
+
+        # the game only reads triggers from a collision mesh's collision data, and export drops the rest
+        if not mesh.collision_data:
+            mesh.collision_data = True
+            reselect_obj(mesh)
 
         trigger = bpy.data.objects.new("trigger", None)
         trigger.empty_display_type = 'CUBE'

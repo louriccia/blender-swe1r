@@ -2,8 +2,8 @@ An event trigger is a zone on a collision mesh. When a pod enters it, the game d
 
 ## Add a trigger
 1. Select the collision mesh the pods drive on (usually the road under the spot).
-2. In **Mesh > Collision**, make sure collision is on and click **Add surface flags, fog, etc.** if it shows. See [Collision](Collision).
-3. Open **Event Triggers** and click **Add event trigger**.
+2. In **Mesh > Collision**, make sure collision is on. See [Collision](Collision).
+3. Open **Event Triggers** and click **Add event trigger**. If the mesh had no collision data yet, this adds it.
 
 The new trigger is a cube empty named `trigger`, parented to the mesh, at the centre of the mesh's vertices. It is 200 × 200 game units across and 100 high. Select it to see the **Event Trigger** panel.
 
@@ -13,7 +13,7 @@ The new trigger is a cube empty named `trigger`, parented to the mesh, at the ce
 **A trigger only works on the mesh it is parented to.** The game only tests the triggers of the collision mesh under the pod. If the trigger sits over a different mesh, it never fires.
 
 - Parent it directly to that mesh. The panel shows **Parent this to a collidable mesh** if its parent isn't a mesh.
-- The mesh needs its collision data (step 2 above). Triggers on a mesh without it are not exported.
+- The mesh needs its collision data. **Add event trigger** adds it; a trigger parented to a mesh without it some other way is not exported.
 - Export splits a mesh with more than one material into one mesh per material. The trigger stays on only one of the pieces. Give the road under a trigger a single material, or put the trigger on its own one-material mesh.
 
 ## Size and rotation

@@ -13,7 +13,7 @@ Distance is measured in Blender units. The add-on imports at 0.01 Blender units 
 A color added to every vertex, so areas no light reaches are not black.
 
 ## Ambient Strength
-Meant to scale the ambient light. **It currently has no effect**: the Ambient Light color is added at full strength. Ambient Light defaults to white, which bakes every vertex fully white. Set Ambient Light to a dark color before baking.
+Scales the ambient light: each vertex starts from **Ambient Light** × **Ambient Strength**. The default, 0.1, keeps unlit areas dark but not black.
 
 ## Bake
 Computes a color for each vertex of the selected meshes and writes it to the mesh's active color attribute. It replaces any vertex colors already there.
@@ -33,7 +33,7 @@ The arrow in the panel header sets the selected meshes' vertex colors back to wh
 - Every point and sun light in the scene counts, including [light streaks](Lights) and [pod lighting](Pod-Lighting) lights.
 - Colors are per vertex: each vertex gets one color on all the faces that share it.
 - Results brighter than white are clipped.
-- Select only Visible meshes before baking. A light, or a mesh that is not Visible, in the selection can stop the bake with an error.
+- Only Visible meshes are baked. Other selected objects are skipped.
 - Meshes whose material uses the game's normals vertex format are lit by the game, and their vertex colors are not used.
 
 You can also paint vertex colors by hand in Blender's Vertex Paint mode; export uses the active color attribute either way.

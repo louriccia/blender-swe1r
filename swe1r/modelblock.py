@@ -277,12 +277,22 @@ class Lights(DataStruct):
 
     def unmake(self, obj):
         if obj.lighting_light is not None:
-            light_object = bpy.data.objects.get(obj.lighting_light.name)
+            # the object using this light, preferring one in the exported model (names can differ
+            # from the light data's, and the light may be parented)
+            users = getattr(self.model, 'light_users', None)
+            if users is None:
+                users = {}
+                collection = getattr(self.model, 'export_collection', None)
+                for o in [*bpy.data.objects, *(get_all_objects_in_collection(collection) if collection else [])]:
+                    if o.type == 'LIGHT':
+                        users[o.data.name] = o  # the model's own objects are added last, so they win
+                self.model.light_users = users
+            light_object = users.get(obj.lighting_light.name)
             self.flag |= 0x3
 
+            self.color.unmake(obj.lighting_light.color)
             if light_object:
-                self.color.unmake(light_object.data.color)
-                self.light_vector.from_array([round(a/self.model.scale) for a in light_object.location])
+                self.light_vector.from_array([round(a/self.model.scale) for a in light_object.matrix_world.to_translation()])
 
         self.ambient.unmake(obj.lighting_color)
 
@@ -309,8 +319,8 @@ class Fog(DataStruct):
     def __init__(self):
         super().__init__('>4B2H')
         self.flag = 0
-        #0001 = Update color
-        #0010 = Update distance
+        # swrObjcMan_UpdateTerrainVisuals (0x451a80): 0x1 turns fog on with the color and start (a
+        # start of 0 or less turns it off), 0x2 sets the draw distance from end
         self.color = RGB3Bytes()
         self.start = 0
         self.end = 0
@@ -321,12 +331,13 @@ class Fog(DataStruct):
         obj.fog_range_update = self.flag & 0x02 > 0
         obj.fog_min = self.start
         obj.fog_max = self.end
-        obj.fog_clear = self.flag & 0x02 and self.start == 0
+        obj.fog_clear = bool(self.flag & 0x01) and self.start <= 0
         
     def unmake(self, obj):
-        if obj.fog_color_update:
+        # clearing is the color path with a start of 0: the only way the game turns fog off
+        if obj.fog_color_update or obj.fog_clear:
             self.flag |= 0x01
-        if obj.fog_range_update or obj.fog_clear:
+        if obj.fog_range_update:
             self.flag |= 0x02
             
         self.color.unmake(obj.fog_color)
@@ -5498,6 +5509,7 @@ class Model():
             clear_children_index()
 
     def _unmake(self, collection, texture_export, textureblock):
+        self.export_collection = collection
         self.textureblock = textureblock
         self.image_map = {}
         self.type = collection.export_type

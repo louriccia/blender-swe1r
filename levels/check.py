@@ -140,9 +140,12 @@ def measure(station, samples, events, line_z, cruise):
                 cam = middle[-1]["cam"]
                 out["cam_flags"] = cam[0]
                 f = [struct.unpack("<f", struct.pack("<I", w))[0] for w in cam[2:]]
-                # +0x2c8 (fog_r_target in src) is the draw distance target, +0x2d0 (fog_b_target)
-                # the fog start target, both floats
+                # +0x2c4 (fog_b in src) is the draw distance, +0x2c8 (fog_r_target) its target and
+                # +0x2d0 (fog_b_target) the fog start target, all floats. A target goes back to -1
+                # once the value has eased to it (swrObjcMan_UpdateFogAndViewport 0x4538d0), so
+                # draw_set is the draw distance being set: the target while easing, else the value.
                 out["draw_target"] = round(f[4], 1)
+                out["draw_set"] = round(f[4] if f[4] >= 0 else f[3], 1)
                 out["fog_start_target"] = round(f[6], 1)
     out["respawns"] = sum(1 for e in events if e["ev"] == "respawn")
     out["explodes"] = sum(1 for e in events if e["ev"] == "explode")
@@ -299,7 +302,7 @@ def check_grid(grid, log):
 
 
 BASELINE_KEYS = ("climbs", "slows", "airborne", "respawns", "explodes", "hover", "wall_radius", "surf",
-                 "spec", "fired", "fog", "light_flags", "light_rgb", "cam_flags", "draw_target",
+                 "spec", "fired", "fog", "light_flags", "light_rgb", "cam_flags", "draw_set",
                  "fog_start_target", "swing", "rise_rate")  # routes at forks are coin flips: not baselined
 
 

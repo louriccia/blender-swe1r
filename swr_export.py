@@ -22,6 +22,7 @@
 import bpy
 from .swe1r.modelblock import Model
 from .swe1r.splineblock import Spline
+from .swe1r.spline_map import spline_map
 from .swe1r.textureblock import Texture
 from .swe1r.block import Block
 from .swe1r.general import *
@@ -51,6 +52,20 @@ def export_model(col, file_path, exports, update_progress):
     if not any(exports):
         show_custom_popup(bpy.context, "No Export", f"Please select an element to export")
         return
+
+    # things that were asked for but not written, told to the user at the end
+    notes = []
+    if texture_export and not model_export:
+        notes.append("Textures are written with the model: turn on Model to export them.")
+    # the spline is read from a curve directly in the model collection (Spline.unmake)
+    direct_curves = [obj for obj in col.objects if obj.type == 'CURVE']
+    if spline_export and 'CURVE' in types:
+        if not direct_curves:
+            notes.append(f"Spline not exported: move the curve object directly into '{col.name}', not a child collection.")
+            spline_export = False
+        elif int(col.export_model) not in spline_map:
+            notes.append("Spline not exported: only tracks have a spline (Replaces is not a track).")
+            spline_export = False
 
     if 'MESH' in types and model_export:
         
@@ -147,5 +162,5 @@ def export_model(col, file_path, exports, update_progress):
             with open(file_path + 'spline_' + str(spline.id) + '_' + timestamp + '.bin', 'wb') as file:
                 file.write(spline_buffer)
             
-    show_custom_popup(bpy.context, "Exported", f"'{col.name}' was successfully exported to {file_path}")
+    show_custom_popup(bpy.context, "Exported", " ".join([f"'{col.name}' was successfully exported to {file_path}.", *notes]))
     

@@ -145,8 +145,10 @@ exactly. Their effects, measured:
 - **`fog_color_update`:** turns fog on. The fog colour is also the background colour.
 - **`fog_min` is not a distance.** The game uses it as an N64-style fog value and clamps it at 996
   (the literal 0x44790000). The add-on's 1–30000 range is misleading.
-- **`fog_range_update`:** sets the draw distance from `fog_max`. **`fog_clear` also sets that bit**,
-  so clearing fog resets the draw distance too.
+- **`fog_range_update`:** sets the draw distance from `fog_max`.
+- **`fog_clear`:** the game only turns fog off through bit 0x1 with a start of 0 or less. The add-on
+  used to write bit 0x2 for it, which cleared nothing on its own; it now writes 0x1 with start 0,
+  and the exhibit checks Clear Fog alone turns fog off.
 - **Lights:**
   - A light sets `light_flags` 0x3. Invert, flicker and persistent add 0x4, 0x8 and 0x10.
   - **The add-on calls 0x4 "invert", but the game reads it as "the light vector is a position".**

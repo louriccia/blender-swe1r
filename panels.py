@@ -745,17 +745,18 @@ class SWR_PT_fog(CollisionSubPanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         hint(layout, "Set when the pod touches these")
+        # the game reads the fog start with the color (fog flag 0x1) and the draw distance alone (0x2)
         row = layout.row()
-        row.column().prop(context.scene, 'fog_color_update', text = f'Set color{is_indeterminate("fog_color_update")}')
+        row.column().prop(context.scene, 'fog_color_update', text = f'Set fog{is_indeterminate("fog_color_update")}')
         col = row.column()
         col.prop(context.scene, 'fog_color', text = "")
-        col.enabled = context.scene.fog_color_update
+        col.prop(context.scene, 'fog_min', text = f'Start{is_indeterminate("fog_min")}', slider = True)
+        col.enabled = context.scene.fog_color_update and not context.scene.fog_clear
 
         row = layout.row()
-        row.column().prop(context.scene, 'fog_range_update', text = f'Set range{is_indeterminate("fog_range_update")}')
+        row.column().prop(context.scene, 'fog_range_update', text = f'Set draw{is_indeterminate("fog_range_update")}')
         col = row.column()
-        col.prop(context.scene, 'fog_min', text = f'Start{is_indeterminate("fog_min")}', slider = True)
-        col.prop(context.scene, 'fog_max', text = f'Draw distance{is_indeterminate("fog_max")}', slider = True)
+        col.prop(context.scene, 'fog_max', text = f'Distance{is_indeterminate("fog_max")}', slider = True)
         col.enabled = context.scene.fog_range_update
 
         layout.prop(context.scene, 'fog_clear', text = f'Clear Fog{is_indeterminate("fog_clear")}', icon = 'SHADERFX')
