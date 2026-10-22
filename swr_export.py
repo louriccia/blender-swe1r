@@ -76,15 +76,19 @@ def export_model(col, file_path, exports, update_progress):
 
         update_progress(f'Processing {col.name}...')
         
-        model = Model(col.export_model).unmake(col, texture_export, textureblock)
-        if model is None:
-            show_custom_popup(bpy.context, "Model Error", "There was an issue while exporting the model")
-            return
-        id = model.id
-        
-        update_progress(f'Writing {col.name}...')
-        
-        offset_buffer, model_buffer = model.write()
+        exporting = Model(col.export_model)
+        try:
+            model = exporting.unmake(col, texture_export, textureblock)
+            if model is None:
+                show_custom_popup(bpy.context, "Model Error", "There was an issue while exporting the model")
+                return
+            id = model.id
+
+            update_progress(f'Writing {col.name}...')
+
+            offset_buffer, model_buffer = model.write()
+        finally:
+            exporting.remove_temp_data()
         modelblock.inject([offset_buffer, model_buffer], id)
         
         if model.id in Podd_MAlt:

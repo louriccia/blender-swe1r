@@ -208,6 +208,8 @@ class NewModelOperator(bpy.types.Operator):
             trails_collection.collection_type = "6"
             shadows_collection = bpy.data.collections.new("Shadows")
             shadows_collection.collection_type = "7"
+            glow_collection = bpy.data.collections.new("Engine Glow")
+            glow_collection.collection_type = "8"
             
             main_collection.children.link(right_engine_collection)
             main_collection.children.link(left_engine_collection)
@@ -215,6 +217,7 @@ class NewModelOperator(bpy.types.Operator):
             main_collection.children.link(cable_collection)
             main_collection.children.link(trails_collection)
             main_collection.children.link(shadows_collection)
+            main_collection.children.link(glow_collection)
             
         main_collection.export_type = type
         main_collection.export_model = str(valid_models[0]['index'])
