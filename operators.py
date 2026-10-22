@@ -237,6 +237,42 @@ class NewModelOperator(bpy.types.Operator):
         self.report({'INFO'}, f"Created '{main_collection.name}'. It will replace {target['name']} ({type_name} {target['index']}) on export; change Model in the Export panel")
         return {'FINISHED'}
 
+class SortPodMeshes(bpy.types.Operator):
+    """Move each mesh that is in no part collection into Right Engine, Left Engine or Cockpit, whichever anchor it is nearest (seen from above). Collections it needs are made"""
+    bl_label = "Sort Loose Meshes"
+    bl_idname = "view3d.sort_pod_meshes"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        from .swe1r.pod_check import is_pod_template
+        return is_pod_template(find_model_collection(context))
+
+    def execute(self, context):
+        from .swe1r.pod_check import POD_PARTS, loose_meshes, nearest_part, part_collection
+        from .swe1r.pod_visual import pod_anchor_positions
+        collection = find_model_collection(context)
+        anchors = pod_anchor_positions(collection.export_model)
+        moved = {}
+        for obj in loose_meshes(collection):
+            collection_type = nearest_part(obj, anchors)
+            target = part_collection(collection, collection_type)
+            if target is None:
+                target = bpy.data.collections.new(POD_PARTS[collection_type][0])
+                target.collection_type = collection_type
+                collection.children.link(target)
+            # out of the model's other collections only; a collection outside the model keeps it
+            for owner in list(obj.users_collection):
+                if owner == collection or owner in collection.children_recursive:
+                    owner.objects.unlink(obj)
+            target.objects.link(obj)
+            moved[target.name] = moved.get(target.name, 0) + 1
+        if not moved:
+            self.report({'INFO'}, "No loose meshes")
+        else:
+            self.report({'INFO'}, "Moved " + ", ".join(f"{n} to {name}" for name, n in moved.items()))
+        return {'FINISHED'}
+
 def find_layer_collection(layer_collection, collection):
     if layer_collection.collection == collection:
         return layer_collection
@@ -1364,6 +1400,7 @@ register_classes = (
     ImportOperator,
     ExportOperator,
     NewModelOperator,
+    SortPodMeshes,
     ResetVColor,
     PreviewLoadTrigger,
     SelectByProperty,
