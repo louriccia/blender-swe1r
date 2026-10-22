@@ -27,6 +27,7 @@ import uuid
 import numpy as np
 from bpy_extras.io_utils import ImportHelper
 from .swe1r.modelblock import SurfaceEnum, Model
+from .swe1r.splineblock import find_main_path
 
 modules = [
     'swr_import',
@@ -743,54 +744,55 @@ class InvertSpline(bpy.types.Operator):
         return {'FINISHED'}
   
 class ReconstructSpline(bpy.types.Operator):
-    """Make the selected point the spline's first point: the start/finish line and starting grid. Needs a cyclic spline in Edit Mode"""
+    """Make the selected point of the main path its first point: the start/finish line and starting grid. Needs a cyclic main path, in Edit Mode"""
     bl_idname = "view3d.reconstruct_spline"
     bl_label = "Set Spawn Point"
+    bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
         obj = context.active_object
-        return obj and obj.type == 'CURVE' and obj.data.splines.active and len(obj.data.splines.active.bezier_points) > 1
+        if not (obj and obj.type == 'CURVE'):
+            return False
+        main = find_main_path(obj.data.splines)
+        return main is not None and main.use_cyclic_u
 
     def execute(self, context):
         obj = context.active_object
-        spline = obj.data.splines.active
-
-        if spline and len(spline.bezier_points) > 1:
-            selected_point_index = None
-
-            # Find selected point
-            for i, point in enumerate(spline.bezier_points):
-                if point.select_control_point:
-                    selected_point_index = i
-                    break
-
-            if selected_point_index is not None:
-                # Reconstruct the spline with the selected point as the first point
-                new_points = spline.bezier_points[selected_point_index:] + spline.bezier_points[:selected_point_index]
-
-                # Create a new list for control points, handles, and tilts
-                new_coords = [p.co.copy() for p in new_points]
-                new_handles_left = [p.handle_left.copy() for p in new_points]
-                new_handles_right = [p.handle_right.copy() for p in new_points]
-                new_radii = [p.radius for p in new_points]
-                new_tilts = [p.tilt for p in new_points]
-
-                # Assign new values to the original points
-                for i, point in enumerate(spline.bezier_points):
-                    point.co = new_coords[i]
-                    point.handle_left = new_handles_left[i]
-                    point.handle_right = new_handles_right[i]
-                    point.radius = new_radii[i]
-                    point.tilt = new_tilts[i]
-                
-                bpy.ops.curve.select_all(action='DESELECT')
-                obj.data.splines.active.bezier_points[0].select_control_point = True
-
+        # edit the curve's data in Object Mode: Edit Mode keeps its own copy, written back on exit
+        was_editing = context.mode == 'EDIT_CURVE'
+        if was_editing:
+            bpy.ops.object.mode_set(mode='OBJECT')
+        main = find_main_path(obj.data.splines)
+        points = main.bezier_points
+        start = next((i for i, p in enumerate(points) if p.select_control_point), None)
+        if start is None:
+            if was_editing:
+                bpy.ops.object.mode_set(mode='EDIT')
+            self.report({'ERROR'}, "Select a point on the main path")
+            return {'CANCELLED'}
+        # rotate every point's settings; handle types first, so Auto/Vector handles don't
+        # recompute the positions being written
+        snapshot = [(p.handle_left_type, p.handle_right_type, p.co.copy(), p.handle_left.copy(),
+                     p.handle_right.copy(), p.radius, p.tilt) for p in points]
+        snapshot = snapshot[start:] + snapshot[:start]
+        for p in points:
+            p.handle_left_type = p.handle_right_type = 'FREE'
+        for p, (left_type, right_type, co, left, right, radius, tilt) in zip(points, snapshot):
+            p.co, p.handle_left, p.handle_right = co, left, right
+            p.radius, p.tilt = radius, tilt
+        for p, (left_type, right_type, *_) in zip(points, snapshot):
+            p.handle_left_type, p.handle_right_type = left_type, right_type
+        for spline in obj.data.splines:
+            for p in spline.bezier_points:
+                p.select_control_point = p.select_left_handle = p.select_right_handle = False
+        points[0].select_control_point = True
+        if was_editing:
+            bpy.ops.object.mode_set(mode='EDIT')
         return {'FINISHED'}
     
 class SelectFirstSplinePointOperator(bpy.types.Operator):
-    """Select the spline's first point: the start/finish line and starting grid"""
+    """Select the main path's first point: the start/finish line and starting grid"""
     bl_idname = "curve.select_first_spline_point"
     bl_label = "Select First Spline Point"
     bl_options = {'REGISTER', 'UNDO'}
@@ -801,31 +803,21 @@ class SelectFirstSplinePointOperator(bpy.types.Operator):
         if obj is None or obj.type != 'CURVE':
             self.report({'ERROR'}, "Active object is not a curve")
             return {'CANCELLED'}
-            
-        # Enter edit mode if not already in edit mode
-        if bpy.context.mode != 'EDIT_CURVE':
-            bpy.ops.object.mode_set(mode='EDIT')
-        
-        # Deselect all points first
-        bpy.ops.curve.select_all(action='DESELECT')
-        
-        # Access the curve data in edit mode
-        curve_data = obj.data
-
-        if not curve_data.splines:
-            self.report({'WARNING'}, "No splines found in the curve")
-            return {'CANCELLED'}            
-            
-        active_spline = curve_data.splines.active
-
-        # Select the first point depending on spline type
-        if active_spline.bezier_points:
-            active_spline.bezier_points[0].select_control_point = True
-        elif active_spline.points:
-            active_spline.points[0].select_control_point = True
-        
-        # Update the view with the selection
-        context.view_layer.update()
+        # select in Object Mode (Edit Mode keeps its own copy of the points, and leaving it
+        # replaces the splines: look the path up after), then show it
+        if context.mode == 'EDIT_CURVE':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        main = find_main_path(obj.data.splines)
+        if main is None:
+            self.report({'WARNING'}, "No path of 2 points or more in the curve")
+            return {'CANCELLED'}
+        for spline in obj.data.splines:
+            for p in spline.bezier_points:
+                p.select_control_point = p.select_left_handle = p.select_right_handle = False
+            for p in spline.points:
+                p.select = False
+        main.bezier_points[0].select_control_point = True
+        bpy.ops.object.mode_set(mode='EDIT')
         return {'FINISHED'}
     
 # MARK: MISC

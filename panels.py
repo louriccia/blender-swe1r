@@ -23,6 +23,7 @@ from .swr_import import *
 from .swr_export import *
 import bpy
 from .swe1r.modelblock import SurfaceEnum, PLANE_TRIGGER_TYPES, trigger_tilted
+from .swe1r.splineblock import find_main_path
 from .operators import *
 from .constants import *
 from . import NAME, VERSION
@@ -946,13 +947,14 @@ class SWR_PT_spline(SWRPanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         spline = context.active_object.data.splines.active
+        main = find_main_path(context.active_object.data.splines)
         row = layout.row()
         row.column().operator("curve.select_first_spline_point", text = "Select spawn", icon = "SELECT_SET")
         column = row.column()
-        column.enabled = spline.use_cyclic_u and context.mode == 'EDIT_CURVE'
+        column.enabled = main is not None and main.use_cyclic_u and context.mode == 'EDIT_CURVE'
         column.operator("view3d.reconstruct_spline", text = "Set spawn", icon = "TRACKING")
         if not column.enabled:
-            hint(layout, "Set spawn: cyclic spline in Edit Mode")
+            hint(layout, "Set spawn: a cyclic main path, in Edit Mode")
         layout.operator("view3d.invert_spline", text = "Invert", icon='ARROW_LEFTRIGHT')
         row = layout.row()
         row.prop(spline, 'use_cyclic_u', text = "Cyclic")
