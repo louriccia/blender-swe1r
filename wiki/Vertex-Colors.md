@@ -22,7 +22,7 @@ For each vertex it starts from Ambient Light and adds:
 - **Point lights:** light color × the cosine of the angle between the vertex normal and the light, ÷ distance^Falloff.
 - **Sun lights:** light color × the cosine of the angle between the vertex normal and the sun's direction. No distance fade.
 
-A vertex gets nothing from a light that faces away from it, or when any geometry in the scene lies between it and the light (shadows).
+A vertex gets nothing from a light that faces away from it, or when a **Visible** mesh lies between it and the light (shadows). Collision-only meshes don't cast shadows, since the game doesn't draw them.
 
 ## Reset
 The arrow in the panel header sets the selected meshes' vertex colors back to white.
