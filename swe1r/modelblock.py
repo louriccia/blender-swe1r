@@ -286,7 +286,10 @@ def apply_blend_preset(material, name):
             color[3] = 1.0
         material.material_color = color
     if name in ('GLOW', 'SHADOW'):
-        material.use_backface_culling = False   # stock glow and shadows are double-sided
+        # stock glow and shadows are double-sided: neither 0x8 nor 0x40
+        material.use_backface_culling = False
+        if 'format' in material:
+            material['format'] &= ~0x48
 
 
 def render_mode_is_alpha_blend(mode):

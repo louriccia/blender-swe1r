@@ -124,7 +124,6 @@ mat_props = [
     'flip_y',
     'clip_x',
     'clip_y',
-    'use_backface_culling',
 ]
 
 # The game's four-letter surface codes, spelled out (the tooltip says what each does)
@@ -176,7 +175,7 @@ def is_texture_default(context):
         mats = [slot.material for slot in obj.material_slots]
         if not len(mats): continue
         if mats[0] is None: continue
-        if mats[0].use_backface_culling:
+        if mats[0].cull_mode != 'NONE':
             return False
         for prop in ['scroll_x', 'scroll_y', 'flip_x', 'flip_y', 'clip_x', 'clip_y']:
             if getattr(mats[0], prop, False):
@@ -671,7 +670,8 @@ class SWR_PT_material(VisualsSubPanel, bpy.types.Panel):
         row.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
         # only Tinted, Glow and Flat Color (and some Custom setups) draw with Color
         row.enabled = bool(modes & {'TINTED', 'GLOW', 'FLAT', 'SHADOW', 'CUSTOM'})
-        layout.prop(context.scene, 'use_backface_culling', text = f'Backface Culling{is_indeterminate("use_backface_culling")}')
+        culls = {m.material_slots[0].material.cull_mode for m in meshes if m.material_slots[0].material is not None}
+        layout.prop(context.scene, 'cull_mode', text = "Hide" + ("*" if len(culls) > 1 else ""))
         row = layout.row(align=True)
         row.prop(context.scene, "texture", text = "", placeholder = is_indeterminate("texture", "Mixed"))
         row.operator("view3d.open_image", text="", icon='FILEBROWSER')
