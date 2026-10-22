@@ -71,6 +71,11 @@ model_types = [
     ('7', 'Trak', 'Tracks'),
     ]
 
+# The Import > Type list. A MAlt is a Podd's high detail parts: importing the Podd merges them in
+# and exporting it writes them back, so MAlt is never offered on its own. Each item keeps its
+# model_types index as its enum number so .blend files saved with the full list still read right.
+import_types = [(code, name, description, 'NONE', int(code)) for code, name, description in model_types if name != 'MAlt']
+
 header_sizes = [-1,75, 1,2,75,9, 83,6]
 
 Podd_MAlt = {
@@ -147,9 +152,9 @@ SETTINGS_FILE = os.path.join(bpy.utils.user_resource('CONFIG'), "blender_swe1r_s
 
 def import_model_items(model_type):
     """Items for the Import > Model dropdown. 'All' (-1) imports every model of the chosen type,
-    so it is only offered when a single type is chosen."""
+    so it is only offered when a single type is chosen. MAlt models are left out (see import_types)."""
     if model_type == 'All':
-        return [model_enum_item(i, model) for i, model in enumerate(model_list)]
+        return [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] != 'MAlt']
     items = [model_enum_item(i, model) for i, model in enumerate(model_list) if model['extension'] == model_type]
     items.insert(0, ('-1', 'All', f'Import all {model_type} models'))
     return items

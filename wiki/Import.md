@@ -11,8 +11,7 @@ GOG: `GOG Galaxy\Games\STAR WARS Racer\data\lev01`
 
 ## Type
 Filters the Model list:
-- **Podd**: the pods
-- **MAlt**: a pod's high-detail parts, exported together with its Podd
+- **Podd**: the pods. A pod's high detail parts are stored in the game as a separate MAlt model; import brings them in as part of the pod and export writes them back, so MAlt is not in the list.
 - **Modl**: special effects
 - **Part**: props and parts
 - **Pupp**: animated characters (racers, Watto, pit droids…)

@@ -88,7 +88,8 @@ class ImportOperator(bpy.types.Operator):
             id = int(context.scene.import_model)
             import_type = next((item[1] for item in model_types if item[0] == context.scene.import_type), None)
             if id == -1:
-                selector = [model["index"] for model in model_list if import_type == 'All' or model['extension'] == import_type]
+                # a MAlt comes in merged with its Podd, never on its own
+                selector = [model["index"] for model in model_list if model['extension'] != 'MAlt' and (import_type == 'All' or model['extension'] == import_type)]
             else:
                 selector = [int(context.scene.import_model)]
             import_model(folder_path, selector, update_progress)
