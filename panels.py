@@ -691,6 +691,53 @@ class SWR_PT_material(VisualsSubPanel, bpy.types.Panel):
         row.prop(context.scene, 'clip_y', text = f'x{is_indeterminate("clip_y")}')
         row.prop(context.scene, 'clip_x', text = f'y{is_indeterminate("clip_x")}')
 
+class SWR_UL_flipbook_frames(bpy.types.UIList):
+    """A material's flipbook frames, in play order"""
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        row = layout.row(align = True)
+        row.label(text = str(index + 1))
+        row.prop(item, 'image', text = '')
+
+class SWR_PT_flipbook(SWRPanel, bpy.types.Panel):
+    bl_label = "Flipbook"
+    bl_idname = "SWR_PT_flipbook"
+    bl_parent_id = "SWR_PT_material"
+    bl_options = {'DEFAULT_CLOSED'}
+    help_page = "Flipbooks"
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return context.scene.visible and obj is not None and obj.type == 'MESH' and len(obj.material_slots) == 1 \
+            and obj.material_slots[0].material is not None
+
+    def draw(self, context):
+        layout = self.layout
+        material = context.active_object.material_slots[0].material
+        if len(selected_meshes(context)) > 1:
+            hint(layout, f"Editing {material.name}", "(the active mesh's material)")
+        row = layout.row()
+        row.template_list("SWR_UL_flipbook_frames", "", material, "flipbook_frames", material, "flipbook_index", rows = 4)
+        col = row.column(align = True)
+        col.operator("view3d.flipbook_add_files", text = "", icon = 'FILEBROWSER')
+        col.operator("view3d.flipbook_frame", text = "", icon = 'ADD').action = 'ADD'
+        col.operator("view3d.flipbook_frame", text = "", icon = 'REMOVE').action = 'REMOVE'
+        col.separator()
+        col.operator("view3d.flipbook_frame", text = "", icon = 'TRIA_UP').action = 'UP'
+        col.operator("view3d.flipbook_frame", text = "", icon = 'TRIA_DOWN').action = 'DOWN'
+        col.separator()
+        col.operator("view3d.flipbook_frame", text = "", icon = 'X').action = 'CLEAR'
+        if not len(material.flipbook_frames):
+            hint(layout, "No flipbook. Add frames to animate", "this material's texture")
+            return
+        row = layout.row()
+        row.prop(material, 'flipbook_frame_time', text = "Frame Time")
+        row.prop(material, 'flipbook_loop', text = "Loop")
+        frames = len(material.flipbook_frames)
+        hint(layout, f"{frames} frame{'s' if frames != 1 else ''}, {frames * material.flipbook_frame_time:.2f} s per cycle",
+             "Blender shows the material's own texture")
+
 class SWR_PT_collision(MeshSubPanel, bpy.types.Panel):
     bl_label = "Collision"
     bl_idname = "SWR_PT_collision"
@@ -945,6 +992,8 @@ panel_classes = (
     SWR_PT_visuals,
     SWR_PT_vertex_colors,
     SWR_PT_material,
+    SWR_UL_flipbook_frames,
+    SWR_PT_flipbook,
     SWR_PT_collision,
     SWR_PT_surface_flags,
     SWR_PT_fog,

@@ -33,6 +33,7 @@ HELP_PAGES = {
     "Visuals": "How a mesh is drawn in game: visible meshes, vertex colors and materials",
     "Vertex-Colors": "Bake lighting into vertex colors",
     "Materials": "One material per mesh: texture, color, transparency, scroll, mirror and clip",
+    "Flipbooks": "Animate a material's texture through a list of frames",
     "Collision": "What pods collide with, and the data a collision mesh carries",
     "Surface-Flags": "What each surface flag does to a pod",
     "Fog-and-Skybox": "Fog color, fog start, draw distance and the skybox",

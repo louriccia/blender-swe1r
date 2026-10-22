@@ -11,6 +11,7 @@
 - [Visuals](Visuals)
 - [Vertex Colors](Vertex-Colors)
 - [Materials](Materials)
+- [Flipbooks](Flipbooks)
 - [Collision](Collision)
 - [Surface Flags](Surface-Flags)
 - [Fog and Skybox](Fog-and-Skybox)

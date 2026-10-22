@@ -514,6 +514,95 @@ class SplitByMaterial(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='OBJECT')
         return {'FINISHED'}
 
+# MARK: FLIPBOOK
+
+def flipbook_material(context):
+    """The material the Flipbook panel edits: the active mesh's first (exported) material."""
+    obj = context.active_object
+    if obj is None or obj.type != 'MESH' or not len(obj.material_slots):
+        return None
+    return obj.material_slots[0].material
+
+class FlipbookAddFiles(bpy.types.Operator, ImportHelper):
+    """Add images from disk as flipbook frames, in file name order"""
+    bl_idname = "view3d.flipbook_add_files"
+    bl_label = "Add Frames"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filter_glob: bpy.props.StringProperty(default="*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.tiff", options={'HIDDEN'})
+    files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement, options={'HIDDEN', 'SKIP_SAVE'})
+    directory: bpy.props.StringProperty(subtype='DIR_PATH', options={'HIDDEN', 'SKIP_SAVE'})
+
+    @classmethod
+    def poll(cls, context):
+        if flipbook_material(context) is None:
+            cls.poll_message_set("Select a mesh with a material")
+            return False
+        return True
+
+    def execute(self, context):
+        material = flipbook_material(context)
+        names = sorted(f.name for f in self.files if f.name)
+        if not names:
+            self.report({'WARNING'}, "No images picked")
+            return {'CANCELLED'}
+        images = [bpy.data.images.load(os.path.join(self.directory, name), check_existing=True) for name in names]
+        had_frames = len(material.flipbook_frames) > 0
+        for image in images:
+            material.flipbook_frames.add().image = image
+        material.flipbook_index = len(material.flipbook_frames) - 1
+        if not had_frames:
+            # the material's own texture is what the game shows before the flipbook starts
+            obj = context.active_object
+            obj.material_slots[0].material = Material(None, None).remake(material, tex_name = images[0].name)
+            reselect_obj(obj)
+        self.report({'INFO'}, f"Added {len(images)} frame{'s' if len(images) != 1 else ''}")
+        return {'FINISHED'}
+
+class FlipbookEditFrame(bpy.types.Operator):
+    """Add, remove or move a flipbook frame"""
+    bl_idname = "view3d.flipbook_frame"
+    bl_label = "Edit Flipbook Frame"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    action: bpy.props.EnumProperty(items=[('ADD', "Add", "Add an empty frame after the selected one"),
+                                          ('REMOVE', "Remove", "Remove the selected frame"),
+                                          ('UP', "Up", "Move the selected frame earlier"),
+                                          ('DOWN', "Down", "Move the selected frame later"),
+                                          ('CLEAR', "Clear", "Remove every frame: the material keeps its own texture, without a flipbook")])
+
+    @classmethod
+    def description(cls, context, properties):
+        return {'ADD': "Add an empty frame after the selected one", 'REMOVE': "Remove the selected frame",
+                'UP': "Move the selected frame earlier", 'DOWN': "Move the selected frame later",
+                'CLEAR': "Remove every frame: the material keeps its own texture, without a flipbook"}[properties.action]
+
+    @classmethod
+    def poll(cls, context):
+        return flipbook_material(context) is not None
+
+    def execute(self, context):
+        material = flipbook_material(context)
+        frames = material.flipbook_frames
+        i = material.flipbook_index
+        if self.action == 'ADD':
+            frames.add()
+            frames.move(len(frames) - 1, min(i + 1, len(frames) - 1))
+            material.flipbook_index = min(i + 1, len(frames) - 1)
+        elif self.action == 'REMOVE' and 0 <= i < len(frames):
+            frames.remove(i)
+            material.flipbook_index = max(0, min(i, len(frames) - 1))
+        elif self.action == 'UP' and i > 0:
+            frames.move(i, i - 1)
+            material.flipbook_index = i - 1
+        elif self.action == 'DOWN' and i < len(frames) - 1:
+            frames.move(i, i + 1)
+            material.flipbook_index = i + 1
+        elif self.action == 'CLEAR':
+            frames.clear()
+            material.flipbook_index = 0
+        return {'FINISHED'}
+
 # MARK: COLLISION
     
 class PreviewLoadTrigger(bpy.types.Operator):
@@ -1291,7 +1380,9 @@ ReconstructSpline,
     OpenImageTexture,
     SelectFirstSplinePointOperator,
     ToggleViewLayerState,
-    OBJECT_OT_generate_material_assets
+    OBJECT_OT_generate_material_assets,
+    FlipbookAddFiles,
+    FlipbookEditFrame,
 )
 
 def register():

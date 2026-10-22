@@ -66,6 +66,9 @@ def set_trigger_type(self, value):
     if value != OTHER_TRIGGER_TYPE:
         self.trigger_id = value
 
+class SWR_FlipbookFrame(bpy.types.PropertyGroup):
+    image: bpy.props.PointerProperty(type=bpy.types.Image, name="Image", description="The texture shown for this frame")
+
 class MY_ListItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()
 
@@ -81,6 +84,7 @@ class MY_ListItem(bpy.types.PropertyGroup):
     )
 
 def register():
+    bpy.utils.register_class(SWR_FlipbookFrame)
     bpy.types.Scene.import_folder = bpy.props.StringProperty(subtype='DIR_PATH', update=save_settings, default = get_setting('import_folder', ""), description="Select the lev01 folder in Star Wars Episode I Racer/data/lev01 (or any folder containing the .bin files)")
     bpy.types.Scene.import_type = bpy.props.EnumProperty(
         items=model_types,
@@ -209,6 +213,11 @@ def register():
     # files from older versions chose translucency with this; the Blend Mode dropdown replaces it
     bpy.types.Material.transparent = bpy.props.BoolProperty(name = 'transparent', default = False)
     bpy.types.Material.blend_mode = bpy.props.EnumProperty(name = 'Blend Mode', items = [(*item, i) for i, item in enumerate(BLEND_MODE_ITEMS)], get = get_material_blend_mode, set = set_material_blend_mode, description = "How the game draws the material: a preset copied from stock materials")
+    # texture flipbook: the material's texture swaps through these frames in game
+    bpy.types.Material.flipbook_frames = bpy.props.CollectionProperty(type=SWR_FlipbookFrame)
+    bpy.types.Material.flipbook_index = bpy.props.IntProperty(default=0)
+    bpy.types.Material.flipbook_frame_time = bpy.props.FloatProperty(name="Frame Time", default=0.04, min=0.001, soft_max=1.0, precision=3, description="Seconds each frame shows (stock flipbooks use 0.02 to 0.05)")
+    bpy.types.Material.flipbook_loop = bpy.props.BoolProperty(name="Loop", default=True, description="Start over after the last frame. Off: play once and hold the last frame")
     bpy.types.Material.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, min=0.0, max=1.0, description="The material's base (primitive) color")
     
     
@@ -323,6 +332,9 @@ def register():
     bpy.types.Scene.load_trigger_index = bpy.props.IntProperty(default=0)
     
 def unregister():
+    for name in ('flipbook_frames', 'flipbook_index', 'flipbook_frame_time', 'flipbook_loop'):
+        delattr(bpy.types.Material, name)
+    bpy.utils.unregister_class(SWR_FlipbookFrame)
     bpy.utils.unregister_class(MY_ListItem)
     del bpy.types.Scene.import_folder
     del bpy.types.Scene.import_type

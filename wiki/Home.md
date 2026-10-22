@@ -14,6 +14,7 @@ Every panel in the add-on's sidebar has a **?** button in its header that opens 
   - [Visuals](Visuals): how a mesh is drawn in game
     - [Vertex Colors](Vertex-Colors): bake lighting into vertex colors
     - [Materials](Materials): texture, color, transparency, scroll, mirror and clip
+      - [Flipbooks](Flipbooks): animate a material's texture through frames
   - [Collision](Collision): what pods collide with
     - [Surface Flags](Surface-Flags): what each surface does to a pod
     - [Fog and Skybox](Fog-and-Skybox): fog, draw distance and the skybox
