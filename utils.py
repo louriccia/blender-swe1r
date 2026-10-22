@@ -524,6 +524,30 @@ def update_export_model(self, context):
     if self.collection_type == "MODEL" and self.export_type == '4' and any(obj.get('pod_anchor') for obj in self.objects):
         place_pod_anchors(self)
 
+def transform_fcurves(obj):
+    """The object's location/rotation/scale fcurves (what the game animates), or []."""
+    if obj is None or obj.animation_data is None or obj.animation_data.action is None:
+        return []
+    from bpy_extras import anim_utils
+    bag = anim_utils.action_get_channelbag_for_slot(obj.animation_data.action, obj.animation_data.action_slot)
+    if not bag:
+        return []
+    return [f for f in bag.fcurves if f.data_path in ('location', 'scale', 'rotation_quaternion', 'rotation_euler', 'rotation_axis_angle')]
+
+def get_anim_loop(self):
+    """An object's animation loops in game when its curves have a Cycles modifier, which also makes
+    Blender's timeline loop it (get_animations)."""
+    return any(mod.type == 'CYCLES' for fcurve in transform_fcurves(self) for mod in fcurve.modifiers)
+
+def set_anim_loop(self, value):
+    from .swe1r.modelblock import ensure_cycles_first
+    for fcurve in transform_fcurves(self):
+        if value:
+            ensure_cycles_first(fcurve)
+        else:
+            for mod in [m for m in fcurve.modifiers if m.type == 'CYCLES']:
+                fcurve.modifiers.remove(mod)
+
 def find_model_collection(context):
     """The Model collection (collection_type 'MODEL') the user is working in: the active
     collection or the active object's collection, or the nearest Model collection above either.
