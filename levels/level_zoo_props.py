@@ -50,7 +50,8 @@ def copy_model(addon, folder, model_id, collection, name):
     bpy.context.scene.frame_set(0)
     depsgraph = bpy.context.evaluated_depsgraph_get()
     copies = []
-    for obj in set(bpy.data.objects) - before_objs:
+    # bpy.data.objects order (by name), not set order: the copies' names set the export order
+    for obj in [o for o in bpy.data.objects if o not in before_objs]:
         if obj.type != 'MESH' or not obj.visible or not len(obj.data.polygons):
             continue
         mesh = bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph), depsgraph=depsgraph)
@@ -60,9 +61,9 @@ def copy_model(addon, folder, model_id, collection, name):
         copy.visible = True
         copy.collidable = False
         copies.append(copy)
-    for obj in set(bpy.data.objects) - before_objs - set(copies):
+    for obj in [o for o in bpy.data.objects if o not in before_objs and o not in copies]:
         bpy.data.objects.remove(obj)
-    for col in set(bpy.data.collections) - before_cols:
+    for col in [c for c in bpy.data.collections if c not in before_cols]:
         bpy.data.collections.remove(col)
     return copies
 
