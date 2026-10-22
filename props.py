@@ -2,6 +2,17 @@ import bpy
 from .utils import save_settings, get_setting, model_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
 from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
+from .swe1r.trigger_types import TRIGGER_TYPES, type_label
+
+# the Trigger Type dropdown's entry for a number not in TRIGGER_TYPES
+OTHER_TRIGGER_TYPE = 999999
+
+def get_trigger_type(self):
+    return self.trigger_id if self.trigger_id in TRIGGER_TYPES else OTHER_TRIGGER_TYPE
+
+def set_trigger_type(self, value):
+    if value != OTHER_TRIGGER_TYPE:
+        self.trigger_id = value
 
 class MY_ListItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()
@@ -156,7 +167,11 @@ def register():
         'SkipLap2': "Does not fire on lap 2",
         'SkipLap3': "Does not fire on lap 3",
     }
-    bpy.types.Object.trigger_id = bpy.props.IntProperty(name='Trigger Type', update = create_update_function("trigger_id"), description="What the trigger does (its type number in the game). Some types crash off their home planet: e.g. 501 (lava splash) needs Baroonda")
+    bpy.types.Object.trigger_id = bpy.props.IntProperty(name='Type Number', update = create_update_function("trigger_id"), description="The trigger's type number in the game")
+    # a named view of trigger_id; the number is what is stored and exported
+    trigger_type_items = [(str(t), type_label(t), entry[1], t) for t, entry in TRIGGER_TYPES.items()]
+    trigger_type_items.append(('OTHER', "Other", "A type number not in this list: set it in the number field", OTHER_TRIGGER_TYPE))
+    bpy.types.Object.trigger_type = bpy.props.EnumProperty(name='Trigger Type', items=trigger_type_items, get=get_trigger_type, set=set_trigger_type, description="What the trigger does in game")
     bpy.types.Object.trigger_settings = bpy.props.IntProperty(name='Settings', update = create_update_function("trigger_settings"), description="Extra flag bits stored with the trigger (bits 6-15). No known effect")
     for flag in dir(TriggerFlagEnum):
         if not flag.startswith("__"):
