@@ -7,7 +7,7 @@ It is under **Mesh > Visuals** and only shows while **Visible** is on. Changes a
 - **Add material.** A selected mesh has no material. This gives it a game material.
 
 ## Blend
-How the game draws the material. Each choice is a whole setup copied from the game's own materials, so it is one the game's renderer accepts. Between them they cover 97% of the stock materials.
+How the game draws the material. Each choice is a whole setup copied from the game's own materials, so it is one the game's renderer accepts. Between them they cover 98% of the stock materials.
 
 | Blend | Looks like | Color | Stock examples |
 |---|---|---|---|
@@ -17,6 +17,7 @@ How the game draws the material. Each choice is a whole setup copied from the ga
 | **Translucent** | Blends the texture's alpha with what is behind it | not used | ice, water |
 | **Glow** | See-through and double-sided, tinted by **Color** | tints; its alpha is the opacity | energy binders, engine flames |
 | **Flat Color** | **Color** × vertex color; the texture is ignored | is the color | |
+| **Shadow** | **Color**, shown where the texture is transparent | is the shadow; its alpha is the darkness | pod shadows |
 | **Custom** | An imported setup none of the above matches | depends | pod shadows, engine glow, overlays |
 
 - New materials are **Opaque**. Imported materials show the blend their stored setup matches, or **Custom**.
@@ -27,7 +28,7 @@ How the game draws the material. Each choice is a whole setup copied from the ga
 - Meshes in a **Skybox** collection are always drawn as sky (no depth test, no fog), so the panel shows that instead of the dropdown.
 
 ## Color
-The material's primitive color. It only matters for **Tinted**, **Glow**, **Flat Color** and some **Custom** materials, so it is greyed out for the others. The viewport follows the material's color setup: if changing Color changes nothing in Material Preview, it changes nothing in game either.
+The material's primitive color. It only matters for **Tinted**, **Glow**, **Flat Color**, **Shadow** and some **Custom** materials, so it is greyed out for the others. The viewport follows the material's color setup: if changing Color changes nothing in Material Preview, it changes nothing in game either.
 
 ## Backface Culling
 On: faces seen from behind are not drawn. Off: faces are drawn from both sides. Materials made by **Add material** start with it on.

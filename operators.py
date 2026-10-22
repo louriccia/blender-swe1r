@@ -204,11 +204,17 @@ class NewModelOperator(bpy.types.Operator):
             cockpit_collection.collection_type = "4"
             cable_collection = bpy.data.collections.new("Cable")
             cable_collection.collection_type = "5"
+            trails_collection = bpy.data.collections.new("Jet Trails")
+            trails_collection.collection_type = "6"
+            shadows_collection = bpy.data.collections.new("Shadows")
+            shadows_collection.collection_type = "7"
             
             main_collection.children.link(right_engine_collection)
             main_collection.children.link(left_engine_collection)
             main_collection.children.link(cockpit_collection)
             main_collection.children.link(cable_collection)
+            main_collection.children.link(trails_collection)
+            main_collection.children.link(shadows_collection)
             
         main_collection.export_type = type
         main_collection.export_model = str(valid_models[0]['index'])

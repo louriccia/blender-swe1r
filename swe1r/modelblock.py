@@ -223,13 +223,19 @@ BLEND_PRESETS = {
         write=(0xC8000000, 0x00112078, 0x031F041F, 0x07070706, 0x1F1F1F00, 0x07070700), unk1=1, cycle=2,
         accept=[(0xC8000000, 0x00112078, 0x031F041F, 0x07070706, 0x1F1F1F00, 0x07070700),
                 (0x00442078, 0x00112078, 0x031F041F, 0x07070706, 0x031F041F, 0x07070706)]),
+    # stock pod shadows (69 materials): color = Color, alpha = Color alpha x (1 - texture alpha), so
+    # the shadow shows where the texture is transparent (a soft blob in stock); no depth write
+    'SHADOW': dict(
+        write=(0x0C080000, 0x001041C8, 0x1F1F1F03, 0x07030103, 0x1F1F1F00, 0x07070700), unk1=9, cycle=2,
+        tail=(0, 0, 0, 0, 0x8080, 0x8010, 0),
+        accept=[(0x0C080000, 0x001041C8, 0x1F1F1F03, 0x07030103, 0x1F1F1F00, 0x07070700)]),
     'SKY': dict(
         write=(0x0C082008, 0x03022008, 0x011F041F, 0x07070704, 0x011F041F, 0x07070704), unk1=0, cycle=1,
         accept=[(0x0C082008, 0x03022008, 0x011F041F, 0x07070704, 0x011F041F, 0x07070704),
                 (0x0C080000, 0x00104948, 0x011F041F, 0x07070701, 0x1F1F1F00, 0x07070700)]),
 }
 # presets whose combiners use the material's Color (PRIMITIVE)
-BLEND_PRESETS_WITH_COLOR = ('TINTED', 'GLOW', 'FLAT')
+BLEND_PRESETS_WITH_COLOR = ('TINTED', 'GLOW', 'FLAT', 'SHADOW')
 
 SHADER_WORD_KEYS = ('render_mode_1', 'render_mode_2', 'color_combine_mode_cycle1', 'alpha_combine_mode_cycle1',
                     'color_combine_mode_cycle2', 'alpha_combine_mode_cycle2')
@@ -269,15 +275,17 @@ def apply_blend_preset(material, name):
     if name in BLEND_PRESETS_WITH_COLOR:
         # a new material's Color is (0, 0, 0, 0): black, or invisible as Glow
         color = list(material.material_color)
-        if max(color[:3]) == 0:
+        if max(color[:3]) == 0 and name != 'SHADOW':   # a shadow is meant to be dark
             color[:3] = (1.0, 1.0, 1.0)
-        if name == 'GLOW' and color[3] < 0.05:
+        if name == 'SHADOW' and color[3] < 0.05:
+            color[3] = 0.5
+        elif name == 'GLOW' and color[3] < 0.05:
             color[3] = 64 / 255   # what stock glow materials use
         elif name != 'GLOW' and color[3] == 0:
             color[3] = 1.0
         material.material_color = color
-    if name == 'GLOW':
-        material.use_backface_culling = False   # stock glow is double-sided (format 4)
+    if name in ('GLOW', 'SHADOW'):
+        material.use_backface_culling = False   # stock glow and shadows are double-sided
 
 
 def render_mode_is_alpha_blend(mode):
@@ -5820,7 +5828,18 @@ class Model():
             # in game where they sit around the part's anchor in Blender.
             anchors = pod_anchor_positions(self.id) or {}
 
-            def create_podd_component(mesh, type):
+            # an engine's detail group and its jet trail slots (tube, flat), as in stock pods
+            ENGINE_SLOTS = {'engine_r': (31, 43, 42, 'exhaust_r'), 'engine_l': (17, 29, 28, 'exhaust_l')}
+
+            def anchor_frame(key):
+                return mathutils.Matrix.Translation(mathutils.Vector(anchors.get(key, (0, 0, 0)))).inverted()
+
+            def offset_node(vector):
+                node = NodeTransformedWithPivot(None, self, 53349)
+                node.matrix.data[3].from_array(list(vector))
+                return node
+
+            def create_podd_component(mesh, type, trails = ()):
                 comp_a = NodeTransformedWithPivot(None, self, 53349)
                 comp_b = NodeTransformed(None, self, 53348)
                 comp_b.matrix.data[0].data[0] = 0.016
@@ -5829,15 +5848,70 @@ class Model():
                 link_nodes(comp_a, [comp_b])
                 comp_d = Group20580(None, self, 20580)
                 link_nodes(comp_b, [comp_d])
-                frame = mathutils.Matrix.Translation(mathutils.Vector(anchors.get(type, (0, 0, 0)))).inverted()
+                frame = anchor_frame(type)
                 meshes = [obj for obj in mesh if obj.type == 'MESH']
                 # the game draws the left engine (slot 2) with its culling reversed (swrRace_Init
                 # sets flags_5 bit 0 on slots 2/4/14/62; dinput_hook/renderer_hook.cpp flips the
                 # cull face on it), so its faces are wound the other way to show the right side
                 flip = type == 'engine_l'
+                content = comp_d
+                if type in ENGINE_SLOTS:
+                    group_slot, tube_slot, flat_slot, exhaust = ENGINE_SLOTS[type]
+                    group = NodeTransformedWithPivot(None, self, 53349, header = [group_slot])
+                    content = Group20580(None, self, 20580)
+                    link_nodes(comp_d, [group])
+                    link_nodes(group, [content])
+                    if len(trails):
+                        # jet trails hang from a node at the exhaust, in the engine's 0.016 space
+                        # (stock: about -215 file units back); the game spins/scales the flat
+                        # slot and stretches the tube slot along Y with speed (PoddAnimateEngines)
+                        offset = (mathutils.Vector(anchors[exhaust]) - mathutils.Vector(anchors[type])) / self.scale
+                        trail_frame = anchor_frame(exhaust)
+                        for slot, objs in ((tube_slot, trails), (flat_slot, [])):
+                            branch = Group20580(None, self, 20580)
+                            at = offset_node(offset)
+                            trail = NodeTransformedWithPivot(None, self, 53349, header = [slot])
+                            trail_group = Group20580(None, self, 20580)
+                            link_nodes(group, [branch])
+                            link_nodes(branch, [at])
+                            link_nodes(at, [trail])
+                            link_nodes(trail, [trail_group])
+                            if len(objs):
+                                assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, trail_frame @ obj.matrix_world, flip_winding = flip) for obj in objs], trail_group, self)
                 if len(meshes):
-                    assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, frame @ obj.matrix_world, flip_winding = flip) for obj in meshes], comp_d, self)
+                    assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, frame @ obj.matrix_world, flip_winding = flip) for obj in meshes], content, self)
                 return comp_a
+
+            def nearest(obj, keys):
+                corners = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
+                centre = sum(corners, mathutils.Vector()) / 8
+                return min(keys, key = lambda key: (mathutils.Vector(anchors.get(key, (0, 0, 0))).xy - centre.xy).length)
+
+            # Jet Trails and Shadows collections: each mesh goes to the part whose anchor is nearest
+            trails = {'engine_r': [], 'engine_l': []}
+            shadows = {'engine_r': [], 'engine_l': [], 'cockpit': []}
+            for child_collection in collection.children:
+                objs = [obj for obj in get_all_objects_in_collection(child_collection) if obj.type == 'MESH']
+                if child_collection.collection_type == '6':
+                    for obj in objs:
+                        trails['engine_r' if nearest(obj, ('exhaust_r', 'exhaust_l')) == 'exhaust_r' else 'engine_l'].append(obj)
+                elif child_collection.collection_type == '7':
+                    for obj in objs:
+                        shadows[nearest(obj, tuple(shadows))].append(obj)
+
+            def shadow_meshes(key, node):
+                """A shadow's meshes in its slot's space: the game puts the slot on the ground under
+                the part at 0.004 scale (one Blender unit is 1.6 game units, so 400 file units),
+                and the slot 62 node's first mesh box sets the pod's footprint."""
+                objs = shadows[key]
+                if not len(objs):
+                    return
+                anchor = mathutils.Vector(anchors.get(key, (0, 0, 0)))
+                # the shadow's lowest point goes on the ground
+                floor = min((obj.matrix_world @ v.co).z for obj in objs for v in obj.data.vertices) if any(len(obj.data.vertices) for obj in objs) else anchor.z
+                frame = mathutils.Matrix.Scale(1.6 / 0.004 * self.scale, 4) @ mathutils.Matrix.Translation(-mathutils.Vector((anchor.x, anchor.y, floor)))
+                # slot 62 is drawn with its culling reversed, like the left engine
+                assign_objs_to_node_by_type([unmake_mesh_in_frame(obj, None, self, frame @ obj.matrix_world, flip_winding = node.header == [62]) for obj in objs], node, self)
             
             def create_air_stream(mesh, top_header, bottom_header):
                 air_a = NodeTransformedWithPivot(None, self, 53349, header = [top_header])
@@ -5862,6 +5936,9 @@ class Model():
             podd_engine_l_shadow = NodeTransformedWithPivot(None, self, 53349, header = [63])
             podd_cockpit_shadow = NodeTransformedWithPivot(None, self, 53349, header = [64])
             link_nodes(podd_shadows_node, [podd_engine_r_shadow, podd_engine_l_shadow, podd_cockpit_shadow])
+            shadow_meshes('engine_r', podd_engine_r_shadow)
+            shadow_meshes('engine_l', podd_engine_l_shadow)
+            shadow_meshes('cockpit', podd_cockpit_shadow)
             
             podd_b_node = Group20580(None, self, 20580)
             
@@ -5888,14 +5965,14 @@ class Model():
             for child_collection in collection.children:
                 if child_collection.collection_type == '2':
                     right_engine_mesh = get_all_objects_in_collection(child_collection)
-                    right_engine = create_podd_component(right_engine_mesh, 'engine_r')
+                    right_engine = create_podd_component(right_engine_mesh, 'engine_r', trails['engine_r'])
                     link_nodes(podd_71_node, [right_engine])
                     podd_engine_r = NodeTransformedWithPivot(None, self, 53349, header = [1])
                     link_nodes(podd_engine_r, right_engine.children)
                     right_engine.header = [14]
                 elif child_collection.collection_type == '3':
                     left_engine_mesh = get_all_objects_in_collection(child_collection)
-                    left_engine = create_podd_component(left_engine_mesh, 'engine_l')
+                    left_engine = create_podd_component(left_engine_mesh, 'engine_l', trails['engine_l'])
                     link_nodes(podd_71_node, [left_engine])
                     podd_engine_l = NodeTransformedWithPivot(None, self, 53349, header = [2])
                     link_nodes(podd_engine_l, left_engine.children)

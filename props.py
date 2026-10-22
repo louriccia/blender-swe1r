@@ -13,6 +13,7 @@ BLEND_MODE_ITEMS = [
     ('TRANSLUCENT', "Translucent", "Blends the texture's alpha with what is behind it (ice, water). Sorted per mesh; Color is not used"),
     ('GLOW', "Glow", "See-through, double-sided effect tinted by Color; Color's alpha is its opacity (energy binders, engine flames)"),
     ('FLAT', "Flat Color", "Solid Color x vertex color; the texture is ignored"),
+    ('SHADOW', "Shadow", "A pod shadow: Color, shown where the texture is transparent (stock shadows use a soft blob texture); Color's alpha is its darkness"),
     ('SKY', "Sky", "No depth test and no fog. Set automatically for meshes in a Skybox collection"),
     ('CUSTOM', "Custom", "An imported setup none of the presets matches. It is kept exactly as imported"),
 ]
@@ -153,7 +154,9 @@ def register():
             ("2", "Right Engine", "The Podd's Right Engine"),
             ("3", "Left Engine", "The Podd's Left Engine"),
             ("4", "Cockpit", "The Podd's Cockpit"),
-            ("5", "Cable", "The Podd's Cable")
+            ("5", "Cable", "The Podd's Cable"),
+            ("6", "Jet Trails", "The Podd's jet trails: each mesh trails from the nearest exhaust anchor"),
+            ("7", "Shadows", "The Podd's shadows: each mesh goes under the nearest engine or cockpit anchor"),
         ],
         name = "Collection Type",
         description="The type of collection",
