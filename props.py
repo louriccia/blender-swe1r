@@ -3,6 +3,57 @@ from .utils import save_settings, get_setting, model_types, update_model_dropdow
 from .swe1r.model_list import model_list
 from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
 from .swe1r.trigger_types import TRIGGER_TYPES, type_label
+from .swe1r.modelblock import apply_blend_preset, detect_blend_preset, material_shader_words, Material
+
+# Blend Mode dropdown entries: (identifier, label, description); the item number is the index
+BLEND_MODE_ITEMS = [
+    ('OPAQUE', "Opaque", "Solid: texture x vertex color (or the game's lighting on lit meshes). Color is not used"),
+    ('TINTED', "Tinted", "Solid, multiplied by Color. Stock pods, characters and scenery use this"),
+    ('CUTOUT', "Cutout", "Hard-edged holes where the texture's alpha is under half (fences, foliage). Color is not used"),
+    ('TRANSLUCENT', "Translucent", "Blends the texture's alpha with what is behind it (ice, water). Sorted per mesh; Color is not used"),
+    ('GLOW', "Glow", "See-through, double-sided effect tinted by Color; Color's alpha is its opacity (energy binders, engine flames)"),
+    ('FLAT', "Flat Color", "Solid Color x vertex color; the texture is ignored"),
+    ('SKY', "Sky", "No depth test and no fog. Set automatically for meshes in a Skybox collection"),
+    ('CUSTOM', "Custom", "An imported setup none of the presets matches. It is kept exactly as imported"),
+]
+BLEND_MODE_IDS = [item[0] for item in BLEND_MODE_ITEMS]
+# the sidebar's dropdown: Sky is automatic, so it isn't offered
+SCENE_BLEND_MODE_ITEMS = [(*item, i) for i, item in enumerate(BLEND_MODE_ITEMS) if item[0] != 'SKY']
+
+
+def get_material_blend_mode(self):
+    return BLEND_MODE_IDS.index(detect_blend_preset(material_shader_words(self)))
+
+
+def set_material_blend_mode(self, value):
+    apply_blend_preset(self, BLEND_MODE_IDS[value])
+
+
+def blend_mode_materials(context):
+    """The first (exported) material of each selected mesh."""
+    return [(obj, obj.material_slots[0].material) for obj in context.selected_objects
+            if obj.type == 'MESH' and len(obj.material_slots) and obj.material_slots[0].material is not None]
+
+
+def get_scene_blend_mode(self):
+    context = bpy.context
+    materials = blend_mode_materials(context)
+    if not materials:
+        return BLEND_MODE_IDS.index('OPAQUE')
+    active = next((m for o, m in materials if o == context.active_object), materials[0][1])
+    name = active.blend_mode
+    return BLEND_MODE_IDS.index('CUSTOM' if name == 'SKY' else name)
+
+
+def set_scene_blend_mode(self, value):
+    name = BLEND_MODE_IDS[value]
+    if name == 'CUSTOM':
+        return
+    from .utils import reselect_obj
+    for obj, material in blend_mode_materials(bpy.context):
+        material.blend_mode = name
+        obj.material_slots[0].material = Material(None, None).remake(material)
+        reselect_obj(obj)
 
 # the Trigger Type dropdown's entry for a number not in TRIGGER_TYPES
 OTHER_TRIGGER_TYPE = 999999
@@ -151,7 +202,9 @@ def register():
     bpy.types.Material.flip_y = bpy.props.BoolProperty(name = 'flip_y', default = False)
     bpy.types.Material.clip_x = bpy.props.BoolProperty(name = 'clip_x', default = False)
     bpy.types.Material.clip_y = bpy.props.BoolProperty(name = 'clip_y', default = False)
+    # files from older versions chose translucency with this; the Blend Mode dropdown replaces it
     bpy.types.Material.transparent = bpy.props.BoolProperty(name = 'transparent', default = False)
+    bpy.types.Material.blend_mode = bpy.props.EnumProperty(name = 'Blend Mode', items = [(*item, i) for i, item in enumerate(BLEND_MODE_ITEMS)], get = get_material_blend_mode, set = set_material_blend_mode, description = "How the game draws the material: a preset copied from stock materials")
     bpy.types.Material.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, min=0.0, max=1.0, description="The material's base (primitive) color")
     
     
@@ -185,7 +238,7 @@ def register():
     
     bpy.types.Scene.texture = bpy.props.PointerProperty(type = bpy.types.Image, name="Texture", description="The selected meshes' texture. Exported at up to 128x128", update= update_selected("texture", update_mat = True, update_tex = True))
     bpy.types.Scene.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, description="Set base material color", update =update_selected("material_color", update_mat = True))
-    bpy.types.Scene.transparent = bpy.props.BoolProperty(name = 'Transparent', default = False, update = update_selected("transparent", update_mat = True), description = "Blend the texture's alpha (and vertex color alpha) with what is behind it")
+    bpy.types.Scene.blend_mode = bpy.props.EnumProperty(name = 'Blend Mode', items = SCENE_BLEND_MODE_ITEMS, get = get_scene_blend_mode, set = set_scene_blend_mode, description = "How the game draws the selected meshes: a preset copied from stock materials")
     bpy.types.Scene.use_backface_culling = bpy.props.BoolProperty(name = 'Backface Culling', default = False, update = update_selected("use_backface_culling", update_mat = True), description = "Hide faces seen from behind")
     bpy.types.Scene.scroll_x = bpy.props.FloatProperty(name = 'Scroll X', default = 0.0, update = update_selected("scroll_x", update_mat = True), description = "Scroll the texture along X: seconds per full scroll, negative for the other direction, 0 for none")
     bpy.types.Scene.scroll_y = bpy.props.FloatProperty(name = 'Scroll Y', default = 0.0, update = update_selected("scroll_y", update_mat = True), description = "Scroll the texture along Y: seconds per full scroll, negative for the other direction, 0 for none")

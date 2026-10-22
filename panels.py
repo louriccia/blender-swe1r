@@ -124,7 +124,6 @@ mat_props = [
     'flip_y',
     'clip_x',
     'clip_y',
-    'transparent',
     'use_backface_culling',
 ]
 
@@ -179,9 +178,11 @@ def is_texture_default(context):
         if mats[0] is None: continue
         if mats[0].use_backface_culling:
             return False
-        for prop in ['scroll_x', 'scroll_y', 'flip_x', 'flip_y', 'clip_x', 'clip_y', 'transparent']:
+        for prop in ['scroll_x', 'scroll_y', 'flip_x', 'flip_y', 'clip_x', 'clip_y']:
             if getattr(mats[0], prop, False):
                 return False
+        if mats[0].blend_mode not in ('OPAQUE', 'SKY'):
+            return False
     return True
         
 def is_terrain_default(context):
@@ -659,14 +660,23 @@ class SWR_PT_material(VisualsSubPanel, bpy.types.Panel):
             layout.operator('view3d.remake_materials', text = "Add material", icon = 'ADD')
             return
 
-        layout.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
+        in_sky = any(c.collection_type == '1' for m in meshes for c in m.users_collection)
+        modes = {m.material_slots[0].material.blend_mode for m in meshes if m.material_slots[0].material is not None}
+        if in_sky:
+            hint(layout, "Blend Mode: Sky (automatic in a", "Skybox collection)")
+        else:
+            row = layout.row()
+            row.prop(context.scene, "blend_mode", text = "Blend" + ("*" if len(modes) > 1 else ""))
+        row = layout.row()
+        row.prop(context.scene, "material_color", text = f'Color{is_indeterminate("material_color")}')
+        # only Tinted, Glow and Flat Color (and some Custom setups) draw with Color
+        row.enabled = bool(modes & {'TINTED', 'GLOW', 'FLAT', 'CUSTOM'})
         layout.prop(context.scene, 'use_backface_culling', text = f'Backface Culling{is_indeterminate("use_backface_culling")}')
         row = layout.row(align=True)
         row.prop(context.scene, "texture", text = "", placeholder = is_indeterminate("texture", "Mixed"))
         row.operator("view3d.open_image", text="", icon='FILEBROWSER')
         if not context.scene.texture:
             return
-        layout.prop(context.scene, 'transparent', text = f'Transparent{is_indeterminate("transparent")}')
         row = layout.row()
         row.label(text = 'Scroll')
         row.prop(context.scene, 'scroll_x', text = f'x{is_indeterminate("scroll_x")}')

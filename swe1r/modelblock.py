@@ -182,6 +182,103 @@ RM_LEGACY_DEFAULTS = ((0x18, 0), (0x818, 0))
 DEFAULT_COMBINERS = (0x011F041F, 0x01070407, 0x1F1F1F00, 0x07070700)
 
 
+# Blend mode presets: whole draw setups copied from stock materials, so every preset is one the
+# replacement renderer accepts (n64_shader.cpp set_render_mode aborts on other blenders, so there
+# is no additive mode). write = (render_mode_1, render_mode_2, color cycle 1, alpha cycle 1,
+# color cycle 2, alpha cycle 2), with unk1 and the combiner cycle type; accept lists every stock
+# setup (and the add-on's own defaults) the dropdown shows as that preset. A survey of the stock
+# out_modelblock.bin found these cover 8286 of its 8489 materials; the rest show as Custom and are
+# never rewritten.
+BLEND_PRESETS = {
+    'OPAQUE': dict(
+        write=(0xC8000000, 0x00112078, 0x011F041F, 0x07070704, 0x1F1F1F00, 0x07070700), unk1=0, cycle=2,
+        accept=[(0xC8000000, 0x00112038, 0x1F1F1F04, 0x07070704, 0x1F1F1F04, 0x07070704),
+                (0xC8000000, 0x00112038, 0x011F041F, 0x07070704, 0x1F1F1F00, 0x07070700),
+                (0xC8000000, 0x00112078, 0x011F041F, 0x07070704, 0x1F1F1F00, 0x07070700),
+                (0xC8000000, 0x00112078, 0x011F041F, 0x07070701, 0x1F1F1F00, 0x07070700),
+                (*RM_OPAQUE, *DEFAULT_COMBINERS)]),
+    'TINTED': dict(
+        write=(0xC8000000, 0x00112078, 0x011F041F, 0x07070701, 0x001F031F, 0x07070700), unk1=1, cycle=2,
+        accept=[(0xC8000000, 0x00112078, 0x011F041F, 0x07070701, 0x001F031F, 0x07070700),
+                (0xC8000000, 0x00112078, 0x011F041F, 0x07070704, 0x001F031F, 0x07070704)]),
+    'CUTOUT': dict(
+        write=(0xC8000000, 0x00104979, 0x011F041F, 0x07070701, 0x1F1F1F00, 0x07070700), unk1=8, cycle=2,
+        accept=[(0xC8000000, 0x00104979, 0x011F041F, 0x07070701, 0x1F1F1F00, 0x07070700),
+                (0x0C080001, 0x00100078, 0x011F041F, 0x07070701, 0x001F031F, 0x07070700)]),
+    'TRANSLUCENT': dict(
+        write=(0xC8000000, 0x001049D8, 0x011F041F, 0x07070701, 0x1F1F1F00, 0x07070700), unk1=0, cycle=2,
+        accept=[(0xC8000000, 0x001049D8, 0x011F041F, 0x07070701, 0x1F1F1F00, 0x07070700),
+                (0xC8000000, 0x001049F8, 0x1F1F1F01, 0x07070701, 0x1F1F1F00, 0x07070700),
+                (0xC8000000, 0x001049F8, 0x011F041F, 0x01070307, 0x1F1F1F00, 0x07070700),
+                (0xC8000000, 0x001049D8, 0x1F1F1F01, 0x07070701, 0x1F1F1F00, 0x07070700),
+                (0xC8000000, 0x001049F8, 0x011F041F, 0x07070701, 0x1F1F1F00, 0x07070700),
+                (0xC8000000, 0x00104978, 0x011F041F, 0x07070701, 0x1F1F1F00, 0x07070700),
+                (*RM_TRANSLUCENT, *DEFAULT_COMBINERS)]),   # also stock (Part 48)
+    'GLOW': dict(
+        write=(0x0C080000, 0x00104950, 0x031F011F, 0x03070107, 0x1F1F1F00, 0x00070407), unk1=9, cycle=2,
+        tail=(0, 0, 0, 0, 0x8080, 0x8010, 0),
+        accept=[(0x0C080000, 0x00104950, 0x031F011F, 0x03070107, 0x1F1F1F00, 0x00070407)]),
+    'FLAT': dict(
+        write=(0xC8000000, 0x00112078, 0x031F041F, 0x07070706, 0x1F1F1F00, 0x07070700), unk1=1, cycle=2,
+        accept=[(0xC8000000, 0x00112078, 0x031F041F, 0x07070706, 0x1F1F1F00, 0x07070700),
+                (0x00442078, 0x00112078, 0x031F041F, 0x07070706, 0x031F041F, 0x07070706)]),
+    'SKY': dict(
+        write=(0x0C082008, 0x03022008, 0x011F041F, 0x07070704, 0x011F041F, 0x07070704), unk1=0, cycle=1,
+        accept=[(0x0C082008, 0x03022008, 0x011F041F, 0x07070704, 0x011F041F, 0x07070704),
+                (0x0C080000, 0x00104948, 0x011F041F, 0x07070701, 0x1F1F1F00, 0x07070700)]),
+}
+# presets whose combiners use the material's Color (PRIMITIVE)
+BLEND_PRESETS_WITH_COLOR = ('TINTED', 'GLOW', 'FLAT')
+
+SHADER_WORD_KEYS = ('render_mode_1', 'render_mode_2', 'color_combine_mode_cycle1', 'alpha_combine_mode_cycle1',
+                    'color_combine_mode_cycle2', 'alpha_combine_mode_cycle2')
+
+
+def material_shader_words(material):
+    """The six words that decide how material draws, as export writes them before any skybox
+    override: stored on import, else the defaults (translucent for a material from an older
+    version with its Transparent toggle on)."""
+    if 'render_mode_1' in material:
+        words = tuple(int(material.get(key, 0)) for key in SHADER_WORD_KEYS)
+    else:
+        words = (*RM_OPAQUE, *DEFAULT_COMBINERS)
+    if getattr(material, 'transparent', False) and words == (*RM_OPAQUE, *DEFAULT_COMBINERS):
+        words = (*RM_TRANSLUCENT, *DEFAULT_COMBINERS)
+    return words
+
+
+def detect_blend_preset(words):
+    for name, preset in BLEND_PRESETS.items():
+        if tuple(words) in preset['accept']:
+            return name
+    return 'CUSTOM'
+
+
+def apply_blend_preset(material, name):
+    """Write a preset's whole draw setup onto a material (CUSTOM changes nothing)."""
+    preset = BLEND_PRESETS.get(name)
+    if preset is None:
+        return
+    for key, word in zip(SHADER_WORD_KEYS, preset['write']):
+        material[key] = str(word)
+    material['unk1'] = preset['unk1']
+    material['combiner_cycle_type'] = preset['cycle']
+    material['shader_tail'] = list(preset.get('tail', (0,) * 7))
+    material.transparent = render_mode_is_translucent(preset['write'][0] | preset['write'][1])
+    if name in BLEND_PRESETS_WITH_COLOR:
+        # a new material's Color is (0, 0, 0, 0): black, or invisible as Glow
+        color = list(material.material_color)
+        if max(color[:3]) == 0:
+            color[:3] = (1.0, 1.0, 1.0)
+        if name == 'GLOW' and color[3] < 0.05:
+            color[3] = 64 / 255   # what stock glow materials use
+        elif name != 'GLOW' and color[3] == 0:
+            color[3] = 1.0
+        material.material_color = color
+    if name == 'GLOW':
+        material.use_backface_culling = False   # stock glow is double-sided (format 4)
+
+
 def render_mode_is_alpha_blend(mode):
     """The cycle-2 blender is IN*A + MEM*(1-A) (SW_RACER_RE dinput_hook/n64_shader.cpp)."""
     return (mode >> 28) & 3 == 0 and (mode >> 24) & 3 == 0 and (mode >> 20) & 3 == 1 and (mode >> 16) & 3 == 0
@@ -1715,10 +1812,10 @@ class MaterialShader(DataStruct):
         material['render_mode_2'] = str(self.render_mode_2)
         material['unk5'] = self.unk5
         material['unk8'] = self.unk8
+        # bytes +38..+51; stock glow materials keep 0x8080 and 0x8010 there
+        material['shader_tail'] = list(self.unk)
 
-        # Translucent: the cycle-2 blender blends with the framebuffer, or the z mode is XLU. A
-        # loose bit test (0x800 in either word, or unk1 == 8) missed stock blend modes with an
-        # opaque z mode and kept a toggle that could never be cleared.
+        # kept for files from older versions, where a Transparent toggle chose the render mode
         material.transparent = render_mode_is_translucent(self.render_mode_1 | self.render_mode_2)
     
     def unmake(self, material):
@@ -1728,6 +1825,9 @@ class MaterialShader(DataStruct):
             self.combiner_cycle_type = material.get('combiner_cycle_type', self.combiner_cycle_type)
             self.unk5 = material.get('unk5', self.unk5)
             self.unk8 = material.get('unk8', self.unk8)
+            tail = material.get('shader_tail')
+            if tail is not None and len(tail) == 7:
+                self.unk = [int(v) for v in tail]
             self.color.unmake(material.material_color)
 
             # A material made in Blender has none of these; it keeps the stock defaults set in
@@ -1749,18 +1849,14 @@ class MaterialShader(DataStruct):
             if (self.render_mode_1, self.render_mode_2) in RM_LEGACY_DEFAULTS:
                 self.render_mode_1, self.render_mode_2 = RM_TRANSLUCENT if self.render_mode_1 & RM_ZMODE_XLU else RM_OPAQUE
 
-            # Only rewrite the render mode when the Transparent toggle disagrees with it, so an
-            # untouched material exports exactly as imported. 0x8 in unk1 goes with stock
-            # translucent mode.
-            translucent = render_mode_is_translucent(self.render_mode_1 | self.render_mode_2)
-            if material.transparent and not translucent:
-                self.render_mode_1 = (self.render_mode_1 & RM_CYCLE1_MASK) | RM_TRANSLUCENT[0]
-                self.render_mode_2 = RM_TRANSLUCENT[1]
+            # The Blend Mode dropdown writes the render modes (apply_blend_preset). A material from
+            # an older version that still has the add-on's defaults follows its Transparent toggle.
+            defaults = (*RM_OPAQUE, *DEFAULT_COMBINERS)
+            words = (self.render_mode_1, self.render_mode_2, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1,
+                     self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2)
+            if material.transparent and words == defaults:
+                self.render_mode_1, self.render_mode_2 = RM_TRANSLUCENT
                 self.unk1 |= 8
-            elif not material.transparent and translucent:
-                self.render_mode_1 = (self.render_mode_1 & RM_CYCLE1_MASK) | RM_OPAQUE[0]
-                self.render_mode_2 = RM_OPAQUE[1]
-                self.unk1 &= ~8
     
         # alternate way to detect if this material is on a skybox mesh
         mat = self.parent
@@ -1788,7 +1884,8 @@ class MaterialShader(DataStruct):
         return [self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, self.color.to_array(), self.unk]
     
     def write(self, buffer, cursor):
-        struct.pack_into(self.format_string, buffer, cursor, self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, 0, 0, 0, 0, 0, 0, 0)
+        tail = list(self.unk) if len(self.unk) == 7 else [0] * 7
+        struct.pack_into(self.format_string, buffer, cursor, self.unk1, self.combiner_cycle_type, self.color_combine_mode_cycle1, self.alpha_combine_mode_cycle1, self.color_combine_mode_cycle2, self.alpha_combine_mode_cycle2, self.render_mode_1, self.render_mode_2, *tail)
         struct.pack_into('>H', buffer, cursor + 22, self.unk5)
         struct.pack_into('>H', buffer, cursor + 32, self.unk8)
         self.color.write(buffer, cursor + 34)
