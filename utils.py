@@ -486,6 +486,44 @@ def reselect_obj(obj):
     obj.select_set(False)
     obj.select_set(True)
 
+# The pod anchors New > Podd adds: (name, display, size). Positions come from the replaced pod's row
+# in the game's table (swe1r/pod_visual.py).
+POD_ANCHORS = {
+    'engine_r': ("Anchor Engine R", 'SPHERE', 0.4),
+    'engine_l': ("Anchor Engine L", 'SPHERE', 0.4),
+    'cockpit': ("Anchor Cockpit", 'SPHERE', 0.4),
+    'exhaust_r': ("Anchor Exhaust R", 'SINGLE_ARROW', 0.6),
+    'exhaust_l': ("Anchor Exhaust L", 'SINGLE_ARROW', 0.6),
+}
+
+def place_pod_anchors(collection):
+    """Add or move a pod template's anchors to where the game draws the replaced pod's engines,
+    cockpit and exhausts. The game positions those parts itself (swe1r/pod_visual.py), so the
+    anchors are locked: model each part around its anchor."""
+    from .swe1r.pod_visual import pod_anchor_positions
+    positions = pod_anchor_positions(collection.export_model)
+    if positions is None:
+        return
+    existing = {obj.get('pod_anchor'): obj for obj in collection.objects if obj.get('pod_anchor')}
+    for key, (name, display, size) in POD_ANCHORS.items():
+        obj = existing.get(key)
+        if obj is None:
+            obj = bpy.data.objects.new(name, None)
+            obj['pod_anchor'] = key
+            obj.empty_display_type = display
+            obj.empty_display_size = size
+            collection.objects.link(obj)
+            if display == 'SINGLE_ARROW':
+                # points back, the way the exhaust blows
+                obj.rotation_euler = (math.pi / 2, 0, 0)
+            obj.lock_location = obj.lock_rotation = obj.lock_scale = (True, True, True)
+        obj.location = positions[key]
+
+def update_export_model(self, context):
+    """Replaces changed: a pod template's anchors follow the newly replaced pod."""
+    if self.collection_type == "MODEL" and self.export_type == '4' and any(obj.get('pod_anchor') for obj in self.objects):
+        place_pod_anchors(self)
+
 def find_model_collection(context):
     """The Model collection (collection_type 'MODEL') the user is working in: the active
     collection or the active object's collection, or the nearest Model collection above either.

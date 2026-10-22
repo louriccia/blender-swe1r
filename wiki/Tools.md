@@ -6,7 +6,7 @@ Pick a model type in the dropdown, then click **+**. The add-on adds an empty mo
 | Type | What New adds |
 |---|---|
 | Trak (track) | **Track** and **Skybox** collections, and a `spline` curve object |
-| Podd (pod) | **Right Engine**, **Left Engine**, **Cockpit** and **Cable** collections |
+| Podd (pod) | **Right Engine**, **Left Engine**, **Cockpit** and **Cable** collections, and anchors (see below) |
 | Modl, Part, Pupp, Scen | The collection only |
 
 The new collection replaces the first game model of its type on export. A message names that model. Change it with **Replaces** in the [Export](Export) panel.
@@ -15,9 +15,17 @@ New also adds the scene's 24 view layers if they are missing. The game's load zo
 
 MAlt (the high detail pod) is not in the list: it is exported with its Podd.
 
+### Pod anchors
+The game places a pod's engines, cockpit, cable, binder, exhausts and shadows itself, every frame, from a table in its executable with one row per racer. Where those parts sit in your model makes no difference: a pod that replaces Anakin's always has Anakin's engine spacing.
+
+So a new pod gets locked empties showing where the game will draw the pod it replaces: **Anchor Engine R**, **Anchor Engine L**, **Anchor Cockpit**, and arrows at **Anchor Exhaust R** and **Anchor Exhaust L** where the jet trails start. They move when you change **Replaces**.
+
+Model each part around its anchor. Export writes each part's meshes relative to their anchor, keeping their position, rotation and parenting, so what you see in Blender is what the game shows. One Blender unit in a pod is 1.6 game units.
+
 ### Limits
 - The new spline has a single point. A track spline needs 3 to 255 points: see [Splines](Splines).
-- Pods built from the template export without LODs or animations, and with an empty high detail MAlt model. Imported pods export in full.
+- Pods built from the template export without LODs, animations, shadows, jet trails or a far-away model, and with an empty high detail MAlt model. Imported pods export in full.
+- AI racers don't draw the pod model: they use a separate low detail model (a Part), so a new pod only shows on your own racer.
 - New adds no meshes or materials. Model them in Blender, or append them from another file.
 
 ## Export Asset Library

@@ -38,7 +38,7 @@ Alternatively, [download the latest release .zip](https://github.com/louriccia/b
 
 ## Known Issues
 
-- Pods built from the add-on's template (the Right Engine / Left Engine / Cockpit / Cable collections) export without LODs or animations and with an empty high detail MAlt model. Imported pods export in full, MAlt included.
+- Pods built from the add-on's template (the Right Engine / Left Engine / Cockpit / Cable collections) export without LODs, animations, shadows, jet trails or a far-LOD model, and with an empty high detail MAlt model. The game places pod parts from a per-racer table in its exe, so a template pod keeps the replaced pod's engine and cockpit positions (shown by the template's anchors). Imported pods export in full, MAlt included.
 
 ## Development
 
