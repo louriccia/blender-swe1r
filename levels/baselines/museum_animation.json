@@ -1,0 +1,26 @@
+{
+  "lift": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "rise_rate": null,
+    "swing": 4.5
+  },
+  "lift_fr": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "rise_rate": 150.0,
+    "swing": 152.7
+  },
+  "pulse": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "scroll": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  }
+}

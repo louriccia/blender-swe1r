@@ -1,0 +1,233 @@
+{
+  "t0": {
+    "explodes": 0,
+    "fired": [
+      0
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t100": {
+    "explodes": 0,
+    "fired": [
+      100
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t101": {
+    "explodes": 0,
+    "fired": [
+      101
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t102": {
+    "explodes": 0,
+    "fired": [
+      102
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t103": {
+    "explodes": 0,
+    "fired": [
+      103
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t104": {
+    "explodes": 1,
+    "fired": [
+      104
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t105": {
+    "explodes": 0,
+    "fired": [
+      105
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t106": {
+    "explodes": 0,
+    "fired": [
+      106
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t107": {
+    "explodes": 0,
+    "fired": [
+      107
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t107_disabled": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t107_ignoreai": {
+    "explodes": 0,
+    "fired": [
+      107
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t107_offpath": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t107_skiplap1": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t107_skiplap2": {
+    "explodes": 0,
+    "fired": [
+      107
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t107_speed150": {
+    "explodes": 0,
+    "fired": [
+      107
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t108": {
+    "explodes": 0,
+    "fired": [
+      108
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t201": {
+    "explodes": 0,
+    "fired": [
+      201
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t202": {
+    "explodes": 0,
+    "fired": [
+      202
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t203": {
+    "explodes": 0,
+    "fired": [
+      203
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t212": {
+    "explodes": 0,
+    "fired": [
+      212
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t213": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t304": {
+    "explodes": 0,
+    "fired": [
+      304
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t306": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t307": {
+    "explodes": 0,
+    "fired": [
+      307
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t312": {
+    "explodes": 0,
+    "fired": [
+      312
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t314": {
+    "explodes": 0,
+    "fired": [
+      314
+    ],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  },
+  "t501": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0,
+    "spec": 0,
+    "surf": 0
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "finish": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "left": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "right": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "run1": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "run2": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "run3": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "start": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  }
+}

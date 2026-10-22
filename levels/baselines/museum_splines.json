@@ -1,0 +1,22 @@
+{
+  "after_fork": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "alt_path": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "before_fork": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  },
+  "fork": {
+    "explodes": 0,
+    "fired": [],
+    "respawns": 0
+  }
+}
