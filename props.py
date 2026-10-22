@@ -66,6 +66,52 @@ def set_trigger_type(self, value):
     if value != OTHER_TRIGGER_TYPE:
         self.trigger_id = value
 
+# Node panel: an empty's node type and settings, read and written as the custom properties
+# import stores and export reads (obj['node_type'], ['selected_child'], ['floats'],
+# ['follow_position'], ['track_position']; swe1r/modelblock.py Group2058x / Group53350)
+NODE_TYPE_ITEMS = [
+    ('AUTO', "Automatic", "Kept as a transform when it is animated, a trigger target or holds a slot; otherwise merged into its parent", 0),
+    ('GROUP', "Group", "A plain node that draws all its children", 20580),
+    ('TRANSFORM', "Transform", "A node with its own position, rotation and scale, kept even when nothing animates it", 53349),
+    ('SELECTOR', "Selector", "Draws one chosen child, all of them or none", 20581),
+    ('LOD', "LOD Selector", "Draws one child by distance from the camera: the first child is the most detailed", 20582),
+    ('CAMERA', "Camera-facing", "Turns to face the camera, or follows the model's position (sky, binders, billboards)", 53350),
+    ('TRANSFORM_PLAIN', "Transform (no pivot)", "An imported transform node without a pivot", 53348),
+    ('MESH_GROUP', "Mesh Group", "An imported mesh group: the meshes under it", 12388),
+]
+
+def get_node_type(self):
+    value = self.get('node_type')
+    return int(value) if value is not None and int(value) in [i[3] for i in NODE_TYPE_ITEMS] else 0
+
+def set_node_type(self, value):
+    if value == 0:
+        if 'node_type' in self:
+            del self['node_type']
+        return
+    self['node_type'] = value
+
+def custom_getter(key, default, kind=int):
+    def get(self):
+        value = self.get(key)
+        return kind(value) if value is not None else default
+    return get
+
+def custom_setter(key, kind=int):
+    def set(self, value):
+        self[key] = kind(value)
+    return set
+
+def get_lod_distances(self):
+    floats = list(self.get('floats', ())) or [0.0, 40.0, 60.0, 100.0, 1000000.0, -1.0, -1.0, -1.0]
+    return [float(f) for f in floats[:8]]
+
+def set_lod_distances(self, value):
+    floats = list(self.get('floats', ())) or [0.0] * 11
+    floats = (floats + [0.0] * 11)[:11]
+    floats[:8] = [float(v) for v in value]
+    self['floats'] = floats
+
 class SWR_FlipbookFrame(bpy.types.PropertyGroup):
     image: bpy.props.PointerProperty(type=bpy.types.Image, name="Image", description="The texture shown for this frame")
 
@@ -247,6 +293,11 @@ def register():
     bpy.types.Object.anim_loop = bpy.props.BoolProperty(name="Loop", get=get_anim_loop, set=set_anim_loop, description="Start the animation over when it reaches its end (flag 0x10). Off: it plays once and stops. Stored as Cycles modifiers on the object's curves, so Blender's timeline loops it too")
     bpy.types.Object.anim_loop_transition = bpy.props.BoolProperty(name="Smooth Wrap", default=False, description="When it loops, blend back to the start instead of jumping (flag 0x40)")
     bpy.types.Object.anim_loop_length = bpy.props.FloatProperty(name="Loop Length", default=0.0, min=0.0, soft_max=60.0, unit='TIME_ABSOLUTE', precision=3, description="Seconds before the animation starts over. 0, or anything shorter than the keys: right after the last key. Longer holds the last pose until then (stock puppets share one length across their limbs)")
+    bpy.types.Object.swr_node_type = bpy.props.EnumProperty(name="Node Type", items=NODE_TYPE_ITEMS, get=get_node_type, set=set_node_type, description="What kind of node this empty exports as")
+    bpy.types.Object.swr_selected_child = bpy.props.IntProperty(name="Selected Child", min=-2, get=custom_getter('selected_child', 0), set=custom_setter('selected_child'), description="Which child the selector draws: its number (0 is the first), -1 for all of them, -2 for none")
+    bpy.types.Object.swr_lod_distances = bpy.props.FloatVectorProperty(name="LOD Distances", size=8, get=get_lod_distances, set=set_lod_distances, description="Where each child takes over, by distance from the camera: child 1 from the second value, and so on. The first value is 0, and -1 ends the list")
+    bpy.types.Object.swr_face_camera = bpy.props.BoolProperty(name="Face Camera", get=lambda self: bool(self.get('track_position', 0)), set=lambda self, v: self.__setitem__('track_position', 1 if v else 0), description="Turn to face the camera (a billboard)")
+    bpy.types.Object.swr_follow_model = bpy.props.BoolProperty(name="Follow Model", get=lambda self: bool(self.get('follow_position', 0)), set=lambda self, v: self.__setitem__('follow_position', 1 if v else 0), description="Move with the model's position (stock sky domes and pod binders)")
     bpy.types.Object.target = bpy.props.PointerProperty(type=bpy.types.Object, name="Target", description="The object the trigger acts on (e.g. the door it opens or the model it animates)")
    
     # MARK: UI State

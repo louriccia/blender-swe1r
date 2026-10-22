@@ -24,3 +24,4 @@ Every panel in the add-on's sidebar has a **?** button in its header that opens 
 - [Splines](Splines): the racing line
 - [Lights](Lights): light streaks
 - [Animation](Animation): keys, looping and loop length
+- [Nodes](Nodes): empties as groups, transforms, selectors, LOD selectors and camera-facing nodes
