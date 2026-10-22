@@ -22,7 +22,7 @@
 from .swr_import import *
 from .swr_export import *
 import bpy
-from .swe1r.modelblock import SurfaceEnum
+from .swe1r.modelblock import SurfaceEnum, PLANE_TRIGGER_TYPES, trigger_tilted
 from .operators import *
 from .constants import *
 from . import NAME, VERSION
@@ -920,6 +920,11 @@ class SWR_PT_trigger(SWRPanel, bpy.types.Panel):
         layout.prop(trigger, 'target')
         if trigger.parent is None or trigger.parent.type != 'MESH':
             layout.label(text = "Parent this to a collidable mesh", icon = 'ERROR')
+        if trigger_tilted(trigger.matrix_world):
+            if trigger.trigger_id in PLANE_TRIGGER_TYPES:
+                hint(layout, "Tilt about local Y tilts the plane;", "roll about local X doesn't count")
+            else:
+                hint(layout, "The game's zone stays upright: tilt", "only narrows it, roll does nothing")
         layout.prop(trigger, 'trigger_settings', text = 'Settings')
 
 

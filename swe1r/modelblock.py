@@ -524,6 +524,29 @@ class TriggerFlag(DataStruct):
         
         struct.pack_into(self.format_string, buffer, cursor, data)
 
+# Trigger types the game tests as a plane crossing (normal: the direction, all three components);
+# the others are an upright zone that uses only the direction's x and y, unnormalized
+# (swrRace_ActivateTriggersInRange 0x476e70)
+PLANE_TRIGGER_TYPES = (102, 104)
+
+
+def trigger_direction(matrix_world):
+    """A trigger's direction vector from its empty: its local X axis, unit length as in stock. A
+    plane trigger's plane faces it; the other types use only its x and y, so a tilted one narrows
+    the zone by cos(tilt) (stock tilts are under 20 degrees, on non-plane types)."""
+    axis = matrix_world.to_3x3().normalized().col[0]
+    if axis.length < 1e-6:
+        return [1.0, 0.0, 0.0]
+    axis.normalize()
+    return [axis.x, axis.y, axis.z]
+
+
+def trigger_tilted(matrix_world):
+    """True when the empty is tilted or rolled: the game's zone stays upright."""
+    m = matrix_world.to_3x3().normalized()
+    return abs(m.col[0].z) > 1e-3 or m.col[2].z < 0.999
+
+
 class CollisionTrigger(DataStruct):
     def __init__(self, parent, model):
         super().__init__('>8fI2hI')
@@ -552,7 +575,9 @@ class CollisionTrigger(DataStruct):
         trigger_empty = bpy.data.objects.new("trigger_" + str(self.id), None)
         trigger_empty.empty_display_type = 'CUBE'
         trigger_empty.location = self.position.data
-        trigger_empty.rotation_euler = [math.asin(self.rotation.data[2]), 0, math.atan2(self.rotation.data[1], self.rotation.data[0])]
+        # the direction is the empty's local X axis: heading about Z, tilt about local Y
+        dx, dy, dz = self.rotation.data
+        trigger_empty.rotation_euler = [0, -math.atan2(dz, math.hypot(dx, dy)), math.atan2(dy, dx)]
         trigger_empty.scale = [self.width/2, self.width/2, self.height/2]
         trigger_empty.trigger_id = self.id
         
@@ -579,12 +604,11 @@ class CollisionTrigger(DataStruct):
             return None
         
         location, rot, scale = node.matrix_world.decompose()
-        rotation = node.matrix_world.to_euler('XYZ')
         
         self.id = node.trigger_id
         self.flags.unmake(node)
         self.position.from_array([x/self.model.scale for x in node.matrix_world.to_translation()])
-        self.rotation.from_array([ math.cos(rotation[2]), math.sin(rotation[2]), math.sin(rotation[0])])
+        self.rotation.from_array(trigger_direction(node.matrix_world))
         self.width = scale[0]*2/self.model.scale
         self.height = scale[2]*2/self.model.scale
         if node.target:

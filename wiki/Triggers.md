@@ -21,7 +21,7 @@ The add-on writes the trigger from the empty's world transform. 1 Blender unit i
 
 - **Width** is the empty's X scale × 2. Y scale is ignored.
 - **Height** is the Z scale × 2. The zone runs from half the height below the centre to half above it. Pods ride about 5 units above the road, so let the box reach above the road surface.
-- **Rotation:** only the rotation around Z (the heading) counts. Keep X and Y rotation at 0.
+- **Rotation:** the empty's local X axis is the trigger's direction. Its heading (rotation around Z) is what counts: the game's zone is always upright. Rolling the cube (around local X) changes nothing in game, and tilting it (around local Y) only narrows the zone a little (by the cosine of the tilt); the panel says so. For types 102 and 104, tilting it tilts the plane the pod crosses.
 
 The game does not test the box you see. Seen from above, the zone is a strip with rounded ends: as deep as the cube along the empty's local X axis, and twice as long along its local Y axis. Vertically it matches the cube. *(Read from the decompiled game, not measured in game.)*
 
