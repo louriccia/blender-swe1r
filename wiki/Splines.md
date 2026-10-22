@@ -43,7 +43,7 @@ AI pods, and your own pod on autopilot, pick a branch at random at every fork.
 
 ## The Spline panel
 Select the curve object to see the **Spline** panel in the sidebar. Its buttons act on the active path (the one you last clicked in Edit Mode).
-- **Select spawn** enters Edit Mode and selects the active path's first point. On the main path, that is point 0.
-- **Set spawn** makes the selected point the first point of the active path, moving the start/finish line and grid there. It needs a cyclic path, in Edit Mode.
+- **Select spawn** enters Edit Mode and selects point 0: the main path's first point (the main path is the first cyclic path, else the longest).
+- **Set spawn** makes the selected point on the main path its first point, moving the start/finish line and grid there. The path keeps its shape, handle types included. It needs a cyclic main path, in Edit Mode.
 - **Invert** reverses every path in the curve, which reverses the racing direction. The old last point becomes point 0; use **Set spawn** to put the line back where you want it.
 - **Cyclic** opens or closes the active path. **Show direction** draws the curve's normals, so you can see which way it runs.

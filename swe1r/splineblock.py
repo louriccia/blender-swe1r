@@ -27,6 +27,16 @@ from .modelblock import DataStruct, FloatPosition, FloatVector
 from ..utils import show_custom_popup
 from .spline_map import spline_map
 
+
+def find_main_path(splines):
+    """The main path among a curve's splines: the first cyclic Bezier path, else the longest (the
+    others are alternate paths). Its point 0 is the start/finish line and grid. None if there's no
+    Bezier path of 2 points or more."""
+    paths = [spline for spline in splines if spline.type == 'BEZIER' and len(spline.bezier_points) >= 2]
+    if not paths:
+        return None
+    return next((p for p in paths if p.use_cyclic_u), None) or max(paths, key = lambda p: len(p.bezier_points))
+
 class SplinePoint(DataStruct):
     def __init__(self):
         super().__init__('>8h48x10h')
@@ -265,17 +275,9 @@ class Spline(DataStruct):
         
         #sort descending by number of points
         longest_paths = sorted(paths, key = lambda spline: len(spline.bezier_points), reverse=True)
-        looped_paths = sorted(paths, key = lambda spline: spline.use_cyclic_u, reverse=True)
         alt_paths = []
-        main_path = None
-        loop = False
-        
-        #find main path
-        if looped_paths[0].use_cyclic_u:
-            main_path = looped_paths[0]
-            loop = True
-        else:
-            main_path = longest_paths[0]
+        main_path = find_main_path(paths)
+        loop = main_path.use_cyclic_u
         # every other open path is an alternate path, longest first (by identity: the main
         # path is not necessarily the longest one)
         alt_paths = [spline for spline in longest_paths if spline is not main_path and not spline.use_cyclic_u]
