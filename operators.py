@@ -507,8 +507,10 @@ class BakeVColors(bpy.types.Operator):
     def execute(self, context):
         # only visible meshes have vertex colors to bake into
         meshes = [obj for obj in context.selected_objects if obj.type == 'MESH' and obj.visible]
+        # a Lit mesh's colors hold its normals
+        meshes = [obj for obj in meshes if not object_uses_normals(obj)]
         if not meshes:
-            self.report({'ERROR'}, "Select one or more Visible meshes to bake")
+            self.report({'ERROR'}, "Select one or more Visible meshes that aren't Lit to bake")
             return {'CANCELLED'}
         scene = context.scene
         lights = bake_lights(scene)

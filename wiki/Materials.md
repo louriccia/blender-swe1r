@@ -36,6 +36,14 @@ Which side of the faces the game doesn't draw:
 - **Front Faces**: faces seen from the front. Stock uses it on mirrored copies of meshes, whose faces are wound the other way. Blender can't hide front faces, so the viewport shows them double-sided.
 - **Off**: both sides are drawn.
 
+## Lit by game
+When it is on, the game lights the mesh itself, from its normals, as it does stock pods. The mesh uses the game's normals vertex format: its vertex colors hold the normals instead of colors.
+- The normals are Blender's: Shade Smooth or Flat, sharp edges, Auto Smooth and custom normals (Set or Average normals, the Weighted Normal modifier once applied) all export as you see them.
+- Imported lit meshes already have it on, with the game's own normals shown as custom normals. Normals you don't change export exactly as imported.
+- Turning it on writes the current normals into the vertex colors. Turning it off sets the vertex colors back to white.
+- [Bake](Vertex-Colors#bake) and the vertex color reset skip lit meshes.
+- In Material Preview a lit mesh is shaded by Blender's own lighting, not its vertex colors.
+
 ## Texture
 The image the mesh is drawn with. Pick an image already in the file, or click the folder button to load one from disk.
 

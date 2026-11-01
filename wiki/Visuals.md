@@ -17,11 +17,11 @@ With the default **Opaque** blend, the game draws each pixel as the **texture co
 The viewport follows the same combiner, so what you see in Material Preview is a good guide to the game.
 
 - [Vertex Colors](Vertex-Colors): bake Blender lights into the vertex colors. Tracks are not lit in game, so this is how a track gets shading.
-- [Materials](Materials): blend mode, texture, color, culling, scroll, mirror and clip.
+- [Materials](Materials): blend mode, texture, color, culling, lighting, scroll, mirror and clip.
 
 ## Reset
 While a selected mesh's settings differ from the defaults, a reset arrow appears beside **Visible**. It sets the vertex colors back to white and resets the material settings (blend to Opaque, Hide to Off, Scroll, Mirror and Clip). It leaves the texture and Color alone.
 
 ## Gotchas
 - One material per mesh. A mesh with more than one material is split on export; the Material panel offers to split it now.
-- Meshes whose material uses the game's normals vertex format (some imported models use it) are lit by the game, and their vertex colors are not used.
+- Meshes with **Lit by game** on (stock pods use it; see [Materials](Materials#lit-by-game)) are lit by the game from their normals, and their vertex colors are not used as colors.

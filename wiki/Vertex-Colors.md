@@ -34,6 +34,6 @@ The reset arrow in the section's title row sets the selected meshes' vertex colo
 - Colors are per vertex: each vertex gets one color on all the faces that share it.
 - Results brighter than white are clipped.
 - Only Visible meshes are baked. Other selected objects are skipped.
-- Meshes whose material uses the game's normals vertex format are lit by the game, and their vertex colors are not used.
+- Meshes with **Lit by game** on (see [Materials](Materials#lit-by-game)) are lit by the game: their vertex colors hold normals, so Bake and Reset skip them.
 
 You can also paint vertex colors by hand in Blender's Vertex Paint mode; export uses the active color attribute either way.

@@ -661,6 +661,8 @@ def draw_material(layout, context):
     row.enabled = bool(modes & {'TINTED', 'GLOW', 'FLAT', 'SHADOW', 'CUSTOM'})
     culls = {m.material_slots[0].material.cull_mode for m in meshes if m.material_slots[0].material is not None}
     layout.prop(context.scene, 'cull_mode', text = "Hide" + ("*" if len(culls) > 1 else ""))
+    lits = {m.material_slots[0].material.lit for m in meshes if m.material_slots[0].material is not None}
+    layout.prop(context.scene, 'material_lit', text = "Lit by game" + ("*" if len(lits) > 1 else ""))
     row = layout.row(align=True)
     row.prop(context.scene, "texture", text = "", placeholder = is_indeterminate("texture", "Mixed"))
     row.operator("view3d.open_image", text="", icon='FILEBROWSER')

@@ -1116,11 +1116,12 @@ def record_vertex_normals(mesh, normals = None):
     attr.data.foreach_set('vector', normals)
 
 
-def unmake_vertex_normals(mesh):
+def unmake_vertex_normals(mesh, force = False):
     """Write each corner's Vtx_tn normal bytes into the mesh's 'colors' attribute for export.
 
     Corners whose normal matches the one recorded at import keep their bytes (stock meshes stay
     byte-identical); the rest get Blender's corner normal as round(n * 127), keeping their alpha.
+    force writes every corner, for a mesh whose colors hold colors, not normals (newly made Lit).
     """
     loop_count = len(mesh.loops)
     if not loop_count:
@@ -1129,14 +1130,14 @@ def unmake_vertex_normals(mesh):
     mesh.corner_normals.foreach_get('vector', normals)
     recorded = None
     attr = mesh.attributes.get(NORMAL_ATTR)
-    if attr is not None and attr.domain == 'CORNER' and attr.data_type == 'FLOAT_VECTOR':
+    if not force and attr is not None and attr.domain == 'CORNER' and attr.data_type == 'FLOAT_VECTOR':
         recorded = [0.0] * (3 * loop_count)
         attr.data.foreach_get('vector', recorded)
     colors = mesh.vertex_colors.active
     if colors is None:
         colors = mesh.vertex_colors.new(name = 'colors')
         values = [1.0] * (4 * loop_count)
-    elif recorded is None:
+    elif recorded is None and not force:
         # imported before normals were recorded: nothing tells an edited corner from an untouched
         # one, so keep the bytes as they are (from now on edits are detected)
         record_vertex_normals(mesh, normals)

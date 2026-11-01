@@ -434,7 +434,9 @@ def init_vertex_colors(b_obj):
             color.color = [1.0, 1.0, 1.0, 1.0]
 
 def reset_vertex_colors(b_obj):
-    if b_obj.type != 'MESH' or not b_obj.visible:
+    from .swe1r.modelblock import object_uses_normals
+    # a Lit mesh's colors hold its normals
+    if b_obj.type != 'MESH' or not b_obj.visible or object_uses_normals(b_obj):
         return
 
     if not hasattr(b_obj.data, 'color_attributes') or len(b_obj.data.color_attributes) == 0:
