@@ -22,6 +22,17 @@ So a new pod gets locked empties showing where the game will draw the pod it rep
 
 Model each part around its anchor. Export writes each part's meshes relative to their anchor, keeping their position, rotation and parenting, so what you see in Blender is what the game shows. One Blender unit in a pod is 1.6 game units.
 
+Jinn Reeso's and Cy Yunga's pods (Podd 299, 301) have no row of their own: the game races them in place of Mars Guo and Bullseye Navior, so their anchors are those racers'.
+
+### Pod Parts checklist
+With a pod selected, the [Export](Export) panel lists what each part will export:
+- **Right Engine** / **Left Engine**: put meshes in at least one. If only one engine has meshes, the other is made from it, mirrored across the pod (with its jet trail and shadow, if it has none of its own), so a symmetric pod only needs one side modelled.
+- **Cockpit**: without meshes, the pod has no cockpit.
+- **Cable** and **Engine Glow**: stock shape, or none when the collection is deleted (see below).
+- **Not in a part**: meshes that are in no part collection would not be exported. **Sort Loose Meshes** moves each into Right Engine, Left Engine or Cockpit, whichever anchor it is nearest.
+
+Export is disabled while the pod has no engine or has meshes outside the part collections. Imported pods skip the checklist: their own node tree is written back.
+
 ### Jet trails and shadows
 - **Jet Trails**: each mesh trails from the nearer exhaust arrow. Model a short tube pointing back (−Y) from the arrow, about half a Blender unit long, like the stock ones: the game stretches it with speed, scrolls its texture and may set its color.
 - **Cable** and **Engine Glow**: the game reshapes both every frame (it stretches the cable from the cockpit to each engine and, up close, draws its own tube; it scales the glow by the pod's glow size and speed and sets its color from engine heat), so only their material is yours to choose. Put any mesh in the collection to give the cable or glow that mesh's material; leave the collection empty for the stock black cable or the stock glow; delete the collection for no cable or no glow. The glow is faint in normal driving, as on stock pods.

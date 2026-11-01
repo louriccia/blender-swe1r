@@ -66,6 +66,8 @@ def export_model(col, file_path, exports, update_progress):
         elif int(col.export_model) not in spline_map:
             notes.append("Spline not exported: only tracks have a spline (Replaces is not a track).")
             spline_export = False
+    if model_export and 'MESH' not in types:
+        notes.append(f"Model not exported: '{col.name}' has no meshes (directly in it or in its child collections).")
 
     if 'MESH' in types and model_export:
         

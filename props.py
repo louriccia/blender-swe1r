@@ -95,6 +95,50 @@ def set_scene_cull_mode(self, value):
         obj.material_slots[0].material = Material(None, None).remake(material)
         reselect_obj(obj)
 
+# Lit: a material type with 0x1 or 0x10 gives its meshes the Vtx_tn vertex format, whose color
+# bytes hold a normal the game lights the mesh with instead of a color (swe1r/modelblock.py
+# uses_normals). 0x1 is set for a newly lit material, as export does for 'normal_map'.
+def get_material_lit(self):
+    return bool(int(self.get('format') or 14) & 0x11) or bool(self.get('normal_map', False))
+
+
+def set_material_lit(self, value):
+    if value == get_material_lit(self):
+        return
+    from .utils import reset_vertex_colors
+    from .swe1r.modelblock import unmake_vertex_normals, NORMAL_ATTR
+    self['format'] = (int(self.get('format') or 14) & ~0x11) | (0x1 if value else 0)
+    self['normal_map'] = bool(value)
+    for obj in bpy.data.objects:
+        if obj.type != 'MESH' or not len(obj.material_slots) or obj.material_slots[0].material != self:
+            continue
+        if value:
+            # the colors become Blender's normals; export keeps them unless the normals change
+            unmake_vertex_normals(obj.data, force = True)
+        else:
+            # the colors held normals: start from white
+            attr = obj.data.attributes.get(NORMAL_ATTR)
+            if attr is not None:
+                obj.data.attributes.remove(attr)
+            reset_vertex_colors(obj)
+
+
+def get_scene_lit(self):
+    context = bpy.context
+    materials = blend_mode_materials(context)
+    if not materials:
+        return False
+    active = next((m for o, m in materials if o == context.active_object), materials[0][1])
+    return get_material_lit(active)
+
+
+def set_scene_lit(self, value):
+    from .utils import reselect_obj
+    for obj, material in blend_mode_materials(bpy.context):
+        set_material_lit(material, value)
+        obj.material_slots[0].material = Material(None, None).remake(material)
+        reselect_obj(obj)
+
 # the Trigger Type dropdown's entry for a number not in TRIGGER_TYPES
 OTHER_TRIGGER_TYPE = 999999
 
@@ -304,6 +348,7 @@ def register():
     bpy.types.Material.transparent = bpy.props.BoolProperty(name = 'transparent', default = False)
     bpy.types.Material.cull_mode = bpy.props.EnumProperty(name = 'Culling', items = CULL_MODE_ITEMS, get = get_material_cull_mode, set = set_material_cull_mode, description = "Which side of the faces the game hides")
     bpy.types.Material.blend_mode = bpy.props.EnumProperty(name = 'Blend Mode', items = [(*item, i) for i, item in enumerate(BLEND_MODE_ITEMS)], get = get_material_blend_mode, set = set_material_blend_mode, description = "How the game draws the material: a preset copied from stock materials")
+    bpy.types.Material.lit = bpy.props.BoolProperty(name = 'Lit', get = get_material_lit, set = set_material_lit, description = "The game lights the meshes from their normals (the normals vertex format); their vertex colors hold the normals")
     # texture flipbook: the material's texture swaps through these frames in game
     bpy.types.Material.flipbook_frames = bpy.props.CollectionProperty(type=SWR_FlipbookFrame)
     bpy.types.Material.flipbook_index = bpy.props.IntProperty(default=0)
@@ -354,6 +399,7 @@ def register():
     bpy.types.Scene.material_color = bpy.props.FloatVectorProperty(name = 'Color', subtype='COLOR', size = 4, default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0, description="Set base material color", update =update_selected("material_color", update_mat = True))
     bpy.types.Scene.blend_mode = bpy.props.EnumProperty(name = 'Blend Mode', items = SCENE_BLEND_MODE_ITEMS, get = get_scene_blend_mode, set = set_scene_blend_mode, description = "How the game draws the selected meshes: a preset copied from stock materials")
     bpy.types.Scene.cull_mode = bpy.props.EnumProperty(name = 'Culling', items = CULL_MODE_ITEMS, get = get_scene_cull_mode, set = set_scene_cull_mode, description = "Which side of the selected meshes' faces the game hides")
+    bpy.types.Scene.material_lit = bpy.props.BoolProperty(name = 'Lit', get = get_scene_lit, set = set_scene_lit, description = "The game lights the selected meshes from their normals, like stock pods (the normals vertex format). Their vertex colors then hold the normals: Blender's shading (smooth, flat, sharp edges, custom normals) is what exports. Turning it off resets their vertex colors to white")
     bpy.types.Scene.scroll_x = bpy.props.FloatProperty(name = 'Scroll X', default = 0.0, update = update_selected("scroll_x", update_mat = True), description = "Scroll the texture along X: seconds per full scroll, negative for the other direction, 0 for none")
     bpy.types.Scene.scroll_y = bpy.props.FloatProperty(name = 'Scroll Y', default = 0.0, update = update_selected("scroll_y", update_mat = True), description = "Scroll the texture along Y: seconds per full scroll, negative for the other direction, 0 for none")
     bpy.types.Scene.flip_x = bpy.props.BoolProperty(name = 'Mirror Y', default = False, update = update_selected("flip_x", update_mat = True), description = "Repeat the texture mirrored along Y (V) instead of tiling it. Stored as flip_x for older files")
