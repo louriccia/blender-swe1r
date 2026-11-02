@@ -55,11 +55,14 @@ def reduce_colors(image_array, num_colors=255, max_iter=3):
     """
     Reduce an image to at most num_colors colors.
 
-    Uses popularity quantization: the most frequently used colors are kept
-    EXACTLY and every remaining pixel is mapped to its nearest kept color. This
-    preserves solid regions (a large white area stays pure white), unlike the
-    previous k-means approach whose cluster means pulled bright colors toward
-    grey and made white areas render noticeably darker in game.
+    Colors are first snapped to the palette's RGBA5551 levels (finer detail is
+    lost on write anyway) and fully transparent pixels share one color. If that
+    still leaves too many, median cut splits the colors into num_colors boxes.
+    Each box is represented by its dominant color when that color covers at
+    least half the box, so a large white area stays pure white (k-means cluster
+    means pulled it toward grey), and by the box's mean otherwise. Keeping only
+    the most-used colors instead dropped every less common hue: a mostly grey
+    texture with yellow streaks came out grey.
 
     Parameters:
     - image_array: numpy array of shape (height, width, 4) or (num_pixels, 4)
@@ -70,21 +73,45 @@ def reduce_colors(image_array, num_colors=255, max_iter=3):
     - indices: per-pixel index into the palette
     - palette: (num_colors, 4) array of RGBA colors in 0..1
     """
-    pixels = image_array.reshape(-1, 4).astype(np.float32)
-    unique_pixels, counts = np.unique(pixels, axis=0, return_counts=True)
+    pixels = np.clip(image_array.reshape(-1, 4).astype(np.float64), 0.0, 1.0)
+    pixels = np.round(pixels * 0x1F) / 0x1F
+    pixels[:, 3] = np.round(pixels[:, 3])
+    pixels[pixels[:, 3] == 0] = 0.0
+    unique_pixels, inverse, counts = np.unique(pixels, axis=0, return_inverse=True, return_counts=True)
+    inverse = np.asarray(inverse).ravel()
 
     if len(unique_pixels) <= num_colors:
-        palette = unique_pixels
-    else:
-        # keep the num_colors most-used colors, exactly
-        top = np.argsort(counts)[::-1][:num_colors]
-        palette = unique_pixels[top]
+        return inverse, unique_pixels.astype(np.float32)
 
-    # map every pixel to its nearest kept color
-    distances = np.linalg.norm(pixels[:, None, :] - palette[None, :, :], axis=2)
-    indices = np.argmin(distances, axis=1)
+    # median cut: split the box with the widest channel at its pixel-weighted median
+    boxes = [np.arange(len(unique_pixels))]
+    while len(boxes) < num_colors:
+        ranges = [np.ptp(unique_pixels[b], axis=0).max() if len(b) > 1 else -1 for b in boxes]
+        i = int(np.argmax(ranges))
+        if ranges[i] <= 0:
+            break
+        box = boxes.pop(i)
+        channel = int(np.argmax(np.ptp(unique_pixels[box], axis=0)))
+        box = box[np.argsort(unique_pixels[box, channel], kind='stable')]
+        cumulative = np.cumsum(counts[box])
+        split = int(np.searchsorted(cumulative, cumulative[-1] / 2)) + 1
+        split = min(max(split, 1), len(box) - 1)
+        boxes += [box[:split], box[split:]]
 
-    return indices, palette
+    palette = np.empty((len(boxes), 4))
+    for i, box in enumerate(boxes):
+        weights = counts[box]
+        dominant = int(np.argmax(weights))
+        if weights[dominant] * 2 >= weights.sum():
+            palette[i] = unique_pixels[box[dominant]]
+        else:
+            palette[i] = np.round(np.average(unique_pixels[box], axis=0, weights=weights) * 0x1F) / 0x1F
+
+    # map every distinct color to its nearest palette color
+    distances = np.linalg.norm(unique_pixels[:, None, :] - palette[None, :, :], axis=2)
+    indices = np.argmin(distances, axis=1)[inverse]
+
+    return indices, palette.astype(np.float32)
 
 
 def page_width_padding(width, format):
