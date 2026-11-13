@@ -22,7 +22,7 @@
 from .swr_import import *
 from .swr_export import *
 import bpy
-from .swe1r.modelblock import SurfaceEnum, PLANE_TRIGGER_TYPES, trigger_tilted
+from .swe1r.modelblock import SurfaceEnum, PLANE_TRIGGER_TYPES, trigger_tilted, FLICKER_AXIS_DEFAULT
 from .swe1r.splineblock import find_main_path
 from .operators import *
 from .constants import *
@@ -103,6 +103,7 @@ obj_props = ['visible',
             'lighting_color',
             'lighting_invert',
             'lighting_flicker',
+            'lighting_flicker_axis',
             'lighting_persistent',
             'fog_color_update',
             'fog_color',
@@ -119,6 +120,7 @@ for flag in dir(SurfaceEnum):
         
 mat_props = [
     'material_color',
+    'bake_emission',
     'scroll_x',
     'scroll_y',
     'flip_x',
@@ -217,7 +219,7 @@ def is_lighting_default(context):
         if not obj.collision_data:
             continue
         
-        if obj.lighting_light or obj.lighting_color != target_color or obj.lighting_invert or obj.lighting_flicker or obj.lighting_persistent:
+        if obj.lighting_light or obj.lighting_color != target_color or obj.lighting_invert or obj.lighting_flicker or obj.lighting_persistent or tuple(obj.lighting_flicker_axis) != FLICKER_AXIS_DEFAULT:
             return False
     return True
 
@@ -626,7 +628,30 @@ def is_trigger(obj):
     return obj is not None and obj.type == 'EMPTY' and obj.empty_display_type == 'CUBE'
 
 def draw_vertex_colors(layout, context):
-    layout.prop(context.scene, 'light_falloff', text = 'Falloff', slider = True)
+    shadows = {o.visible_shadow for o in selected_meshes(context)}
+    skips = {o.bake_skip for o in selected_meshes(context)}
+    # per-mesh settings first, then the scene-wide bake settings, each under its own heading
+    layout.label(text = "Selected meshes", icon = 'MESH_DATA')
+    from .utils import skybox_objects
+    sky = skybox_objects()
+    in_sky = [o for o in selected_meshes(context) if o in sky]
+    if in_sky and len(in_sky) == len(selected_meshes(context)):
+        # the bake ignores both settings on the skybox
+        hint(layout, "Skybox: never casts shadows", "and is never baked")
+    else:
+        col = layout.column(align = True)
+        col.prop(context.scene, 'bake_cast_shadow', text = "Cast Shadows" + ("*" if len(shadows) > 1 else ""))
+        col.prop(context.scene, 'bake_skip', text = "Skip in Bake (keep colors)" + ("*" if len(skips) > 1 else ""))
+        if in_sky:
+            hint(layout, "Skybox meshes in the selection never", "cast shadows and are never baked")
+    layout.separator()
+    layout.label(text = "Bake settings (whole scene)", icon = 'SCENE_DATA')
+    layout.prop(context.scene, 'bake_method', expand = True)
+    if context.scene.bake_method == 'CYCLES':
+        layout.prop(context.scene, 'bake_samples')
+    else:
+        layout.prop(context.scene, 'light_falloff', text = 'Falloff', slider = True)
+    layout.prop(context.scene, 'bake_pod_lights')
     row = layout.row()
     row.label(text = 'Ambient Light')
     row.prop(context.scene, 'ambient_light', text='')
@@ -663,6 +688,9 @@ def draw_material(layout, context):
     layout.prop(context.scene, 'cull_mode', text = "Hide" + ("*" if len(culls) > 1 else ""))
     lits = {m.material_slots[0].material.lit for m in meshes if m.material_slots[0].material is not None}
     layout.prop(context.scene, 'material_lit', text = "Lit by game" + ("*" if len(lits) > 1 else ""))
+    if not any(lits):
+        # only lights a Cycles bake; the game draws the material the same either way
+        layout.prop(context.scene, 'bake_emission', text = f'Emission (Cycles bake){is_indeterminate("bake_emission")}')
     row = layout.row(align=True)
     row.prop(context.scene, "texture", text = "", placeholder = is_indeterminate("texture", "Mixed"))
     row.operator("view3d.open_image", text="", icon='FILEBROWSER')
@@ -766,8 +794,18 @@ def draw_pod_lighting(layout, context):
     layout.prop(context.scene, 'lighting_color', text = f'Ambient Color{is_indeterminate("lighting_color")}')
     row = layout.row(align = True)
     row.prop(context.scene, 'lighting_flicker', text = f'Flicker{is_indeterminate("lighting_flicker")}', toggle = True)
-    row.prop(context.scene, 'lighting_invert', text = f'Point{is_indeterminate("lighting_invert")}', toggle = True)
+    light = context.scene.lighting_light
+    if light is not None and light.type == 'SUN':
+        # a sun always exports as a direction: the flag comes from the light's type
+        sub = row.row(align = True)
+        sub.enabled = False
+        sub.label(text = 'Sun', icon = 'LIGHT_SUN')
+    else:
+        row.prop(context.scene, 'lighting_invert', text = f'Point{is_indeterminate("lighting_invert")}', toggle = True)
     row.prop(context.scene, 'lighting_persistent', text = f'Persist{is_indeterminate("lighting_persistent")}', toggle = True)
+    if context.scene.lighting_flicker:
+        # the axis the pulse runs along: brightness repeats every 100 game units of the pod's position on it
+        layout.prop(context.scene, 'lighting_flicker_axis', text = f'Flicker Axis{is_indeterminate("lighting_flicker_axis")}')
 
 def draw_load_zones(layout, context):
     hint(layout, "Click a zone to cycle: unchanged,", "load on touch, unload on touch")
@@ -844,6 +882,8 @@ def draw_light(layout, context):
     light = context.active_object.data
     layout.prop(light, "color", text = "Color")
     layout.prop(light, 'LStr', text = 'Light Streak')
+    # Blender's own setting; both bakes use it
+    layout.prop(light, 'use_shadow', text = 'Cast Shadows (bake)')
     hint(layout, "Pod lights are set on collision:", "Selected > Collidable > Pod Lighting")
 
 def draw_node(layout, context):

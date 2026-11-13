@@ -24,14 +24,19 @@ from .swe1r.modelblock import Model
 from .swe1r.splineblock import Spline
 from .swe1r.spline_map import spline_map
 from .swe1r.block import Block
-from .utils import UpdateVisibleSelectable, show_custom_popup
+from .utils import UpdateVisibleSelectable, show_custom_popup, fit_stock_sun
+from .swe1r.model_list import model_list
 
 scale = 0.01
 
 def import_model(file_path, selector=None, update_progress=None):
     if selector is None:
         selector = range(324)
-        
+
+    # Standard shows the add-on's materials as the game's colors; Blender's default (AgX) remaps
+    # the tones, darkening mid and dark ones
+    bpy.context.scene.view_settings.view_transform = 'Standard'
+
     # cleanup
 
     mats_removed = 0
@@ -94,6 +99,11 @@ def import_model(file_path, selector=None, update_progress=None):
             spline = Spline(spline_id).read(spline_buffer)
             update_progress(f'Making spline {spline_id}')
             collection.objects.link(spline.make(model.scale))
+
+        if any(m.get('index') == model_id and m.get('extension') == 'Trak' for m in model_list):
+            bpy.context.view_layer.update()
+            sun, note = fit_stock_sun(collection, bpy.context.scene)
+            print(f"Stock sun for model {model_id}: {note}")
             
     # reset view layer
     view_layer = bpy.context.scene.view_layers.get("ViewLayer")

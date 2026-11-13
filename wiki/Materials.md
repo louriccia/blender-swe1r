@@ -2,6 +2,15 @@ The **Material** panel sets the selected meshes' texture and how the game draws 
 
 It is a section under **Visible** in the **Selected** panel and only shows while **Visible** is on. Changes apply to the first material of every selected mesh.
 
+## Seeing the game's colors
+The add-on's materials show what the game draws. The game multiplies the texture, vertex color and Color as stored 0-255 values, not in Blender's linear color space, and doesn't light tracks. The materials do the same math and show the result unlit to the viewport camera, so scene lights and the World don't change it.
+
+To see it, use **Material Preview** or **Rendered** shading with the **Standard** view transform (Render Properties > Color Management). Importing a model sets Standard. Blender's default, **AgX**, darkens mid and dark tones, so shadows look darker than in game. Fog isn't shown.
+
+Meshes with **Lit by game** on are still lit by Blender, standing in for the game's pod lighting.
+
+Materials made by an older version of the add-on use the old math (darker shadows) until they are rebuilt. Select the meshes and run **Remake Materials** from Blender's search (F3), or re-import the model. Changing any setting in this panel, or baking vertex colors, also rebuilds the selected meshes' materials.
+
 ## Before the settings
 - **One material per mesh: export splits it.** A selected mesh has more than one material. Export will split it into one mesh per material. **Split mesh by material** does that now for the active mesh.
 - **Add material.** A selected mesh has no material. This gives it a game material.
@@ -43,6 +52,14 @@ When it is on, the game lights the mesh itself, from its normals, as it does sto
 - Turning it on writes the current normals into the vertex colors. Turning it off sets the vertex colors back to white.
 - [Bake](Vertex-Colors#bake) and the vertex color reset skip lit meshes.
 - In Material Preview a lit mesh is shaded by Blender's own lighting, not its vertex colors.
+
+## Emission (Cycles bake)
+How strongly the material glows in a **Cycles** [vertex color bake](Vertex-Colors), lighting the surfaces around it in its own color (texture × Color). 0, the default, is off. Use it for lamps, screens, lava and other textures that should light their surroundings.
+
+- It is saved on the material, so every mesh using the material glows. To make one mesh glow without the others, give it its own material first (the new-material button next to the slot in Blender's Material properties).
+- It only lights a bake. The game has no emissive textures and draws the material the same either way: a surface looks lit in game only through its vertex colors. To keep the lamp itself bright, turn on **Skip in Bake** for its meshes (or paint them white).
+- The Simple bake ignores it.
+- Hidden for meshes with **Lit by game** on.
 
 ## Texture
 The image the mesh is drawn with. Pick an image already in the file, or click the folder button to load one from disk.

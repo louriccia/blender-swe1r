@@ -32,9 +32,9 @@ from .pod_check import is_pod_template, pod_errors, part_meshes, mirrored_engine
 from .pod_parts import STOCK_GLOW, STOCK_CABLE, STOCK_GLOW_MATERIAL, STOCK_CABLE_MATERIAL
 from ..utils import show_custom_popup, model_types, header_sizes, showbytes, Podd_MAlt, sync_hold_key, hold_key_frame, is_hold_key
 
-def find_existing_light(objects, color, location, rotation):
+def find_existing_light(objects, color, location, rotation, light_type = 'POINT'):
     for light in objects:
-        if light.type == 'LIGHT' and light.data.color == color and (light.location - location).length < 0.001 and light.users:
+        if light.type == 'LIGHT' and light.data.type == light_type and light.data.color == color and (light.location - location).length < 0.001 and light.users:
             # Check rotation (convert both to Euler for comparison)
             existing_rotation = light.rotation_euler
             if existing_rotation == rotation:
@@ -327,19 +327,33 @@ def ensure_cycles_first(fcurve):
 
     return m
 
+# the Flicker axis most stock surfaces store (841 of 1100 lit meshes), used where none is set
+FLICKER_AXIS_DEFAULT = (0.0, 1.0, 0.0)
+
+def sun_direction(light_object):
+    """The direction a sun light shines (its world -Z) as a pod light vector: the vector the
+    import stored when the sun still points along it, so an untouched sun exports the same bytes."""
+    direction = (light_object.matrix_world.to_3x3() @ mathutils.Vector((0, 0, -1))).normalized()
+    stored = light_object.data.get('pod_light_vector')
+    if stored is not None and len(stored) == 3:
+        stored = mathutils.Vector(stored)
+        if stored.length > 0 and (stored.normalized() - direction).length < 1e-4:
+            return list(stored)
+    return list(direction)
+
 class Lights(DataStruct):
-    # RE swrModel_Behavior light region: light_flags(u16), ambient_color[3],
-    # light_color[3], unk10(u16 = the two bytes below), light_vector[3] (a
-    # direction vector), unk14_node (a swrModel_Node* pointer), unk15, unk16.
-    # NOTE: light_vector is a DIRECTION per the RE, but is currently represented
-    # in Blender as the position of a point light (unchanged for now to avoid a
-    # speculative point->sun conversion). unk14_node/unk15/unk16 are written as
-    # 0 on export: unk14_node is a runtime pointer (null on disk) and the two
-    # unknowns default to 0, matching how unk10 already exports. This replaces
-    # the previous code that misread these 12 bytes as a float "rotation" and
-    # wrote Blender rotation values back into the pointer slot.
+    # RE swrModel_Behavior light region: light_flags(u16), ambient_color[3], light_color[3],
+    # unk10(u16 = the two bytes below), light_vector[3], then 3 floats types.h names
+    # unk14_node/unk15/unk16. swrObjcMan_LoadLightingFromBehavior (0x451800) reads those 3 as a
+    # float vector and normalizes it: the axis of the Flicker (0x8) pulse, which
+    # swrObjcMan_UpdateLighting (0x451160) applies as a triangle wave of the pod's position on it
+    # (light color x |50 - (pos . axis mod 100)| / 50). Stock tracks store unit axes there.
+    # light_vector is a world position with flag 0x4 (UpdateLighting aims the light along
+    # pod - position) and otherwise the direction the light travels (normalized, used as is).
+    # Blender holds the first as a point light at the position and the second as a sun light
+    # shining along the vector; export takes the flag from the light's type (see sun_direction).
     def __init__(self, model):
-        super().__init__('>h8b3f3I')
+        super().__init__('>h8b3f3f')
         self.model = model
         self.flag = 0
         # 00100 = invert affected?
@@ -350,12 +364,11 @@ class Lights(DataStruct):
         self.unk1 = 0
         self.unk2 = 0
         self.light_vector = FloatPosition()
-        self.unk14_node = 0
-        self.unk15 = 0
-        self.unk16 = 0
+        self.flicker_axis = FLICKER_AXIS_DEFAULT
 
     def read(self, buffer, cursor):
-        self.flag, ambient_r, ambient_g, ambient_b, color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, self.unk14_node, self.unk15, self.unk16 = struct.unpack_from(self.format_string, buffer, cursor)
+        self.flag, ambient_r, ambient_g, ambient_b, color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, *axis = struct.unpack_from(self.format_string, buffer, cursor)
+        self.flicker_axis = tuple(axis)
         self.ambient.from_array([ambient_r, ambient_g, ambient_b])
         self.color.from_array([color_r, color_g, color_b])
         self.light_vector.from_array([x, y, z])
@@ -365,18 +378,30 @@ class Lights(DataStruct):
 
         if self.flag & 0x3 > 0:
             objects = get_all_objects_in_collection(self.model.collection)
-            existing_light = find_existing_light(objects, mathutils.Color(self.color.make()), mathutils.Vector([a * self.model.scale for a in self.light_vector.make()]), mathutils.Euler((0, 0, 0)))
+            vector = mathutils.Vector(self.light_vector.make())
+            if self.flag & 0x4 or vector.length < 0.01:
+                # a position (a vector the game can't normalize falls back to straight down, so a
+                # zero one stays a point light at the origin rather than a sun with no direction)
+                light_type = 'POINT'
+                location = vector * self.model.scale
+                rotation = mathutils.Euler((0, 0, 0))
+            else:
+                # the direction the light travels: a sun shines along its -Z
+                light_type = 'SUN'
+                location = mathutils.Vector((0, 0, 0))
+                rotation = vector.to_track_quat('-Z', 'Y').to_euler()
+            existing_light = find_existing_light(objects, mathutils.Color(self.color.make()), location, rotation, light_type)
             if existing_light is None:
-                # Create a new light if no existing light is found
-
-                new_light = bpy.data.lights.new(type='POINT', name='pod_lighting')
+                new_light = bpy.data.lights.new(type=light_type, name='pod_lighting')
                 new_light.color = self.color.make()
+                if light_type == 'SUN':
+                    # the exact vector, so an unchanged sun exports the same bytes
+                    new_light['pod_light_vector'] = list(vector)
 
                 light_object = bpy.data.objects.new(name="pod_lighting", object_data=new_light)
                 self.model.collection.objects.link(light_object)
-
-                # Set the location (light_vector; see class note re: direction)
-                light_object.location = [a * self.model.scale for a in self.light_vector.make()]
+                light_object.location = location
+                light_object.rotation_euler = rotation
 
                 obj.lighting_light = new_light
             else:
@@ -384,6 +409,7 @@ class Lights(DataStruct):
         obj.lighting_color = self.ambient.make()
         obj.lighting_invert = self.flag & 0x4 > 0
         obj.lighting_flicker = self.flag & 0x8 > 0
+        obj.lighting_flicker_axis = self.flicker_axis
         obj.lighting_persistent = self.flag & 0x10 > 0
 
     def unmake(self, obj):
@@ -402,25 +428,35 @@ class Lights(DataStruct):
             self.flag |= 0x3
 
             self.color.unmake(obj.lighting_light.color)
-            if light_object:
-                self.light_vector.from_array([round(a/self.model.scale) for a in light_object.matrix_world.to_translation()])
+            if obj.lighting_light.type == 'SUN':
+                # a direction: no 0x4, whatever the Point toggle says
+                if light_object:
+                    self.light_vector.from_array(sun_direction(light_object))
+            else:
+                if light_object:
+                    # 3 decimals: drops the float noise of the 0.01 import scale, keeps stock fractions
+                    self.light_vector.from_array([round(a/self.model.scale, 3) for a in light_object.matrix_world.to_translation()])
+                if obj.lighting_invert:
+                    self.flag |= 0x4
+        elif obj.lighting_invert:
+            self.flag |= 0x4
 
         self.ambient.unmake(obj.lighting_color)
 
-        if obj.lighting_invert:
-            self.flag |= 0x4
         if obj.lighting_flicker:
             self.flag |= 0x8
+        self.flicker_axis = tuple(obj.lighting_flicker_axis)
         if obj.lighting_persistent:
                 self.flag |= 0x10
 
         return self
 
     def to_array(self):
-        return [self.flag, *self.ambient.to_array(), *self.color.to_array(), self.unk1, self.unk2, *self.light_vector.to_array(), self.unk14_node, self.unk15, self.unk16]
+        return [self.flag, *self.ambient.to_array(), *self.color.to_array(), self.unk1, self.unk2, *self.light_vector.to_array(), *self.flicker_axis]
 
     def from_array(self, arr):
-        self.flag, ambient_r, ambient_g, ambient_b,color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, self.unk14_node, self.unk15, self.unk16 = arr
+        self.flag, ambient_r, ambient_g, ambient_b,color_r, color_g, color_b, self.unk1, self.unk2, x, y, z, *axis = arr
+        self.flicker_axis = tuple(axis)
         self.ambient.from_array([ambient_r, ambient_g, ambient_b])
         self.color.from_array([color_r, color_g, color_b])
         self.light_vector.from_array([x, y, z])
@@ -747,11 +783,10 @@ class SurfaceFlags(DataStruct):
 class CollisionTags(DataStruct):
     def __init__(self, parent, model):
         
-        # The light region's tail is light_vector(3f) + unk14_node(pointer) +
-        # unk15 + unk16 (RE swrModel_Behavior), not six floats. Same 24 bytes and
-        # same value count, so no field offsets move; the last three are read as
-        # uint32 rather than misread as a float "rotation".
-        super().__init__('>H4B3H8B3f3II2H3I')
+        # The light region's tail is light_vector(3f) + the Flicker axis(3f): types.h names the
+        # axis unk14_node/unk15/unk16, but swrObjcMan_LoadLightingFromBehavior reads it as a
+        # float vector (see Lights).
+        super().__init__('>H4B3H8B3f3fI2H3I')
         self.parent = parent
         self.model = model
         self.unk = SpecialSurfaceFlags()
@@ -1942,6 +1977,65 @@ class CombinerValue:
     def is_const(self, value):
         return self.socket is None and self.const == value
 
+SRGB_ENCODE_GROUP = "SWE1R linear to game color"
+SRGB_DECODE_GROUP = "SWE1R game color to linear"
+
+def srgb_group(encode):
+    """A node group converting a color between Blender's linear space and the stored 0-255 values
+    the game computes with (the exact sRGB curve, per channel). The game multiplies the stored
+    bytes directly (D3DTBLEND_MODULATE, n64_shader.frag), while Blender decodes textures and color
+    attributes to linear first, which makes products of dark values darker than in game."""
+    name = SRGB_ENCODE_GROUP if encode else SRGB_DECODE_GROUP
+    group = bpy.data.node_groups.get(name)
+    if group is not None:
+        return group
+    group = bpy.data.node_groups.new(name, 'ShaderNodeTree')
+    group.interface.new_socket('Color', in_out='INPUT', socket_type='NodeSocketColor')
+    group.interface.new_socket('Color', in_out='OUTPUT', socket_type='NodeSocketColor')
+    nodes, links = group.nodes, group.links
+    inp = nodes.new('NodeGroupInput')
+    out = nodes.new('NodeGroupOutput')
+    sep = nodes.new('ShaderNodeSeparateColor')
+    comb = nodes.new('ShaderNodeCombineColor')
+    links.new(inp.outputs[0], sep.inputs[0])
+    links.new(comb.outputs[0], out.inputs[0])
+
+    def math(op, a, b = None):
+        n = nodes.new('ShaderNodeMath')
+        n.operation = op
+        for i, v in enumerate((a, b)):
+            if v is None:
+                continue
+            if isinstance(v, (int, float)):
+                n.inputs[i].default_value = v
+            else:
+                links.new(v, n.inputs[i])
+        return n.outputs[0]
+
+    for i in range(3):
+        x = math('MAXIMUM', sep.outputs[i], 0.0)
+        if encode:
+            # x <= 0.0031308: 12.92 x, else 1.055 x^(1/2.4) - 0.055
+            low = math('MULTIPLY', x, 12.92)
+            high = math('SUBTRACT', math('MULTIPLY', math('POWER', x, 1 / 2.4), 1.055), 0.055)
+            is_low = math('LESS_THAN', x, 0.0031308)
+        else:
+            # x <= 0.04045: x / 12.92, else ((x + 0.055) / 1.055)^2.4
+            low = math('DIVIDE', x, 12.92)
+            high = math('POWER', math('DIVIDE', math('ADD', x, 0.055), 1.055), 2.4)
+            is_low = math('LESS_THAN', x, 0.04045)
+        # is_low * low + (1 - is_low) * high
+        value = math('ADD', math('MULTIPLY', is_low, low), math('MULTIPLY', math('SUBTRACT', 1.0, is_low), high))
+        links.new(value, comb.inputs[i])
+    return group
+
+def srgb_node(tree, socket, encode, location):
+    n = tree.nodes.new('ShaderNodeGroup')
+    n.node_tree = srgb_group(encode)
+    n.location = location
+    tree.links.new(socket, n.inputs[0])
+    return n.outputs[0]
+
 def make_combiner_nodes(tree, shader, image_node, normals):
     """Base color and alpha sockets computing the material's N64 color combiner.
 
@@ -1951,6 +2045,10 @@ def make_combiner_nodes(tree, shader, image_node, normals):
     vertex color, PRIMITIVE the material color, ENVIRONMENT and the other constants 1, and cycle 1's
     COMBINED is 0. With a normals vertex format SHADE is the game's lighting, which Blender's
     own shading stands in for, so it is 1 here.
+
+    The math runs on the stored 0-255 values like the game's (srgb_group): the texture and vertex
+    color are converted back from Blender's linear space first, PRIMITIVE is used as stored, and
+    the returned color is converted to linear for Blender's shaders.
     """
     nodes = tree.nodes
     column = [0]
@@ -1964,7 +2062,7 @@ def make_combiner_nodes(tree, shader, image_node, normals):
 
     one, zero = CombinerValue(1.0), CombinerValue(0.0)
     if image_node is not None:
-        texel = (CombinerValue(socket = image_node.outputs["Color"]), CombinerValue(socket = image_node.outputs["Alpha"]))
+        texel = (CombinerValue(socket = srgb_node(tree, image_node.outputs["Color"], True, (0, 300))), CombinerValue(socket = image_node.outputs["Alpha"]))
     else:
         texel = (one, one)
     if normals:
@@ -1972,7 +2070,7 @@ def make_combiner_nodes(tree, shader, image_node, normals):
     else:
         shade_node = nodes.new("ShaderNodeVertexColor")
         shade_node.location = (-200, -200)
-        shade = (CombinerValue(socket = shade_node.outputs["Color"]), CombinerValue(socket = shade_node.outputs["Alpha"]))
+        shade = (CombinerValue(socket = srgb_node(tree, shade_node.outputs["Color"], True, (0, -200))), CombinerValue(socket = shade_node.outputs["Alpha"]))
     prim = [c / 255 for c in shader.color.to_array()]
     primitive = (CombinerValue(tuple(prim[:3])), CombinerValue(prim[3]))
 
@@ -2060,7 +2158,7 @@ def make_combiner_nodes(tree, shader, image_node, normals):
             n.outputs[0].default_value = value.const
         return n.outputs[0]
 
-    return socket(combined[0], True), socket(combined[1], False)
+    return srgb_node(tree, socket(combined[0], True), False, (950, 300)), socket(combined[1], False)
 
 # MARK: MATERIAL
 
@@ -2198,6 +2296,39 @@ class Material(DataStruct):
         # See TexturePose.write, which is likewise a stub, for the export side of this feature.
         color, alpha = make_combiner_nodes(tree, self.shader, image_node, material['normal_map'])
         tree.links.new(color, node_0.inputs["Base Color"])
+        alpha_inputs = [node_0.inputs["Alpha"]]
+        if not material['normal_map']:
+            # Emission lights the surfaces around it in a Cycles bake: node_0 is what every ray but
+            # the camera's sees (and what the bake shades), so the emission lives there
+            tree.links.new(color, node_0.inputs["Emission Color"])
+            node_0.inputs["Emission Strength"].default_value = getattr(material, 'bake_emission', 0.0)
+            # The game doesn't light tracks: what it draws is the combined color itself, so the
+            # camera sees it unlit (emission). Every other ray (shadows, bounce light, a Cycles
+            # bake of the vertex colors) sees node_0, a diffuse surface of that color.
+            # a plain emission, so no light the scene shines on it adds to the color; alpha mixes
+            # it with a transparent surface, like node_0's Alpha
+            emission = tree.nodes.new('ShaderNodeEmission')
+            emission.location = (1100, -650)
+            tree.links.new(color, emission.inputs['Color'])
+            transparent = tree.nodes.new('ShaderNodeBsdfTransparent')
+            transparent.location = (1100, -800)
+            unlit = tree.nodes.new('ShaderNodeMixShader')
+            unlit.name = 'SWE1R unlit'
+            unlit.location = (1300, -700)
+            unlit.inputs[0].default_value = 1.0
+            tree.links.new(transparent.outputs[0], unlit.inputs[1])
+            tree.links.new(emission.outputs[0], unlit.inputs[2])
+            alpha_inputs.append(unlit.inputs[0])
+            light_path = tree.nodes.new('ShaderNodeLightPath')
+            light_path.location = (1100, 400)
+            mix = tree.nodes.new('ShaderNodeMixShader')
+            mix.name = 'SWE1R camera mix'
+            mix.location = (1450, 0)
+            tree.links.new(light_path.outputs['Is Camera Ray'], mix.inputs[0])
+            tree.links.new(node_0.outputs['BSDF'], mix.inputs[1])
+            tree.links.new(unlit.outputs[0], mix.inputs[2])
+            tree.links.new(mix.outputs[0], output_node.inputs['Surface'])
+            output_node.location = (1650, 0)
 
         render_mode = self.shader.render_mode_1 | self.shader.render_mode_2
         if render_mode_is_cutout(render_mode):
@@ -2207,10 +2338,12 @@ class Material(DataStruct):
             cutoff.inputs[1].default_value = 0.5
             cutoff.location = (900, -300)
             tree.links.new(alpha, cutoff.inputs[0])
-            tree.links.new(cutoff.outputs[0], node_0.inputs["Alpha"])
+            for alpha_input in alpha_inputs:
+                tree.links.new(cutoff.outputs[0], alpha_input)
             set_material_blend(material, 'OPAQUE')
         elif render_mode_is_alpha_blend(render_mode):
-            tree.links.new(alpha, node_0.inputs["Alpha"])
+            for alpha_input in alpha_inputs:
+                tree.links.new(alpha, alpha_input)
             set_material_blend(material, 'BLEND')
         else:
             # opaque modes never use alpha, so near-zero texture alpha must not punch holes
