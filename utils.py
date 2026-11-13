@@ -253,7 +253,7 @@ def UpdateVisibleSelectable(self, context = None):
 SETTINGS_KEYS = [
     'import_folder', 'import_type', 'import_model', 'export_folder', 'new_type',
     'is_export_model', 'is_export_texture', 'is_export_spline', 'is_export_separate', 'is_export_debug',
-    'light_falloff', 'ambient_light', 'ambient_light_intensity',
+    'light_falloff', 'ambient_light', 'ambient_light_intensity', 'bake_method', 'bake_samples', 'bake_pod_lights',
     # the Selected panel's open sections
     'lights_expanded', 'textures_expanded', 'flipbook_expanded', 'flags_expanded', 'fog_expanded',
     'lighting_expanded', 'trigger_expanded', 'event_triggers_expanded', 'animation_expanded',
@@ -333,20 +333,44 @@ def occluder_tree(objects):
         return None
     return BVHTree.FromPolygons(np.concatenate(verts).tolist(), np.concatenate(tris).tolist())
 
+def skybox_objects():
+    """Every object in a Skybox collection (or one nested in it)."""
+    return {obj for c in bpy.data.collections if getattr(c, 'collection_type', None) == '1' for obj in c.all_objects}
+
+def bake_occluders(scene):
+    """The meshes that cast shadows when baking: what the game draws (Visible meshes), minus the
+    skybox (a sky dome would shadow everything under it) and meshes with Cast Shadows off."""
+    sky = skybox_objects()
+    return [obj for obj in scene.objects
+            if obj.type == 'MESH' and obj.visible and obj.visible_shadow and obj not in sky]
+
+def pod_lights(scene):
+    """Light objects picked as Pod Lighting by a mesh. They hold the game's pod light, a
+    direction stored as a position, not a light on the track."""
+    used = {obj.lighting_light for obj in scene.objects if obj.type == 'MESH' and getattr(obj, 'lighting_light', None)}
+    return {obj for obj in scene.objects if obj.type == 'LIGHT' and obj.data in used}
+
+def bake_light_objects(scene):
+    """The light objects a bake uses: every light, minus pod lights unless Include Pod Lights is on,
+    and minus lights disabled in renders."""
+    skip = set() if scene.bake_pod_lights else pod_lights(scene)
+    return [obj for obj in scene.objects if obj.type == 'LIGHT' and obj not in skip and not obj.hide_render]
+
 def bake_lights(scene):
-    """(kind, color, position or direction toward the light) of every point and sun light: the
-    kinds the bake uses (spot and area lights are ignored)."""
+    """(kind, color, position or direction toward the light, casts shadows) of every point and
+    sun light: the kinds the Simple bake uses (spot and area lights are ignored). A light with
+    Blender's Shadow setting off lights through geometry, as it does in Cycles."""
     lights = []
-    for light in scene.objects:
-        if light.type != 'LIGHT' or light.data.type not in ('POINT', 'SUN'):
+    for light in bake_light_objects(scene):
+        if light.data.type not in ('POINT', 'SUN'):
             continue
         color = np.array(light.data.color, dtype=np.float64)
         if light.data.type == 'POINT':
-            lights.append(('POINT', color, np.array(light.matrix_world.to_translation())))
+            lights.append(('POINT', color, np.array(light.matrix_world.to_translation()), light.data.use_shadow))
         else:
             # toward the sun: its world +Z (a sun shines along its -Z), so parents and any rotation mode count
             direction = light.matrix_world.to_3x3() @ mathutils.Vector((0, 0, 1))
-            lights.append(('SUN', color, np.array(direction.normalized())))
+            lights.append(('SUN', color, np.array(direction.normalized()), light.data.use_shadow))
     return lights
 
 def calculate_total_light_for_object(obj, lights, tree, falloff_factor=1.0, ambient_light_intensity=0.1, ambient_light_color=(0, 0, 0)):
@@ -370,7 +394,7 @@ def calculate_total_light_for_object(obj, lights, tree, falloff_factor=1.0, ambi
     total = np.tile(np.array(ambient_light_color, dtype=np.float64) * ambient_light_intensity, (n, 1))
     # rays start just off the surface, so a vertex doesn't shadow itself
     origins = co + normals * 0.001
-    for kind, color, where in lights:
+    for kind, color, where, casts_shadow in lights:
         if kind == 'POINT':
             to_light = where - co
             distance = np.linalg.norm(to_light, axis=1)
@@ -380,7 +404,7 @@ def calculate_total_light_for_object(obj, lights, tree, falloff_factor=1.0, ambi
             distance = np.full(n, np.inf)
         cos = np.einsum('ij,ij->i', normals, direction)
         lit = cos > 0
-        if tree is not None:
+        if tree is not None and casts_shadow:
             for i in np.flatnonzero(lit):
                 limit = distance[i] if kind == 'POINT' else 1.0e9
                 if tree.ray_cast(origins[i], direction[i], limit)[0] is not None:
@@ -391,6 +415,199 @@ def calculate_total_light_for_object(obj, lights, tree, falloff_factor=1.0, ambi
             strength = np.where(lit, cos, 0.0)
         total += strength[:, None] * color
     return total
+
+STOCK_SUN_NAME = 'stock sun'
+# the fit must explain at least this share of the vertex colors' brightness variation, or no sun
+# is made (an arena lit by tinted floodlights, like Mon Gazza, has no sun to find)
+STOCK_SUN_MIN_R2 = 0.1
+
+def fit_stock_sun(collection, scene):
+    """Recreate the sun a stock track's vertex colors were baked with, as a Sun light.
+
+    The stock bakes are sun shading with no cast shadows (brightness follows how much each face
+    points at one direction), plus per-mesh adjustments and hand painting that no light explains.
+    The direction is marked by the track's pod lights: outdoor tracks light the pod from a point
+    outside the track, and the direction from the track's center to it matches the best-fitting
+    sun within about 15 degrees on Boonta (exactly on the Classic), Aquilaris and Ando Prime. The sun's color and the ambient
+    light are then fitted to the vertex colors by least squares, so a Simple bake with this sun
+    alone comes close to the stock shading. The sun's Shadow setting is off, like the stock bake.
+
+    Returns (sun object or None, a sentence on what was done)."""
+    from .swe1r.modelblock import object_uses_normals
+    sky = skybox_objects()
+    meshes = [o for o in collection.all_objects if o.type == 'MESH' and o.visible and o not in sky
+              and not object_uses_normals(o) and o.data.vertex_colors and o.data.vertex_colors.active]
+    if not meshes:
+        return None, "no meshes with vertex colors"
+    positions, normals, colors = [], [], []
+    for obj in meshes:
+        me = obj.data
+        n = len(me.vertices)
+        co = np.empty(n * 3); me.vertices.foreach_get('co', co)
+        no = np.empty(n * 3); me.vertex_normals.foreach_get('vector', no)
+        m = np.array(obj.matrix_world)
+        nm = np.array(obj.matrix_world.to_3x3().inverted_safe().transposed())
+        loop_verts = np.empty(len(me.loops), dtype=np.int32); me.loops.foreach_get('vertex_index', loop_verts)
+        loop_cols = np.empty(len(me.loops) * 4, dtype=np.float32); me.vertex_colors.active.data.foreach_get('color', loop_cols)
+        # each vertex's color: one of its corners (stock vertices have one color)
+        per_vertex = np.ones((n, 3))
+        per_vertex[loop_verts] = loop_cols.reshape(-1, 4)[:, :3]
+        used = np.zeros(n, dtype=bool); used[loop_verts] = True
+        positions.append((co.reshape(-1, 3) @ m[:3, :3].T + m[:3, 3])[used])
+        nn = no.reshape(-1, 3) @ nm.T
+        nn /= np.maximum(np.linalg.norm(nn, axis=1, keepdims=True), 1e-9)
+        normals.append(nn[used]); colors.append(per_vertex[used])
+    P, N, C = np.concatenate(positions), np.concatenate(normals), np.concatenate(colors)
+    center = P.mean(0)
+    radius = np.linalg.norm(P - center, axis=1).max()
+
+    luma = np.array([0.299, 0.587, 0.114])
+    L = C @ luma
+
+    def fit_direction(toward):
+        cos = np.clip(N @ toward, 0.0, None)
+        A = np.column_stack([np.ones(len(cos)), cos])
+        fit, *_ = np.linalg.lstsq(A, C, rcond=None)
+        predicted = (A @ fit) @ luma
+        r2 = 1 - ((L - predicted) ** 2).sum() / max(((L - L.mean()) ** 2).sum(), 1e-12)
+        return r2, fit
+
+    # Candidates: point pod lights outside the track. Pod lights at one spot often share it with
+    # different colors, and the most used one can be a nearby lamp, so the best fit picks.
+    used = {obj.lighting_light for obj in collection.all_objects
+            if obj.type == 'MESH' and getattr(obj, 'lighting_light', None) is not None}
+    best = None
+    for obj in sorted(collection.all_objects, key=lambda o: o.name):
+        if obj.type != 'LIGHT' or obj.data not in used or obj.data.type != 'POINT':
+            continue
+        offset = np.array(obj.matrix_world.to_translation()) - center
+        distance = np.linalg.norm(offset)
+        if distance <= radius:
+            continue
+        toward = offset / distance
+        r2, fit = fit_direction(toward)
+        if fit[1] @ luma > 0 and (best is None or r2 > best[0] + 1e-6):
+            best = (r2, fit, obj, toward)
+    if best is None:
+        return None, "no pod light outside the track to take the sun's direction from"
+    r2, fit, pod_light, toward = best
+    ambient, sun_color = np.clip(fit[0], 0.0, None), fit[1]
+    if sun_color @ luma <= 0 or r2 < STOCK_SUN_MIN_R2:
+        return None, f"the vertex colors don't follow a sun from {pod_light.name}'s direction (it explains {r2:.0%})"
+    sun_color = np.clip(sun_color, 0.0, 1.0)
+
+    data = bpy.data.lights.new(STOCK_SUN_NAME, 'SUN')
+    data.color = sun_color.tolist()
+    data.energy = 1.0  # Strength 1 gives the color itself in a Cycles bake, as in Simple
+    data.use_shadow = False
+    sun = bpy.data.objects.new(STOCK_SUN_NAME, data)
+    # a sun shines along its -Z: away from the light
+    sun.rotation_euler = mathutils.Vector((-toward).tolist()).to_track_quat('-Z', 'Y').to_euler()
+    sun.location = (center + toward * radius * 0.5).tolist()
+    sun['stock_sun_explains'] = float(round(r2, 3))
+    sun['stock_sun_from'] = pod_light.name
+    collection.objects.link(sun)
+    strength = float(ambient.max())
+    scene.ambient_light = (ambient / strength).tolist() if strength > 0 else (1.0, 1.0, 1.0)
+    scene.ambient_light_intensity = min(strength, 1.0)
+    return sun, (f"made '{sun.name}' from {pod_light.name}; with the fitted ambient light it explains "
+                 f"{r2:.0%} of the stock shading's brightness")
+
+def cycles_bake_lighting(context, meshes, samples):
+    """Bake the scene's lighting into each mesh with Cycles: (n_loops, 3) arrays of linear light,
+    per face corner, keyed by mesh. Soft shadows, bounce light, every light type and its power,
+    emissive materials and transparent (alpha) materials all count.
+
+    What casts shadows and what lights the scene match the Simple bake: bake_occluders and
+    bake_light_objects; everything else is hidden from the render while baking. The world is
+    left out (the Ambient Light settings stand in for it), and the meshes being baked start from
+    white vertex colors so their old bake doesn't tint the bounce light. Every scene setting the
+    bake changes is restored afterwards."""
+    scene = context.scene
+    view_layer = context.view_layer
+    occluders = set(bake_occluders(scene))
+    lights = set(bake_light_objects(scene))
+    targets = set(meshes)
+
+    saved_render = {}
+    saved_selection = [obj for obj in context.selected_objects]
+    saved_active = view_layer.objects.active
+    saved_engine = scene.render.engine
+    saved_world = scene.world
+    saved_samples = None
+    temp_name = '_swe1r_bake'
+    # The add-on's materials show the camera an unlit color and every other ray a diffuse surface
+    # (Material.make). A bake shades the baked surface like a camera ray, so the switch is muted
+    # (a muted Mix Shader passes its first input, the diffuse surface) until the bake is done.
+    camera_mixes = []
+    for material in bpy.data.materials:
+        if material.node_tree is not None:
+            node = material.node_tree.nodes.get('SWE1R camera mix')
+            if node is not None and not node.mute:
+                camera_mixes.append(node)
+    try:
+        for node in camera_mixes:
+            node.mute = True
+        scene.render.engine = 'CYCLES'
+        saved_samples = (scene.cycles.samples, scene.cycles.use_denoising)
+        scene.cycles.samples = samples
+        # the denoiser works on images; per-vertex results come out of the samples
+        scene.cycles.use_denoising = False
+        scene.world = None
+        for obj in scene.objects:
+            if obj.type == 'MESH':
+                show = obj in occluders or obj in targets
+            elif obj.type == 'LIGHT':
+                show = obj in lights
+            else:
+                continue
+            if obj.hide_render == show:
+                saved_render[obj] = obj.hide_render
+                obj.hide_render = not show
+
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        for obj in meshes:
+            reset_vertex_colors(obj)
+            attrs = obj.data.color_attributes
+            obj['_swe1r_bake_active'] = attrs.active_color_name or ''
+            # a float attribute holds the light exactly; the bake writes to the active one
+            attrs.active_color = attrs.new(temp_name, 'FLOAT_COLOR', 'CORNER')
+            obj.select_set(True)
+        view_layer.objects.active = meshes[0]
+        bpy.ops.object.bake(type='DIFFUSE', pass_filter={'DIRECT', 'INDIRECT'}, target='VERTEX_COLORS')
+
+        results = {}
+        for obj in meshes:
+            data = obj.data.color_attributes[temp_name].data
+            values = np.empty(len(data) * 4, dtype=np.float32)
+            data.foreach_get('color', values)
+            # the diffuse pass is irradiance / pi; x pi makes a Strength 1 sun shining straight on
+            # give white, like a white sun in the Simple bake
+            results[obj] = values.reshape(-1, 4)[:, :3].astype(np.float64) * math.pi
+        return results
+    finally:
+        for obj in meshes:
+            attrs = obj.data.color_attributes
+            temp = attrs.get(temp_name)
+            if temp is not None:
+                attrs.remove(temp)
+            previous = obj.pop('_swe1r_bake_active', '')
+            if previous and attrs.get(previous) is not None:
+                attrs.active_color = attrs[previous]
+        for node in camera_mixes:
+            node.mute = False
+        for obj, hidden in saved_render.items():
+            obj.hide_render = hidden
+        scene.world = saved_world
+        if saved_samples is not None:
+            scene.cycles.samples, scene.cycles.use_denoising = saved_samples
+        scene.render.engine = saved_engine
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        for obj in saved_selection:
+            obj.select_set(True)
+        view_layer.objects.active = saved_active
 
 # Single re-entrancy flag for the whole selection-sync cascade. Each setattr
 # below re-fires this same callback on the target object; a per-object guard

@@ -403,6 +403,7 @@ class ResetLighting(bpy.types.Operator):
             obj.lighting_color = (1.0, 1.0, 1.0)
             obj.lighting_invert = False
             obj.lighting_flicker = False
+            obj.lighting_flicker_axis = FLICKER_AXIS_DEFAULT
             obj.lighting_persistent = False
             reselect_obj(obj)
         return {'FINISHED'}
@@ -509,26 +510,50 @@ class BakeVColors(bpy.types.Operator):
         meshes = [obj for obj in context.selected_objects if obj.type == 'MESH' and obj.visible]
         # a Lit mesh's colors hold its normals
         meshes = [obj for obj in meshes if not object_uses_normals(obj)]
+        # the skybox isn't lit by the track's lights: keep its colors, even when everything is selected
+        sky = skybox_objects()
+        skipped_sky = sum(obj in sky for obj in meshes)
+        skipped_flag = sum(obj.bake_skip and obj not in sky for obj in meshes)
+        meshes = [obj for obj in meshes if obj not in sky and not obj.bake_skip]
         if not meshes:
-            self.report({'ERROR'}, "Select one or more Visible meshes that aren't Lit to bake")
+            self.report({'ERROR'}, "Select one or more Visible meshes that aren't Lit, in a Skybox or set to Skip in Bake")
             return {'CANCELLED'}
         scene = context.scene
-        lights = bake_lights(scene)
-        # shadows come from what the game draws: Visible meshes
-        tree = occluder_tree([obj for obj in scene.objects if obj.type == 'MESH' and obj.visible]) if lights else None
-        for obj in meshes:
-            total_lights = calculate_total_light_for_object(obj, lights, tree, scene.light_falloff, scene.ambient_light_intensity, scene.ambient_light)
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        ambient = np.array(scene.ambient_light, dtype=np.float64) * scene.ambient_light_intensity
+        if scene.bake_method == 'CYCLES':
+            try:
+                per_loop = cycles_bake_lighting(context, meshes, scene.bake_samples)
+            except RuntimeError as error:
+                self.report({'ERROR'}, f"Cycles bake failed: {error}")
+                return {'CANCELLED'}
+            per_loop = {obj: light + ambient for obj, light in per_loop.items()}
+        else:
+            lights = bake_lights(scene)
+            tree = occluder_tree(bake_occluders(scene)) if lights else None
+            per_loop = {}
+            for obj in meshes:
+                total_lights = calculate_total_light_for_object(obj, lights, tree, scene.light_falloff, scene.ambient_light_intensity, scene.ambient_light)
+                loop_verts = np.empty(len(obj.data.loops), dtype=np.int32)
+                obj.data.loops.foreach_get("vertex_index", loop_verts)
+                per_loop[obj] = total_lights[loop_verts]
 
+        for obj in meshes:
             reset_vertex_colors(obj)
             color_layer = obj.data.vertex_colors.active.data
-            loop_verts = np.empty(len(obj.data.loops), dtype=np.int32)
-            obj.data.loops.foreach_get("vertex_index", loop_verts)
-            colors = np.ones((len(loop_verts), 4), dtype=np.float32)
-            colors[:, :3] = np.clip(total_lights[loop_verts], 0.0, 1.0)
+            colors = np.ones((len(obj.data.loops), 4), dtype=np.float32)
+            colors[:, :3] = np.clip(per_loop[obj], 0.0, 1.0)
             color_layer.foreach_set("color", colors.ravel())
 
         bpy.ops.view3d.remake_materials()
-        self.report({'INFO'}, f"Baked {len(meshes)} mesh{'es' if len(meshes) != 1 else ''}")
+        notes = []
+        if skipped_sky:
+            notes.append(f"{skipped_sky} skybox mesh{'es' if skipped_sky != 1 else ''}")
+        if skipped_flag:
+            notes.append(f"{skipped_flag} set to Skip in Bake")
+        skipped = f" (skipped {', '.join(notes)})" if notes else ""
+        self.report({'INFO'}, f"Baked {len(meshes)} mesh{'es' if len(meshes) != 1 else ''}{skipped}")
         return {"FINISHED"}
 
 class SplitByMaterial(bpy.types.Operator):

@@ -2,10 +2,13 @@ The **Selected** panel sets a Blender light's color and whether it exports as a 
 
 ## Color
 The light's color, the same setting as in Blender's Light properties. It is used in two places:
-- **[Bake](Vertex-Colors)** adds point and sun lights to the vertex colors in this color.
+- **[Bake](Vertex-Colors)** adds the light to the vertex colors in this color. A light chosen in Pod Lighting is left out of Bake unless **Include Pod Lights** is on.
 - A light chosen in **[Pod Lighting](Pod-Lighting)** is exported with this color, as the light that lights the pod on that surface.
 
 A light that is used for neither does nothing in game, except as a light streak.
+
+## Cast Shadows (bake)
+Whether the light is blocked by geometry when baking [vertex colors](Vertex-Colors). It is Blender's own light Shadow setting, so both bake methods use it. The `stock sun` an import makes has it off, like the stock bakes.
 
 ## Light Streak
 On: the light's position is exported as a light streak (an `LStr` entry in the track's data). The game draws a light streak sprite on screen at each of these points.
@@ -19,6 +22,6 @@ Importing a track with light streaks adds one point light named `lightstreak` fo
 ## Limits
 - Tracks only. Light streaks in any other model type are not exported.
 - The game's light streak table holds 40 positions; more than 40 is untested.
-- A light streak light is still a point light in Blender, so [Bake](Vertex-Colors) counts it. If you don't want it in the vertex colors, bake before adding it, or make it a spot or area light: Bake ignores those, and the streak only uses the position.
+- A light streak light is still a point light in Blender, so [Bake](Vertex-Colors) counts it. If you don't want it in the vertex colors, turn it off in renders (the camera icon in the Outliner): Bake skips those, and the streak only uses the position.
 
 Pod lights are set on the collision mesh, not here: see **Selected > Collidable > [Pod Lighting](Pod-Lighting)**.

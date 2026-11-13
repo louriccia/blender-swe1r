@@ -1,7 +1,7 @@
 import bpy
 from .utils import get_anim_loop, set_anim_loop, update_anim_loop_length, update_export_model, save_settings, get_setting, model_types, import_types, update_model_dropdown, export_model_items, update_selected, populate_enum, create_update_function, UpdateVisibleSelectable, model_enum_item, import_model_items
 from .swe1r.model_list import model_list
-from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum
+from .swe1r.modelblock import SurfaceEnum, TriggerFlagEnum, FLICKER_AXIS_DEFAULT
 from .swe1r.trigger_types import TRIGGER_TYPES, type_label
 from .swe1r.modelblock import apply_blend_preset, detect_blend_preset, material_shader_words, Material
 
@@ -138,6 +138,35 @@ def set_scene_lit(self, value):
         set_material_lit(material, value)
         obj.material_slots[0].material = Material(None, None).remake(material)
         reselect_obj(obj)
+
+_set_lighting_light = update_selected("lighting_light")
+
+def update_lighting_light(self, context):
+    """Picking a light: a point, spot or area light lights from its position (Point on)."""
+    _set_lighting_light(self, context)
+    light = context.scene.lighting_light
+    if light is not None and light.type != 'SUN' and not context.scene.podblock_syncing:
+        context.scene.lighting_invert = True
+
+def selected_mesh_toggle(attr, default):
+    """get/set for a Scene proxy of a bool on the selected meshes: reads the active one (or the
+    first), writes them all."""
+    def get(self):
+        context = bpy.context
+        meshes = [o for o in context.selected_objects if o.type == 'MESH']
+        if not meshes:
+            return default
+        active = context.active_object if context.active_object in meshes else meshes[0]
+        return getattr(active, attr)
+
+    def set(self, value):
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                setattr(obj, attr, value)
+    return get, set
+
+get_scene_cast_shadow, set_scene_cast_shadow = selected_mesh_toggle('visible_shadow', True)
+get_scene_bake_skip, set_scene_bake_skip = selected_mesh_toggle('bake_skip', False)
 
 # the Trigger Type dropdown's entry for a number not in TRIGGER_TYPES
 OTHER_TRIGGER_TYPE = 999999
@@ -316,10 +345,12 @@ def register():
     bpy.types.Object.strict_spline = bpy.props.BoolProperty(name ='strict_spline', default=False)
     bpy.types.Object.elevation = bpy.props.BoolProperty(name ='elevation', default=False)
     
+    bpy.types.Object.bake_skip = bpy.props.BoolProperty(name = 'bake_skip', default = False, description = "Bake leaves this mesh's vertex colors as they are")
     bpy.types.Object.lighting_light = bpy.props.PointerProperty(type=bpy.types.Light, name="lighting_light")
     bpy.types.Object.lighting_color = bpy.props.FloatVectorProperty(name="lighting_color", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0), min=0, max=1, description="Ambient Color")
     bpy.types.Object.lighting_invert = bpy.props.BoolProperty(name = 'lighting_invert', default=False)
     bpy.types.Object.lighting_flicker = bpy.props.BoolProperty(name = 'lighting_flicker', default=False)
+    bpy.types.Object.lighting_flicker_axis = bpy.props.FloatVectorProperty(name = 'lighting_flicker_axis', size = 3, default = FLICKER_AXIS_DEFAULT)
     bpy.types.Object.lighting_persistent = bpy.props.BoolProperty(name = 'lighting_persistent', default=False)
     
     bpy.types.Object.fog_color_update = bpy.props.BoolProperty(name = 'fog_color_update', default=False)
@@ -339,6 +370,7 @@ def register():
     
     # MARK: material state
     bpy.types.Material.scroll_x = bpy.props.FloatProperty(name = 'scroll_x', default = 0.0)
+    bpy.types.Material.bake_emission = bpy.props.FloatProperty(name = 'bake_emission', default = 0.0, min = 0.0)
     bpy.types.Material.scroll_y = bpy.props.FloatProperty(name = 'scroll_y', default = 0.0)
     bpy.types.Material.flip_x = bpy.props.BoolProperty(name = 'flip_x', default = False)
     bpy.types.Material.flip_y = bpy.props.BoolProperty(name = 'flip_y', default = False)
@@ -400,6 +432,7 @@ def register():
     bpy.types.Scene.blend_mode = bpy.props.EnumProperty(name = 'Blend Mode', items = SCENE_BLEND_MODE_ITEMS, get = get_scene_blend_mode, set = set_scene_blend_mode, description = "How the game draws the selected meshes: a preset copied from stock materials")
     bpy.types.Scene.cull_mode = bpy.props.EnumProperty(name = 'Culling', items = CULL_MODE_ITEMS, get = get_scene_cull_mode, set = set_scene_cull_mode, description = "Which side of the selected meshes' faces the game hides")
     bpy.types.Scene.material_lit = bpy.props.BoolProperty(name = 'Lit', get = get_scene_lit, set = set_scene_lit, description = "The game lights the selected meshes from their normals, like stock pods (the normals vertex format). Their vertex colors then hold the normals: Blender's shading (smooth, flat, sharp edges, custom normals) is what exports. Turning it off resets their vertex colors to white")
+    bpy.types.Scene.bake_emission = bpy.props.FloatProperty(name = 'Emission', default = 0.0, min = 0.0, soft_max = 10.0, update = update_selected("bake_emission", update_mat = True), description = "How strongly the selected meshes' material glows in a Cycles vertex color bake, lighting the surfaces around it in its own color (texture x Color). Saved on the material, so every mesh using it glows. 0 is off. It doesn't change what the game draws")
     bpy.types.Scene.scroll_x = bpy.props.FloatProperty(name = 'Scroll X', default = 0.0, update = update_selected("scroll_x", update_mat = True), description = "Scroll the texture along X: seconds per full scroll, negative for the other direction, 0 for none")
     bpy.types.Scene.scroll_y = bpy.props.FloatProperty(name = 'Scroll Y', default = 0.0, update = update_selected("scroll_y", update_mat = True), description = "Scroll the texture along Y: seconds per full scroll, negative for the other direction, 0 for none")
     bpy.types.Scene.flip_x = bpy.props.BoolProperty(name = 'Mirror Y', default = False, update = update_selected("flip_x", update_mat = True), description = "Repeat the texture mirrored along Y (V) instead of tiling it. Stored as flip_x for older files")
@@ -410,6 +443,14 @@ def register():
     bpy.types.Scene.light_falloff = bpy.props.FloatProperty(name = 'Falloff', description = "How fast point lights fade with distance when baking (the power of the distance)", min=0.0, max=10.0,update =save_settings, default=get_setting('light_falloff', 1.0))
     bpy.types.Scene.ambient_light = bpy.props.FloatVectorProperty(name = 'Ambient Light', subtype='COLOR', min=0.0, max=1.0, description="The color added everywhere when baking, so unlit areas are not black", update =save_settings, default=get_setting('ambient_light', (1.0, 1.0, 1.0)))
     bpy.types.Scene.ambient_light_intensity = bpy.props.FloatProperty(name = 'Ambient Strength', description = "How strong the ambient light is when baking", min=0.0, max=1.0, update =save_settings, default=get_setting('ambient_light_intensity', 0.1))
+    bpy.types.Scene.bake_method = bpy.props.EnumProperty(name = 'Method', items = [
+        ('SIMPLE', 'Simple', "Fast: point and sun lights by color, hard shadows, one color per vertex"),
+        ('CYCLES', 'Cycles', "Ray traced with Cycles: soft shadows, bounce light, every light type and its power, emissive and transparent materials. Slower"),
+    ], update = save_settings, default = get_setting('bake_method', 'SIMPLE'), description = "How Bake computes the light")
+    bpy.types.Scene.bake_samples = bpy.props.IntProperty(name = 'Samples', min = 1, soft_max = 1024, update = save_settings, default = get_setting('bake_samples', 128), description = "Cycles samples per vertex color: more is smoother and slower")
+    bpy.types.Scene.bake_pod_lights = bpy.props.BoolProperty(name = 'Include Pod Lights', update = save_settings, default = get_setting('bake_pod_lights', False), description = "Also bake the lights picked as Pod Lighting. They hold the direction of the light on the pod, so they are left out by default")
+    bpy.types.Scene.bake_cast_shadow = bpy.props.BoolProperty(name = 'Cast Shadows', get = get_scene_cast_shadow, set = set_scene_cast_shadow, description = "The selected meshes block light when baking. Turn off for glass, decals, light beams and anything else that shouldn't throw a shadow (Blender's Object > Visibility > Shadow)")
+    bpy.types.Scene.bake_skip = bpy.props.BoolProperty(name = 'Skip in Bake', get = get_scene_bake_skip, set = set_scene_bake_skip, description = "Bake leaves the selected meshes' vertex colors as they are, even when they are selected: for hand-painted or glowing meshes. They still cast shadows unless Cast Shadows is off")
     
     # collision
     bpy.types.Scene.collision_visible = bpy.props.BoolProperty(name = 'Show Collision', update =UpdateVisibleSelectable, default=True, description = "Show or hide every collidable mesh in the viewport (does not change the export)")
@@ -464,10 +505,11 @@ def register():
     bpy.types.Scene.elevation = bpy.props.BoolProperty(name ='Full Raycast', default=False, update = update_selected("elevation"), description = "Full raycast: test the pod's ground against this mesh every frame instead of the track cached at load. Needed for collision that moves (animated platforms)")
     
     # lighting
-    bpy.types.Scene.lighting_light = bpy.props.PointerProperty(type=bpy.types.Light, name="Light", update = update_selected("lighting_light"), description = "The light that lights the pod while it is on the selected meshes (its color and position are exported)")
+    bpy.types.Scene.lighting_light = bpy.props.PointerProperty(type=bpy.types.Light, name="Light", update = update_lighting_light, description = "The light that lights the pod while it is on the selected meshes. A sun exports its color and the direction it shines; any other light its color and position")
     bpy.types.Scene.lighting_color = bpy.props.FloatVectorProperty(name="Ambient Color", subtype='COLOR', size=3, default=(1.0, 1.0, 1.0), min=0, max=1, description="The pod's ambient light color while it is on the selected meshes", update = update_selected("lighting_color"))
-    bpy.types.Scene.lighting_invert = bpy.props.BoolProperty(name = 'Point Light', default=False, update = update_selected("lighting_invert"), description = "Light flag 0x4: the game reads the light vector as a position (a point light) instead of a direction")
-    bpy.types.Scene.lighting_flicker = bpy.props.BoolProperty(name = 'Flicker', default=False, update = update_selected("lighting_flicker"), description = "Light flag 0x8, named flicker (its effect is not yet traced in the decomp)")
+    bpy.types.Scene.lighting_invert = bpy.props.BoolProperty(name = 'Point Light', default=False, update = update_selected("lighting_invert"), description = "Light flag 0x4: the game lights the pod from the light's position. Off, only the direction from the origin to the light counts (the light travels that way). A sun light is always a direction")
+    bpy.types.Scene.lighting_flicker = bpy.props.BoolProperty(name = 'Flicker', default=False, update = update_selected("lighting_flicker"), description = "Light flag 0x8: the pod light's brightness pulses as the pod moves along the Flicker Axis, from full to off and back every 100 game units")
+    bpy.types.Scene.lighting_flicker_axis = bpy.props.FloatVectorProperty(name = 'Flicker Axis', size = 3, subtype = 'XYZ', default = FLICKER_AXIS_DEFAULT, update = update_selected("lighting_flicker_axis"), description = "The direction Flicker's pulse runs along (the game normalizes it). Stock tracks use axes such as (0, 1, 0) and (1, -1, 0)")
     bpy.types.Scene.lighting_persistent = bpy.props.BoolProperty(name = 'Persist', default=False, update = update_selected("lighting_persistent"), description = "Light flag 0x10, named persist (its effect is not yet traced in the decomp)")
     
     # fog
@@ -538,9 +580,11 @@ def unregister():
     del bpy.types.Object.elevation
     
     del bpy.types.Object.lighting_light
+    del bpy.types.Object.bake_skip
     del bpy.types.Object.lighting_color
     del bpy.types.Object.lighting_invert
     del bpy.types.Object.lighting_flicker
+    del bpy.types.Object.lighting_flicker_axis
     del bpy.types.Object.lighting_persistent
     
     del bpy.types.Object.fog_color_update
